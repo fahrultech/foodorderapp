@@ -5,7 +5,7 @@ import { UserRole } from '../users/user.entity';
 
 function fakeRestaurant(overrides: Partial<Restaurant> = {}): Restaurant {
   return {
-    id: 'r1',
+    id: '11111111-1111-4111-8111-111111111111',
     slug: 'test-slug',
     name: 'Test Slug',
     ownerId: 'u1',
@@ -42,7 +42,7 @@ describe('RestaurantsService — owner CRUD', () => {
     it('appends -2/-3 on collision', async () => {
       const { service } = build([
         fakeRestaurant({ slug: 'warung' }),
-        fakeRestaurant({ id: 'r2', slug: 'warung-2' }),
+        fakeRestaurant({ id: '22222222-2222-4222-8222-222222222222', slug: 'warung-2' }),
       ]);
       await expect(service.uniqueSlug('Warung')).resolves.toBe('warung-3');
     });
@@ -104,7 +104,7 @@ describe('RestaurantsService — owner CRUD', () => {
 
     it('owner updates their own restaurant', async () => {
       const { service, save } = build([fakeRestaurant({ ownerId: 'u1' })]);
-      const res = await service.updateOwned('r1', owner, { name: 'Renamed' } as any);
+      const res = await service.updateOwned('11111111-1111-4111-8111-111111111111', owner, { name: 'Renamed' } as any);
       expect((res as any).name).toBe('Renamed');
       expect(save).toHaveBeenCalled();
     });
@@ -112,7 +112,7 @@ describe('RestaurantsService — owner CRUD', () => {
     it('other owner gets 403', async () => {
       const { service } = build([fakeRestaurant({ ownerId: 'u1' })]);
       await expect(
-        service.updateOwned('r1', { sub: 'intruder', role: UserRole.OWNER }, {
+        service.updateOwned('11111111-1111-4111-8111-111111111111', { sub: 'intruder', role: UserRole.OWNER }, {
           name: 'Hijacked',
         } as any),
       ).rejects.toBeInstanceOf(ForbiddenException);
@@ -120,7 +120,7 @@ describe('RestaurantsService — owner CRUD', () => {
 
     it('admin may update an unowned (platform) restaurant', async () => {
       const { service } = build([fakeRestaurant({ ownerId: null })]);
-      const res = await service.updateOwned('r1', admin, { isOpen: false } as any);
+      const res = await service.updateOwned('11111111-1111-4111-8111-111111111111', admin, { isOpen: false } as any);
       expect((res as any).isOpen).toBe(false);
     });
 
@@ -131,9 +131,17 @@ describe('RestaurantsService — owner CRUD', () => {
       );
     });
 
+    it('malformed uuid id → 404, never reaches Postgres', async () => {
+      const { service, findOne } = build([]);
+      await expect(
+        service.updateOwned('00000000-not-a-uuid', owner, { name: 'X' } as any),
+      ).rejects.toBeInstanceOf(NotFoundException);
+      expect(findOne).not.toHaveBeenCalled();
+    });
+
     it('never applies fields outside the DTO whitelist (e.g. rating)', async () => {
       const { service, save } = build([fakeRestaurant({ ownerId: 'u1' })]);
-      await service.updateOwned('r1', owner, {
+      await service.updateOwned('11111111-1111-4111-8111-111111111111', owner, {
         name: 'Renamed',
         rating: 500, // not a property of UpdateRestaurantDto — must be ignored
       } as any);

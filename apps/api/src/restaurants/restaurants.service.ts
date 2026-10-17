@@ -8,6 +8,7 @@ import { Brackets, Repository } from 'typeorm';
 import { Restaurant } from './restaurant.entity';
 import { CreateRestaurantDto, UpdateRestaurantDto } from './dto/restaurant.dto';
 import { UserRole } from '../users/user.entity';
+import { isUuid } from '../common/uuid';
 
 export interface RestaurantQuery {
   search?: string;
@@ -61,6 +62,7 @@ export class RestaurantsService {
   }
 
   async findOne(id: string) {
+    if (!isUuid(id)) return null;
     return this.repo.findOne({
       where: { id },
       relations: { menuItems: true },
@@ -120,6 +122,7 @@ export class RestaurantsService {
     actor: { sub: string; role: UserRole },
     dto: UpdateRestaurantDto,
   ): Promise<Restaurant> {
+    if (!isUuid(id)) throw new NotFoundException('Restaurant not found');
     const restaurant = await this.repo.findOne({ where: { id } });
     if (!restaurant) throw new NotFoundException('Restaurant not found');
     if (actor.role !== UserRole.ADMIN && restaurant.ownerId !== actor.sub) {
