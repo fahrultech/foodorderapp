@@ -2,16 +2,27 @@ import {
   Column,
   CreateDateColumn,
   Entity,
+  Index,
+  ManyToOne,
   OneToMany,
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
 import { MenuItem } from '../menu/menu-item.entity';
+import { User } from '../users/user.entity';
 
 @Entity('restaurants')
 export class Restaurant {
   @PrimaryGeneratedColumn('uuid')
   id: string;
+
+  /** Owner (restaurants.ownerId); null for platform-seeded restaurants. */
+  @Index('IDX_restaurants_ownerId')
+  @Column({ type: 'uuid', nullable: true })
+  ownerId: string | null;
+
+  @ManyToOne(() => User, { onDelete: 'SET NULL', nullable: true })
+  owner: User;
 
   @Column({ unique: true })
   slug: string;

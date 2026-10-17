@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import * as bcrypt from 'bcryptjs';
-import { User } from '../users/user.entity';
+import { User, UserRole } from '../users/user.entity';
 import { Restaurant } from '../restaurants/restaurant.entity';
 import { MenuItem } from '../menu/menu-item.entity';
 import { AppDataSource } from './data-source';
@@ -9,6 +9,7 @@ const restaurants = [
   {
     slug: 'warung-nusantara',
     name: 'Warung Nusantara',
+    ownedByDemoOwner: true,
     cuisine: 'Indonesian',
     city: 'Jakarta',
     description: 'Authentic home-style Indonesian cooking — nasi goreng, rendang, satay.',
@@ -87,6 +88,7 @@ const restaurants = [
   {
     slug: 'seoul-street',
     name: 'Seoul Street',
+    ownedByDemoOwner: true,
     cuisine: 'Korean',
     city: 'Bandung',
     description: 'Korean street food: tteokbokki, kimbap, fried chicken.',
@@ -115,6 +117,28 @@ async function main() {
   const restaurantRepo = dataSource.getRepository(Restaurant);
   const menuRepo = dataSource.getRepository(MenuItem);
 
+  // Users first — restaurants reference the demo owner.
+  const passwordHash = await bcrypt.hash('demo1234', 10);
+  const userRepo = dataSource.getRepository(User);
+  const demoCustomer = await userRepo.save(
+    userRepo.create({
+      email: 'demo@foodorder.app',
+      name: 'Demo Customer',
+      passwordHash,
+      phone: '+62 812 3456 7890',
+      address: 'Jl. Sudirman No. 1, Jakarta',
+    }),
+  );
+  const demoOwner = await userRepo.save(
+    userRepo.create({
+      email: 'owner@foodorder.app',
+      name: 'Resto Owner',
+      passwordHash,
+      role: UserRole.OWNER,
+    }),
+  );
+  console.log('Seeded users: demo@foodorder.app / owner@foodorder.app (password: demo1234)');
+
   for (const r of restaurants) {
     const restaurant = await restaurantRepo.save(
       restaurantRepo.create({
@@ -128,6 +152,7 @@ async function main() {
         deliveryFeeCents: r.deliveryFeeCents,
         minOrderCents: r.minOrderCents,
         avgPrepMinutes: r.avgPrepMinutes,
+        ownerId: r.ownedByDemoOwner ? demoOwner.id : null,
       }),
     );
     const items = r.menu.map(([name, description, priceCents, category]) =>
@@ -142,25 +167,7 @@ async function main() {
     await menuRepo.save(items);
     console.log(`  + ${restaurant.name} (${items.length} items)`);
   }
-
-  const passwordHash = await bcrypt.hash('demo1234', 10);
-  const userRepo = dataSource.getRepository(User);
-  await userRepo.save([
-    userRepo.create({
-      email: 'demo@foodorder.app',
-      name: 'Demo Customer',
-      passwordHash,
-      phone: '+62 812 3456 7890',
-      address: 'Jl. Sudirman No. 1, Jakarta',
-    }),
-    userRepo.create({
-      email: 'owner@foodorder.app',
-      name: 'Resto Owner',
-      passwordHash,
-      role: ('owner' as any) as any,
-    }),
-  ]);
-  console.log('Seeded users: demo@foodorder.app / owner@foodorder.app (password: demo1234)');
+  void demoCustomer;
 
   await dataSource.destroy();
   console.log('Done.');
