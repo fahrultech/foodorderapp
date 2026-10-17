@@ -7,7 +7,7 @@
 ## Phase 0 — Foundation (day 1) ✅ done in initial commits
 
 ## Phase 1 — Core ordering, hardened
-- [ ] API: replace `synchronize: true` with TypeORM migrations (baseline migration from current schema)
+- [x] API: replace `synchronize: true` with TypeORM migrations (baseline migration from current schema)
 - [ ] API: owner role on restaurants (`ownerId`), restaurants CRUD for owners (create/update own restaurant)
 - [ ] API: menu item CRUD for owners (add/edit/available toggle) + validation tests
 - [ ] API: auth refresh tokens + `PATCH /users/me` profile update (jest coverage for all auth paths)

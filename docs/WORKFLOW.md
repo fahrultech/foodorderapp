@@ -35,8 +35,14 @@ through this exact routine.
   secrets inline: read `DATABASE_URL` from the untracked `apps/api/.env`
   (ConfigModule loads it automatically) and pass other secrets via shell
   variables assigned in the same command.
-- Keep `synchronize: true` only while schemas are fluid; introduce TypeORM
-  migrations as soon as the schema-stability item is scheduled (roadmap tracks it).
+- Schema is owned by **migrations** — `synchronize` is OFF since Phase 1.
+  After any entity change: `cd apps/api && npm run migration:generate --
+  src/database/migrations/<Name>`, review the DDL, commit the migration.
+  Pending migrations apply automatically on API boot (`migrationsRun: true`)
+  or via `npm run migration:run`. A pre-migration (synchronize-built) database
+  is cut over with `npm run db:stamp-baseline`; disposable dev DBs can instead
+  be wiped (`DROP SCHEMA public CASCADE; CREATE SCHEMA public;`) and rebuilt by
+  `npm run seed`, which migrates from scratch.
 - Money is integer cents everywhere. No float prices.
 - All new endpoints: input validation via class-validator DTOs, tested via jest
   or curl. Note: with the global ValidationPipe (`whitelist: true`), every DTO

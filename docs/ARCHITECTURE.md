@@ -6,7 +6,7 @@
 Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
                │  REST JSON  (NEXT_PUBLIC_API_URL)
                ▼
-          NestJS API ──▶ PostgreSQL (TypeORM, synchronize=true dev / migrations prod)
+          NestJS API ──▶ PostgreSQL (TypeORM, migrations-owned schema)
                ▲
    docker compose: db (postgres:16-alpine) + api + web
 ```
@@ -27,8 +27,10 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   tokens and decorates `req.user` with `{sub, email, role, name}`.
 - **Snapshot order items** — `order_items` store name+unit price copies, so
   historical orders survive menu edits.
-- **TypeORM synchronize in dev** — quick schema iteration; baseline migrations
-  are scheduled in ROADMAP Phase 1 before schema hardening.
+- **TypeORM migrations own the schema** — `synchronize` is off; the baseline
+  `InitSchema` migration reproduces the Phase 0 dev schema exactly. Pending
+  migrations run automatically on API boot; `db:stamp-baseline` adopts
+  pre-migration databases. Entity changes require a committed migration.
 
 ## Data model (v0)
 

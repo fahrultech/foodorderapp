@@ -4,6 +4,56 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
+## 2026-10-17 13:15 — Session 2
+
+**Built:** Phase 1 item 1 — schema ownership moved from TypeORM
+`synchronize: true` to **migrations**.
+
+- `src/database/data-source.ts`: single shared DataSource config (entities,
+  migration glob for ts+js, `synchronize: false`, `migrationsRun: true`,
+  dotenv-loaded `DATABASE_URL`). Used by the typeorm CLI; Nest's
+  `TypeOrmModule` got the same options (`app.module.ts`).
+- Baseline migration `1792213437047-InitSchema` generated from the entities
+  against an empty DB, plus an explicit `CREATE EXTENSION IF NOT EXISTS
+  "uuid-ossp"` (fresh images lack it in template1 — no reliance on driver magic).
+- CLI scripts in package.json: `migration:generate|run|revert`; `seed.ts` now
+  uses the shared AppDataSource, so `npm run seed` bootstraps a brand-new DB
+  (migrate + seed) with no manual steps.
+- `db:stamp-baseline` script: records the baseline in existing
+  synchronize-built databases (creates the `migrations` table if absent) so
+  they can be adopted without re-running DDL.
+- New jest spec `data-source.spec.ts`: synchronize off, 5 entities + glob,
+  single-DataSource CLI contract, baseline implements up/down.
+
+**Verified:**
+- `nest build` clean; `jest` 8/8 pass (both suites).
+- Fresh-DB pipeline: `migration:run` on an empty `template1`-derived DB →
+  all 5 tables + enum types + `uuid-ossp` created; rerun → "No migrations
+  are pending"; `migration:revert` → tables gone.
+- Baseline == old schema: `pg_dump --schema-only` of the migrated+seeded DB
+  vs the live synchronize-built DB — **199/199 content lines identical**
+  (5 tables, 5 FKs, 3 unique, 5 PKs, 2 enums, uuid defaults; only delta is
+  the `migrations` bookkeeping table, which the old DB lacked).
+- Cutover of dev DB `foodorder`: schema dropped → `npm run seed` rebuilt it
+  from migrations (6 restos, 27 dishes, 1 applied migration) → new API build
+  booted (0 pending) → curl smoke: `/health` db up, search, guest order
+  create server-priced (2×500 → subtotal 1000, +fee 300 = 1300),
+  pending→confirmed OK (200), confirmed→delivering rejected (400),
+  confirmed→preparing OK, login + `/auth/me` (JWT).
+- Stamp path: simulated a pre-migration DB (dropped `migrations` table on a
+  migrated DB) → `db:stamp-baseline` recorded it → `migration:run` reports
+  nothing pending. Fixed a real bug found during testing (untyped params in
+  the stamp INSERT, pg error 42P08).
+- Note: smoke initially "failed" because the test script sent `status` in the
+  body while `PATCH /orders/:id/status` takes it as a query param (pre-existing
+  API shape, unchanged) and login returns `access_token` — not regressions.
+
+**Docs:** WORKFLOW schema rules, ARCHITECTURE synchronize bullet, ROADMAP
+item ticked. Scratch verification databases dropped after use.
+
+**Left for next sessions:** docker compose end-to-end (images still unverified);
+next roadmap item — owner role + restaurants CRUD.
+
 ## 2026-10-17 11:30 — Session 1 (kickoff)
 
 **Built:** Phase 0 foundation in one push set:
