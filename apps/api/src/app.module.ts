@@ -1,3 +1,4 @@
+import * as path from 'path';
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -19,7 +20,11 @@ import { HealthModule } from './health/health.module';
           config.get<string>('DATABASE_URL') ||
           'postgresql://foodorder:***@localhost:5432/foodorder',
         autoLoadEntities: true,
-        synchronize: true,
+        // Schema is owned by migrations (see src/database/data-source.ts);
+        // pending migrations are applied automatically on boot.
+        migrations: [path.join(__dirname, 'database', 'migrations', '*.{ts,js}')],
+        migrationsRun: true,
+        synchronize: false,
       }),
     }),
     HealthModule,

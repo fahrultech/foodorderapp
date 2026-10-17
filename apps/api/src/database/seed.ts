@@ -1,11 +1,9 @@
 import 'reflect-metadata';
-import { DataSource } from 'typeorm';
 import * as bcrypt from 'bcryptjs';
 import { User } from '../users/user.entity';
 import { Restaurant } from '../restaurants/restaurant.entity';
 import { MenuItem } from '../menu/menu-item.entity';
-import { Order } from '../orders/order.entity';
-import { OrderItem } from '../orders/order-item.entity';
+import { AppDataSource } from './data-source';
 
 const restaurants = [
   {
@@ -104,14 +102,8 @@ const restaurants = [
 ];
 
 async function main() {
-  const dataSource = new DataSource({
-    type: 'postgres',
-    url:
-      process.env.DATABASE_URL ||
-      'postgresql://foodorder:***@localhost:5432/foodorder',
-    entities: [User, Restaurant, MenuItem, Order, OrderItem],
-    synchronize: true,
-  });
+  // AppDataSource has migrationsRun: true — a fresh DB is migrated on connect.
+  const dataSource = AppDataSource;
   await dataSource.initialize();
   console.log('Seeding database...');
 
