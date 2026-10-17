@@ -4,6 +4,62 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
+## 2026-10-17 20:10 — Session 4
+
+**Built:** Phase 1 item 3 — menu item CRUD for owners (commit `feat(api): …`):
+- New owner endpoints: `POST /api/restaurants/:restaurantId/menu` (201, dish
+  stamped with the URL's restaurant), `PATCH /api/menu/items/:id` (content
+  only), `PATCH /api/menu/items/:id/availability` (first-class toggle),
+  `DELETE /api/menu/items/:id`. All `JwtAuthGuard` + `RolesGuard`
+  `@Roles(OWNER)`; authorization to the dish's **parent restaurant** is
+  checked in `MenuService.assertCanManage` (ADMIN bypasses; platform
+  restaurants with `ownerId null` are admin-only). Menu items carry no owner
+  column — ownership always derived, so it can never drift from the resto.
+- DTOs (`menu/dto/menu-item.dto.ts`), every property decorated for the
+  whitelist pipe: `CreateMenuItemDto` requires name (`IsNotEmpty` +
+  `Matches(/\S/)` — plain IsNotEmpty would let `"   "` through) and
+  `priceCents` (`IsInt Min(1) Max(10000000)` — cents stay integers, strings
+  rejected); optional description/category/imageUrl/prepMinutes/isAvailable
+  (draft dishes). `restaurantId`/`id` are never body-writable.
+  `UpdateMenuItemDto` deliberately omits `isAvailable` (toggle route owns it);
+  `UpdateAvailabilityDto` is a single required boolean.
+- `MenuModule` now imports `AuthModule` + registers the `Restaurant` repo —
+  the session-3 DI-crash class avoided by construction. No migration needed:
+  `menu_items` schema unchanged.
+- **Fix found by smoke:** malformed uuid route params (`PATCH
+  /menu/items/nonexistent`) crashed TypeORM with Postgres 22P02 → opaque 500.
+  New `common/uuid.ts isUuid` guard applied to `MenuService` (dish ids +
+  parent id) and — same latent bug — `RestaurantsService.updateOwned` /
+  `findOne` (also fixes `GET /api/restaurants/:id` and the session-3 PATCH
+  route). Malformed ids now 404 before touching the DB.
+
+**Verified:**
+- `nest build` clean; `jest` **58/58** pass (6 suites; 32 new: 19
+  `menu.service.spec` authorization/default/patch/guard cases, 12
+  `menu-item.dto.spec` running the **real global ValidationPipe** (same
+  options as main.ts) to prove stripping + rejections, 1 restaurants
+  malformed-uuid case).
+- Live API smoke (new build on :4000, reseeded dev DB) — **38 checks, all
+  pass**: owner create 201 (defaults honored; injected `restaurantId`/`id`/
+  `ownerId` stripped, URL restaurant wins, draft flag kept); customer 403,
+  anonymous 401, other-owner/platform resto 403; 4× 400 validation
+  (missing/zero/string price, blank name); PATCH own price 200 while body
+  `isAvailable`+`restaurantId` ignored; PATCH/DELETE on platform dish 403;
+  **toggle gate proven end-to-end**: unavailable → guest order 400 "not
+  available", toggle back → 201; **DELETE of an ORDERED dish** → order still
+  readable (`menuItemId` NULL via ON DELETE SET NULL, snapshot name + 26000
+  unit price intact); admin (SQL-promoted, re-login) toggles + creates
+  platform dishes, role reverted; regressions green — public list/menu,
+  malformed-uuid GET → 404, guest order server-priced (FO-87GY, 1400 cents).
+- Dev DB restored to canonical seed afterwards; API stopped.
+
+**Note:** `GET /restaurants/:id/menu` still returns unavailable dishes —
+storefront filtering / "sold out" UI is portal-era work (Phase 2 item 3 will
+need it). Same for order-line `menuItemId` back-references after a delete.
+
+**Next:** Phase 1 item 4 — auth refresh tokens + `PATCH /users/me` with full
+jest coverage of auth paths.
+
 ## 2026-10-17 17:10 — Session 3
 
 **Built:** Phase 1 item 2 — owner role on restaurants + owner CRUD (commit `feat(api): …`):
