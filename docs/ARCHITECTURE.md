@@ -35,5 +35,6 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
 ## Data model (v0)
 
 users(1)──(N)orders(1)──(N)order_items(N)──(1)menu_items(N)──(1)restaurants
+users(1)──(N)restaurants  (restaurants.ownerId → users.id; nullable, FK ON DELETE SET NULL, indexed)
 
-Roles: `customer` (default), `owner`, `admin`.
+Roles: `customer` (default), `owner`, `admin`. Owner-only routes guarded by `JwtAuthGuard` + `RolesGuard` (`@Roles(UserRole.OWNER)`); ADMIN bypasses `@Roles`. Owners create/update only their own restaurants (`PATCH /restaurants/:id` returns 403 unless caller owns the row). `slug`/`rating`/`ownerId` are not owner-writable — slug auto-derived and de-duplicated (`-2`, `-3`…) at create.

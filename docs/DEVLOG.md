@@ -4,6 +4,58 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
+## 2026-10-17 17:10 — Session 3
+
+**Built:** Phase 1 item 2 — owner role on restaurants + owner CRUD (commit `feat(api): …`):
+- `restaurants.ownerId` (uuid, nullable — platform-seeded rows keep `null`),
+  `@ManyToOne User` with **ON DELETE SET NULL**, index `IDX_restaurants_ownerId`;
+  migration `AddRestaurantOwner` (`1792227879651`) generated via the new
+  migration workflow (first real entity change → generate → apply cycle).
+- `RolesGuard` + `@Roles(...)` decorator (`src/common/`): reads the `role`
+  claim from the JWT payload attached by `JwtAuthGuard`; ADMIN bypasses;
+  empty metadata = open. Known caveat: role changes only take effect on a
+  fresh login (token carries the claim).
+- Owner endpoints on `RestaurantsController`: `POST /api/restaurants`
+  (create own; ownerId always taken from token — body `ownerId` is stripped
+  by the global whitelist pipe), `GET /api/restaurants/mine`,
+  `PATCH /api/restaurants/:id` (owner-or-admin; 403 otherwise). DTOs
+  `CreateRestaurantDto` / `UpdateRestaurantDto` with full class-validator
+  coverage; `slug`, `rating`, `ownerId` are not owner-writable — slug is
+  slugified from the name (or explicit kebab-case one) and de-duplicated
+  with `-2`, `-3`… suffixes.
+- Seed now creates users before restaurants and assigns the demo owner
+  (`owner@foodorder.app`, real `UserRole.OWNER` — old `as any` hack dropped)
+  to Warung Nusantara + Seoul Street, so `/restaurants/mine` is non-empty.
+- New unit specs: `restaurants.service.spec.ts` (11 tests: slugify/dedupe/
+  empty-name fallback, create defaults+ownerId stamping, findOwned filter,
+  update owner/other-owner/admin/404/DTO-whitelist cases) and
+  `roles.guard.spec.ts` (5 tests). Fixed during verification:
+  `RestaurantsModule` was missing the `AuthModule` import → Nest DI crash on
+  boot (`JwtAuthGuard` couldn't resolve `JwtService`) — same class of bug as
+  session 1's OrdersModule fix.
+
+**Verified:**
+- `nest build` clean; `jest` **26/26** pass (4 suites).
+- `migration:run` on dev DB applied AddRestaurantOwner cleanly (column +
+  index + FK SET NULL); `npm run seed` rebuilt data with ownership rows.
+- API restarted on :4000; curl smoke on the live server: owner login token
+  carries `role:"owner"` · `GET /restaurants/mine` → 2 owned ·
+  `POST` create → 201 with slug `bebek-goreng-pak-togok-88`, `ownerId` =
+  token subject (injected `"ownerId":"ATTACKER"`, `rating`, `slug` stripped
+  by whitelist) · duplicate name → `-2` slug · `PATCH` own → 200
+  (isOpen/name change, rating/slug/ownerId immutable) · `PATCH` unowned →
+  403 · admin (role promoted via SQL, re-login) → 200, then reverted ·
+  customer `POST` → 403 · no token → 401 · bad slug pattern / negative
+  fee → 400 · public list + guest order regression green
+  (server-priced 2×1800 + fee 300 = total 3900, code FO-8RK4).
+- Dev DB re-seeded to canonical state after smoke writes.
+
+**Docs:** ARCHITECTURE data model + roles paragraph, ROADMAP item ticked.
+
+**Left for next sessions:** menu-item CRUD for owners (Phase 1 item 3 —
+reuses `RolesGuard` + the ownership check pattern); docker compose e2e
+still pending from session 1.
+
 ## 2026-10-17 13:15 — Session 2
 
 **Built:** Phase 1 item 1 — schema ownership moved from TypeORM

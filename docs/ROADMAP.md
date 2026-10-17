@@ -8,7 +8,7 @@
 
 ## Phase 1 — Core ordering, hardened
 - [x] API: replace `synchronize: true` with TypeORM migrations (baseline migration from current schema)
-- [ ] API: owner role on restaurants (`ownerId`), restaurants CRUD for owners (create/update own restaurant)
+- [x] API: owner role on restaurants (`ownerId`), restaurants CRUD for owners (create/update own restaurant)
 - [ ] API: menu item CRUD for owners (add/edit/available toggle) + validation tests
 - [ ] API: auth refresh tokens + `PATCH /users/me` profile update (jest coverage for all auth paths)
 - [ ] API: orders — filter by status, pagination on `/orders/my`, order cancellation by customer
