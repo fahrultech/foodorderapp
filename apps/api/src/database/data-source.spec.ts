@@ -1,6 +1,7 @@
 import { DataSource } from 'typeorm';
 import { AppDataSource, dataSourceOptions } from './data-source';
 import { User } from '../users/user.entity';
+import { RefreshToken } from '../auth/refresh-token.entity';
 import { Restaurant } from '../restaurants/restaurant.entity';
 import { MenuItem } from '../menu/menu-item.entity';
 import { Order } from '../orders/order.entity';
@@ -13,10 +14,10 @@ describe('database/data-source', () => {
     expect(dataSourceOptions.migrationsRun).toBe(true);
   });
 
-  it('registers exactly the five entities and a ts/js migration glob', () => {
-    expect(dataSourceOptions.entities).toHaveLength(5);
+  it('registers exactly the six entities and a ts/js migration glob', () => {
+    expect(dataSourceOptions.entities).toHaveLength(6);
     expect(dataSourceOptions.entities).toEqual(
-      expect.arrayContaining([User, Restaurant, MenuItem, Order, OrderItem]),
+      expect.arrayContaining([User, RefreshToken, Restaurant, MenuItem, Order, OrderItem]),
     );
     expect(dataSourceOptions.migrations).toHaveLength(1);
     expect(dataSourceOptions.migrations[0]).toMatch(/migrations\/\*\.\{ts,js\}$/);

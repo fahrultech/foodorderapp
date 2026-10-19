@@ -109,9 +109,11 @@ async function main() {
   await dataSource.initialize();
   console.log('Seeding database...');
 
-  // Full reset (orders reference menu items etc.)
+  // Full reset (orders reference menu items etc.). `refresh_tokens` is listed
+  // explicitly even though the users FK cascade would clear it — a seeded DB
+  // must never keep live sessions from a previous run.
   await dataSource.query(
-    'TRUNCATE TABLE order_items, orders, menu_items, restaurants, users RESTART IDENTITY CASCADE',
+    'TRUNCATE TABLE order_items, orders, menu_items, restaurants, refresh_tokens, users RESTART IDENTITY CASCADE',
   );
 
   const restaurantRepo = dataSource.getRepository(Restaurant);
