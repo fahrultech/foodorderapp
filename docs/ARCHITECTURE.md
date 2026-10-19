@@ -23,8 +23,10 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   (matches delivery/logic reality); switching restaurants clears via the cart rule.
 - **Order status machine** — transitions validated server-side
   (`pending→confirmed→preparing→delivering→completed`, cancellable through preparing).
-- **JWT (7d) + custom guard** — no passport for now; the guard verifies Bearer
-  tokens and decorates `req.user` with `{sub, email, role, name}`.
+- **JWT access + opaque refresh tokens** — no passport for now; the guard
+  verifies Bearer tokens and decorates `req.user` with
+  `{sub, email, role, name, typ}`. See *Auth (Phase 1)* below for the full
+  token model.
 - **Snapshot order items** — `order_items` store name+unit price copies, so
   historical orders survive menu edits *and dish deletes* (the
   `order_items.menuItemId` FK is `ON DELETE SET NULL`).
@@ -32,6 +34,36 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   `InitSchema` migration reproduces the Phase 0 dev schema exactly. Pending
   migrations run automatically on API boot; `db:stamp-baseline` adopts
   pre-migration databases. Entity changes require a committed migration.
+
+## Auth (Phase 1)
+
+- **Access token**: JWT signed with `JWT_SECRET`, TTL `JWT_ACCESS_TTL` (default
+  `30m`), claims `{sub, email, role, name, typ: 'access'}`. `JwtAuthGuard`
+  rejects anything whose `typ` is not `access`, so a refresh token (or a token
+  from the pre-Phase-1 `7d` era) can never unlock an API route.
+- **Refresh token**: *not* a JWT — 256-bit opaque random string
+  (`crypto.randomBytes(32)`, base64url). Only its SHA-256 hex digest is stored,
+  in `refresh_tokens(id, tokenHash UNIQUE, userId, expiresAt, revokedAt,
+  createdAt)` with `userId` FK `ON DELETE CASCADE`. Revocation is exact rather
+  than "wait for expiry", and a leaked table dump is not a session store.
+- **Rotation + reuse detection**: `POST /api/auth/refresh` revokes the presented
+  row and issues a new pair (one token is usable exactly once). Presenting an
+  already-revoked token means it was copied, so *every* session of that user is
+  revoked and the request 401s.
+- **Logout** (`POST /api/auth/logout`, requires a valid access token) revokes
+  one session (`refresh_token`), or all of the caller's sessions (`all: true`
+  or an empty body). Scoped by `userId`, so one caller cannot revoke another's
+  session; idempotent. Already-issued access tokens still live out their
+  `JWT_ACCESS_TTL` — that is why it is minutes.
+- **`GET /api/auth/me` reads the database**, not the cached claims, so profile
+  edits appear immediately and a deleted account stops answering.
+- **`PATCH /api/users/me`** self-service profile: allowlist of
+  `name`/`phone`/`address` in `UpdateProfileDto`; `email` (identity), `role`
+  (authorization) and password are *not* self-writable — email change needs a
+  verification flow, role change is admin-only, and a password change must
+  verify the old one. Empty patch → 400 (never a silent no-op "success").
+- **No token revocation list for access tokens** — deliberate: short TTL +
+  stateless verification. Re-add a deny-list only if TTL ever grows.
 
 ## Data model (v0)
 

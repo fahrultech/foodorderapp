@@ -4,6 +4,101 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
+## 2026-10-19 09:31 — Session 5
+
+**Built:** Phase 1 item 4 — auth refresh tokens + `PATCH /users/me` profile update:
+- New table `refresh_tokens` via migration `AddRefreshTokens1792374097450`
+  (`id` uuid pk, `tokenHash` varchar(64) **unique**, `userId` uuid FK → users
+  `ON DELETE CASCADE` + index, `expiresAt`/`revokedAt` timestamptz, `createdAt`),
+  registered in `data-source.ts` (now 6 entities) and `AuthModule`.
+- **Refresh tokens are opaque, not JWTs**: `randomBytes(32)` base64url handed to
+  the client, only its **SHA-256 digest** persisted. That buys exact revocation
+  (one row per session), a DB dump that is not a session store, and rotation —
+  `POST /api/auth/refresh` revokes the presented row and issues a new pair, so a
+  token is usable exactly once. Presenting an already-revoked token is treated
+  as theft: **every session of that user is swept** and the call 401s.
+- Access tokens: `JWT_ACCESS_TTL` (default `30m`, was a 7d module-wide default)
+  and a `typ: 'access'` claim. `JwtAuthGuard` now rejects any token whose `typ`
+  is not `access`, so refresh tokens and pre-Phase-1 tokens cannot open routes.
+- New endpoints: `POST /api/auth/refresh` (200, unauthenticated — the token *is*
+  the credential), `POST /api/auth/logout` (200, Bearer; one session via
+  `refresh_token`, all sessions via `all: true` or empty body; scoped by `userId`
+  so one caller cannot revoke another's session; idempotent),
+  `PATCH /api/users/me` (200/400/401/404).
+- `GET /api/auth/me` now reads the **database** and returns an allowlisted
+  `SafeUser` (`id/email/name/phone/address/role/createdAt/updatedAt`) instead of
+  echoing stale JWT claims — profile edits show up immediately, deleted accounts
+  stop answering, and `passwordHash` can never ride along again.
+- `PATCH /api/users/me` + `UpdateProfileDto`: allowlist `name`/`phone`/`address`
+  only (`email` = identity, `role` = authorization, password needs old-password
+  verification — none are self-writable); empty patch → **400** rather than a
+  silent no-op "success"; missing row → 404; `UsersModule` gained
+  `UsersController` and imports `AuthModule` for the guard's `JwtService`.
+- New helpers: `common/duration.ts` (`durationToMs`/`expiryFrom`, fails loudly on
+  a malformed TTL instead of minting an endless session), `common/safe-user.ts`
+  (explicit allowlist, not spread-and-delete), `common/tokens.ts` (shared `typ`
+  + TTL defaults, kept out of `auth/` so the guard doesn't import repositories).
+- Tests (jest, 115 passing): `auth.service.spec.ts` rewritten as a full-path
+  coverage suite — register (duplicate rejected before hashing, pair issued,
+  only the digest stored, distinct token per session), login (unknown email,
+  wrong password with identical message, claim set + default TTL, env TTL
+  overrides, malformed TTL), refresh (rotation, replay sweep including sibling
+  sessions, unknown/empty/expired token, deleted account, role carried over),
+  logout (single session, foreign token no-op, `all:true`, empty body, `all`
+  beats a single token, idempotent, revoked token can no longer refresh), `me`
+  (DB-backed shape, gone account, missing subject); `jwt-auth.guard.spec.ts`
+  uses a **real** `JwtService` (valid, missing/non-Bearer header, wrong secret,
+  expired, no `typ`, wrong `typ`, no half-populated `req.user`);
+  `auth.dto.spec.ts` + `update-profile.dto.spec.ts` drive the app's actual
+  `ValidationPipe` (whitelist stripping of `role`/`email`/`id`/`passwordHash`);
+  `users.service.spec.ts` covers the allowlist/400/404 paths; `duration.spec.ts`
+  the TTL parser; `data-source.spec.ts` updated to 6 entities.
+- Docs/config: `seed.ts` truncates `refresh_tokens`; `.env.example` +
+  docker-compose expose `JWT_ACCESS_TTL`/`JWT_REFRESH_TTL`; README endpoint table
+  completed (it was also missing the Phase 1 owner routes); ARCHITECTURE gained
+  an **Auth (Phase 1)** section with the token model and its rationale.
+
+**Verified:**
+- `nest build` clean; `npx jest` **115/115** across 11 suites.
+- Migration: generated DDL reviewed line by line against the entity (unique
+  index on `tokenHash`, index on `userId`, FK `ON DELETE CASCADE`, `timestamptz`
+  expiries); `migration:run` applied it to the dev DB (1 new → executed, 3
+  migrations recorded).
+- Live API smoke on `:4000` (`node dist/main.js`, 44 assertions, all pass):
+  register → access + opaque refresh with `expires_in: 1800`; duplicate → 409;
+  `GET /auth/me` 200 / 401 without token / 401 with a tampered token; refresh
+  token as Bearer → 401; rotation → new pair, old row revoked; replay of the
+  rotated token → `reuse detected — 1 session(s) revoked` and the sibling
+  session dies; login → `PATCH /users/me` persisted name/phone/address and
+  `/auth/me` reflected it immediately; empty patch → 400 `No profile fields to
+  update`; injected `role`/`email` stripped (still `customer`/original email);
+  `/users/me` without a token → 401; `logout {all:true}` → `revoked_sessions: 1`
+  then that refresh token → 401 and a second logout → `revoked_sessions: 0`;
+  regressions: seeded owner login, `GET /restaurants/mine` (still 200 with rows),
+  `/health` db up.
+- Database truth via `psql` (URL read from the untracked `apps/api/.env`, never
+  echoed): 0 live sessions for the smoke user after logout-all, and every
+  stored `tokenHash` is a 64-char hex digest with the raw token absent.
+- TTL override smoke on `:4001` (`JWT_ACCESS_TTL=1s JWT_REFRESH_TTL=10m`, 9/9):
+  `typ=access`, `exp-iat = 1s`, `expires_in = 1`, refresh expiry ≈ +600 s,
+  `/auth/me` 200 while fresh → **401 `Invalid or expired token`** after 2.5 s,
+  while `POST /auth/refresh` still mints a working session and the consumed
+  token is single-use (401). That is the real renewal path the storefront will
+  use, exercised against a genuinely expired token.
+- `apps/web` untouched → `next build` skipped per WORKFLOW; grep confirms the
+  storefront has no stored tokens or `/auth/me` consumer yet, so the response
+  shape change (`sub` → `id`) breaks nothing that exists.
+
+**Breaking change (intentional):** access tokens minted before this session
+(7-day, no `typ` claim) are now rejected by `JwtAuthGuard` — clients log in once
+and then renew via `POST /api/auth/refresh`. No storefront session existed, so
+nothing user-facing regressed.
+
+**Left for next sessions:** password change + email change (need
+old-password verify / email verification), then Phase 1 item 6 (web login &
+register pages, which will store the refresh token and renew on 401);
+docker compose end-to-end still unverified (carried since session 1).
+
 ## 2026-10-17 20:10 — Session 4
 
 **Built:** Phase 1 item 3 — menu item CRUD for owners (commit `feat(api): …`):

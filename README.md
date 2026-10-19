@@ -50,9 +50,19 @@ NEXT_PUBLIC_API_URL=http://localhost:4000/api npm run dev
 | GET | `/api/restaurants/meta/cuisines` | Distinct cuisines |
 | GET | `/api/restaurants/:id` | Restaurant + menu |
 | GET | `/api/restaurants/:id/menu` | Menu only |
-| POST | `/api/auth/register` | Create account → JWT |
-| POST | `/api/auth/login` | Login → JWT |
-| GET | `/api/auth/me` | Current user (Bearer) |
+| POST | `/api/auth/register` | Create account → access + refresh token |
+| POST | `/api/auth/login` | Login → access + refresh token |
+| POST | `/api/auth/refresh` | Rotate a refresh token → new session |
+| POST | `/api/auth/logout` | Revoke this session, or all of mine (Bearer) |
+| GET | `/api/auth/me` | Current profile (Bearer, read from DB) |
+| PATCH | `/api/users/me` | Update own name/phone/address (Bearer) |
+| POST | `/api/restaurants` | Create own restaurant (owner) |
+| PATCH | `/api/restaurants/:id` | Edit own restaurant (owner) |
+| GET | `/api/restaurants/mine` | Owner's restaurants |
+| POST | `/api/restaurants/:restaurantId/menu` | Add dish (owner) |
+| PATCH | `/api/menu/items/:id` | Edit dish (owner) |
+| PATCH | `/api/menu/items/:id/availability` | Toggle availability (owner) |
+| DELETE | `/api/menu/items/:id` | Delete dish (owner) |
 | POST | `/api/orders` | Place order (guest or JWT) |
 | GET | `/api/orders/:id` | Order detail + status |
 | GET | `/api/orders/my` | My orders (Bearer) |
