@@ -4,6 +4,76 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
+## 2026-10-19 14:16 — Session 6
+
+**Built:** Phase 1 item 5 — orders status filter + pagination on `/orders/my` + customer cancellation:
+- `GET /api/orders/my` now takes `ListMyOrdersDto` (`?status=<enum>`,
+  `?page` ≥1, `?limit` 1–50, default 20) and returns the same
+  `{items,total,page,limit}` envelope as `GET /restaurants` (was: bare array,
+  hard-coded `take:50`). No web consumer existed for the old shape. The DTO
+  rejects junk query params (400) and the whitelist strips everything else —
+  `userId` is never injectable, scoping comes from the token subject only.
+  The service additionally clamps page/limit defensively.
+- **`POST /api/orders/:id/cancel`** (Bearer): customer cancels **own** orders
+  only, reusing the single `STATUS_FLOW` truth — allowed from
+  pending/confirmed/preparing, **400** from delivering/completed/cancelled.
+  Someone else's order and guest orders (userId NULL — no proof of
+  possession) answer the same **404** as unknown ids, so order existence is
+  not leaked across accounts. `PATCH /:id/status` stays the open
+  restaurant-side lever (unchanged; portal auth is Phase 2).
+- **Gap found and fixed while wiring this:** `POST /orders` *never* attached
+  `userId` even with a token — the old comment claimed otherwise, so
+  `/orders/my` could only ever return empty and cancellation was moot. New
+  `OptionalJwtAuthGuard` (`common/`): valid access token → order attached to
+  the user; missing/expired/garbage token → silently proceeds as guest, so
+  checkout can never break on a stale session.
+- Malformed-uuid guard (`isUuid`, session 4's class of bug) applied to
+  `OrdersService.findOne` + `cancel` — `GET /orders/:id`, `/next-statuses`
+  and `PATCH /:id/status` used to 500 on non-uuid ids (Postgres 22P02);
+  now 404 before touching the DB. No schema change → no migration.
+- Tests (jest, 145 passing): 18 in `orders.service.spec.ts` (findMine
+  defaults/where-clause/skip math/clamping/page-slice+total/user isolation;
+  cancel matrix over all 6 statuses, foreign/guest/unknown/malformed 404s,
+  findOne guard) and 6 in `list-my-orders.dto.spec.ts` driving the **real**
+  global ValidationPipe as `type:'query'` (string→number coercion, unknown
+  status / page=0 / 'abc' / fractional / limit>50 rejected, `userId`
+  injection stripped); 6 in `optional-jwt-auth.guard.spec.ts` (valid →
+  attaches; no/non-Bearer/garbage/expired/wrong-typ/foreign-secret → guest,
+  never throws).
+
+**Verified:**
+- `nest build` clean; `npx jest` **145/145** across 14 suites (was 115/12).
+- API restarted on :4000 with the new build (an old session-5 process was
+  found serving there — killed). Live smoke — **54/54 assertions**: guest
+  order server-priced + stays ownerless; garbage bearer on checkout → guest
+  201; below-min-order → 400 with message; register A/B → 4 orders attached
+  to A from token; `/orders/my` 401 anonymous + garbage token; envelope
+  totals; `status=pending` 4 / `completed` 0; `limit=2`×2 pages cover 4
+  distinct ids, beyond-end page empty with total kept; DESC ordering; 6 bad
+  query combos → 400; injected `userId` stripped — still own scope; B sees 0
+  of A's orders; cancel pending ✓ → GET reflects cancelled ✓; double-cancel
+  400; confirmed→cancel ✓ after open PATCH status transition (regression);
+  preparing→delivering ✓ then customer cancel **400**; B/guest-order/
+  no-token/malformed/unknown cancel → 404/404/401/404/404; malformed uuid on
+  read + status routes → 404; final mixed tally (2 cancelled / 1 delivering
+  / 1 pending) matches `status=cancelled` count 2; owner login +
+  `/restaurants/mine` regression; `/health` db up.
+- Two smoke "failures" during development were script bugs, not API bugs
+  (single-cheapest-item was not actually below that restaurant's min —
+  replaced with a deterministic resto+item search; Nest returns **201** for
+  `@Post` and the script expected 200) — fixed, re-ran, green.
+- Dev DB restored to canonical seed (2 users / 6 restos / 27 dishes / 0
+  orders / 0 sessions) via `npm run seed`; API left running on :4000 with
+  the fresh build.
+
+**Docs:** README endpoint table (query params, envelope, cancel route,
+checkout auth wording corrected), ARCHITECTURE orders/pagination/
+optional-auth bullets, ROADMAP item ticked.
+
+**Left for next sessions:** error-format middleware (Phase 1 item 6);
+web login/register pages can now actually store a session and see history;
+docker compose end-to-end still unverified (carried since session 1).
+
 ## 2026-10-19 09:31 — Session 5
 
 **Built:** Phase 1 item 4 — auth refresh tokens + `PATCH /users/me` profile update:

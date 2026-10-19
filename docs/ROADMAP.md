@@ -11,7 +11,7 @@
 - [x] API: owner role on restaurants (`ownerId`), restaurants CRUD for owners (create/update own restaurant)
 - [x] API: menu item CRUD for owners (add/edit/available toggle) + validation tests
 - [x] API: auth refresh tokens + `PATCH /users/me` profile update (jest coverage for all auth paths)
-- [ ] API: orders — filter by status, pagination on `/orders/my`, order cancellation by customer
+- [x] API: orders — filter by status, pagination on `/orders/my`, order cancellation by customer
 - [ ] API: error-format middleware (consistent `{ error: { code, message, details } }`) + tests
 - [ ] Web: login & register pages wired to auth API, token stored, header shows user
 - [ ] Web: order-history page (`/orders/my`) with status badges, pulls live

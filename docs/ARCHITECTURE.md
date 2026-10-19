@@ -23,6 +23,15 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   (matches delivery/logic reality); switching restaurants clears via the cart rule.
 - **Order status machine** — transitions validated server-side
   (`pending→confirmed→preparing→delivering→completed`, cancellable through preparing).
+  `POST /orders/:id/cancel` lets the *customer* use exactly that machine edge
+  (own orders only — foreign/guest orders answer 404 so existence is not
+  leaked); the open `PATCH /:id/status` path remains the restaurant-side lever.
+- **Paginated reads** — `GET /orders/my` (`?status&page&limit`, default 20,
+  max 50) and `GET /restaurants` share the `{items,total,page,limit}` envelope.
+- **Optional auth on checkout** — `POST /orders` uses `OptionalJwtAuthGuard`:
+  a valid access token attaches the order to the user (enabling history and
+  self-cancel); a missing, expired or garbage token silently proceeds as a
+  guest, so a stale session can never break checkout.
 - **JWT access + opaque refresh tokens** — no passport for now; the guard
   verifies Bearer tokens and decorates `req.user` with
   `{sub, email, role, name, typ}`. See *Auth (Phase 1)* below for the full
