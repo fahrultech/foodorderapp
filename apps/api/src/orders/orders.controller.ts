@@ -10,24 +10,39 @@ import {
 } from '@nestjs/common';
 import { OrdersService } from './orders.service';
 import { CreateOrderDto } from './dto/create-order.dto';
+import { ListMyOrdersDto } from './dto/list-my-orders.dto';
 import { OrderStatus } from './order.entity';
 import { JwtAuthGuard } from '../common/jwt-auth.guard';
+import { OptionalJwtAuthGuard } from '../common/optional-jwt-auth.guard';
 import { CurrentUser } from '../common/current-user.decorator';
 
 @Controller('orders')
 export class OrdersController {
   constructor(private readonly service: OrdersService) {}
 
-  /** Guest checkout allowed; attaches user id when bearer token present is handled via /orders/my auth. */
+  /**
+   * Guest checkout allowed. When a valid access token is present the order is
+   * attached to that user (enables /orders/my + self-cancellation); invalid or
+   * expired tokens silently fall back to guest — checkout must never break on
+   * a stale session.
+   */
   @Post()
-  create(@Body() dto: CreateOrderDto) {
-    return this.service.create(dto);
+  @UseGuards(OptionalJwtAuthGuard)
+  create(@Body() dto: CreateOrderDto, @CurrentUser() user?: any) {
+    return this.service.create(dto, user?.sub);
   }
 
   @Get('my')
   @UseGuards(JwtAuthGuard)
-  my(@CurrentUser() user: any) {
-    return this.service.findMine(user.sub);
+  my(@CurrentUser() user: any, @Query() query: ListMyOrdersDto) {
+    return this.service.findMine(user.sub, query);
+  }
+
+  /** Customer cancels their own order while the status machine still permits it. */
+  @Post(':id/cancel')
+  @UseGuards(JwtAuthGuard)
+  cancel(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.service.cancel(id, user.sub);
   }
 
   @Get(':id')

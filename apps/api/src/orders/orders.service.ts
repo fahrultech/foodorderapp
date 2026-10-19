@@ -1,11 +1,17 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { FindOptionsWhere, Repository } from 'typeorm';
 import { Order, OrderStatus } from './order.entity';
 import { OrderItem } from './order-item.entity';
 import { CreateOrderDto } from './dto/create-order.dto';
+import {
+  DEFAULT_PAGE_SIZE,
+  ListMyOrdersDto,
+  MAX_PAGE_SIZE,
+} from './dto/list-my-orders.dto';
 import { MenuService } from '../menu/menu.service';
 import { RestaurantsService } from '../restaurants/restaurants.service';
+import { isUuid } from '../common/uuid';
 
 const STATUS_FLOW: Record<OrderStatus, OrderStatus[]> = {
   [OrderStatus.PENDING]: [OrderStatus.CONFIRMED, OrderStatus.CANCELLED],
@@ -85,6 +91,7 @@ export class OrdersService {
   }
 
   async findOne(id: string) {
+    if (!isUuid(id)) throw new NotFoundException('Order not found');
     const order = await this.orders.findOne({
       where: { id },
       relations: { items: true, restaurant: true },
@@ -93,13 +100,51 @@ export class OrdersService {
     return order;
   }
 
-  async findMine(userId: string) {
-    return this.orders.find({
-      where: { userId },
+  /**
+   * Paginated, status-filterable order history for the authenticated customer.
+   * Returns the same { items, total, page, limit } envelope restaurants.findAll uses.
+   */
+  async findMine(userId: string, q: ListMyOrdersDto = {}) {
+    const page = Math.max(1, Number(q.page) || 1);
+    const limit = Math.min(MAX_PAGE_SIZE, Math.max(1, Number(q.limit) || DEFAULT_PAGE_SIZE));
+
+    const where: FindOptionsWhere<Order> = { userId };
+    if (q.status) where.status = q.status;
+
+    const [items, total] = await this.orders.findAndCount({
+      where,
       relations: { restaurant: true },
       order: { createdAt: 'DESC' },
-      take: 50,
+      skip: (page - 1) * limit,
+      take: limit,
     });
+    return { items, total, page, limit };
+  }
+
+  /**
+   * Customer-initiated cancellation. The customer may only cancel their own
+   * order, and only while the status machine still allows ->CANCELLED
+   * (pending/confirmed/preparing). Once the food is out for delivery the
+   * customer has no self-service cancel — the restaurant/admin path stands.
+   */
+  async cancel(id: string, userId: string) {
+    if (!isUuid(id)) throw new NotFoundException('Order not found');
+    const order = await this.orders.findOne({
+      where: { id },
+      relations: { restaurant: true, items: true },
+    });
+    if (!order) throw new NotFoundException('Order not found');
+    if (order.userId !== userId) {
+      // Same 404 as a missing order — do not leak that it exists under another user.
+      throw new NotFoundException('Order not found');
+    }
+    if (!STATUS_FLOW[order.status].includes(OrderStatus.CANCELLED)) {
+      throw new BadRequestException(
+        `Order can no longer be cancelled (status: ${order.status})`,
+      );
+    }
+    order.status = OrderStatus.CANCELLED;
+    return this.orders.save(order);
   }
 
   async updateStatus(id: string, status: OrderStatus) {
