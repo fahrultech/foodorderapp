@@ -4,6 +4,56 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
+## 2026-10-20 19:50 — Session 10
+
+**Built:** Phase 1 item 9 — **web checkout shows the real delivery fee +
+min-order warning from the restaurant before submit**.
+
+- `apps/web/app/checkout/page.tsx` — on mount (and whenever the cart's
+  restaurant changes) the page fetches `GET /restaurants/:id` — the same
+  source the server prices orders from — and drives three pricing states:
+  - **loading**: fee/total show `loading…`/`—`, submit disabled
+    ("Loading delivery fee…") so users never order blind.
+  - **ready**: summary shows real **Delivery** fee (`free` when 0), a
+    **Minimum order** row, and a true **Total = subtotal + fee**; the
+    Place-order button label carries the same total. If
+    `subtotal < minOrderCents`, an amber `role=alert` banner names the
+    restaurant, the minimum, the exact shortfall ("Add $5.00 more") and a
+    back-to-cart link; submit is disabled with "Below minimum order".
+  - **unavailable** (fetch failed): neutral soft banner explains the fee
+    will be applied server-side and submit stays allowed — mirrors the
+    server as the pricing authority instead of hard-blocking on a transient
+    API error.
+- No API changes needed: `deliveryFeeCents`/`minOrderCents` were already on
+  the restaurant entity/endpoint and enforced in `OrdersService.create`
+  (integer cents throughout; client math is display-only).
+
+**Verified:**
+- `next build` green (`/checkout` prerenders as the client shell).
+- Reused the live API on :4000 (`/health` up); `GET /restaurants/:id`
+  smoke-curl returns fee/min for all 6 seeded restaurants.
+- Real-browser E2E (`next start :3217` + live API + seeded DB), Warung
+  Nusantara (min $10.00, fee $3.00):
+  - below-min: 1 × Es Teh Manis ($5) → banner "…minimum order of $10.00.
+    Add $5.00 more…", button "Below minimum order" **disabled**, delivery
+    $3.00, total $8.00 shown;
+  - ready: + Gado-Gado ($12) → banner gone, button "Place order — $20.00"
+    enabled, Total $20.00; form filled → order **FO-GDKH** placed, redirect
+    to `/orders/:id`, cart cleared;
+  - server pricing matches the estimate exactly: `GET /orders/FO-GDKH` →
+    subtotal 1700 + fee 300 = total 2000 (cents), status pending;
+  - unavailable path: cart pointed at a nonexistent restaurant id → GET 404
+    → soft "Couldn't load the delivery fee…" banner, delivery falls back to
+    "calculated by the kitchen", submit allowed.
+- Empty-cart checkout state regression-checked (still renders the dashed
+  "Nothing to check out" card).
+- Test web server stopped after E2E; :4000 API left running as before.
+
+**Docs:** ROADMAP item ticked.
+
+**Left for next sessions:** next Phase 1 item — cart persistence
+confirmation modal across restaurant switches; then Phase 2 portal.
+
 ## 2026-10-20 14:45 — Session 9
 
 **Built:** Phase 1 item 8 — **web order-history page (`/orders/my`) with

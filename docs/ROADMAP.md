@@ -15,7 +15,7 @@
 - [x] API: error-format middleware (consistent `{ error: { code, message, details } }`) + tests
 - [x] Web: login & register pages wired to auth API, token stored, header shows user
 - [x] Web: order-history page (`/orders/my`) with status badges, pulls live
-- [ ] Web: checkout — show real delivery fee + min-order warning from restaurant before submit
+- [x] Web: checkout — show real delivery fee + min-order warning from restaurant before submit
 - [ ] Web: cart persistence across restaurant switches (confirm-modal UX)
 
 ## Phase 2 — Restaurant portal
