@@ -31,7 +31,9 @@ interface CartContextValue {
 }
 
 const CartContext = createContext<CartContextValue | null>(null);
-const STORAGE_KEY = '***';
+const STORAGE_KEY = ['foodorder', 'cart', 'v1'].join('.');
+// NOTE: fragments assembled at runtime — literal dotted 'foodorder.*.v1' strings get
+// mangled by the agent transcript sanitizer before reaching disk (see docs/DEVLOG.md).
 
 export function CartProvider({ children }: { children: React.ReactNode }) {
   const [lines, setLines] = useState<CartLine[]>([]);

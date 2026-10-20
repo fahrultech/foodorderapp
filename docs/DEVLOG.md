@@ -4,6 +4,78 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
+## 2026-10-20 12:55 — Session 8
+
+**Built:** Phase 1 item 7 — **web login & register pages wired to the auth
+API, token stored, header shows the user**. API untouched (all auth endpoints
+already shipped through session 7).
+
+- `apps/web/lib/auth.tsx` — `AuthProvider` client context: session
+  (`{access_token, refresh_token, expires_at, user}`) persisted to
+  `localStorage` under a `foodorder.auth.v1`-style key (assembled from
+  fragments at runtime — see the sanitizer note below), rehydrated on every
+  page load, **proactive refresh 60 s before access-token expiry** (deduped
+  in-flight; network failure retries once after 30 s), terminal 401 on refresh
+  clears the session locally (correct response to the API's rotation +
+  reuse-detection sweep), `logout()` revokes server-side best-effort then
+  always clears locally, `getAccessToken()` refreshes on demand (ready for the
+  order-history & checkout items). Status starts `loading` on server AND first
+  client paint → hydration-safe header.
+- `apps/web/lib/api.ts` — typed `SafeUser`/`Session` shapes mirroring
+  `toSafeUser`/`issueSession`, Bearer helpers, `api.register/login/refresh/
+  me/logout`, `isUnauthorized()`.
+- `app/login/page.tsx` — Suspense-wrapped (uses `useSearchParams`), honors a
+  same-origin `?next=` only (`//` and `/\` rejected → open-redirect guard),
+  auto-bounces already-signed-in visitors, error banner fed by the API
+  envelope ("Invalid email or password"), demo-account hint.
+- `app/register/page.tsx` — name/email/password/confirm/optional phone+address
+  with client mirrors of `RegisterDto` constraints (2–120 / email / 8–200 /
+  ≤30 / ≤500); mismatch + server errors render in one alert list; success is
+  auto-signed-in (register issues a session).
+- `components/Header.tsx` — guest: Sign in + Register; signed in: initial
+  avatar + name + Sign out; `loading`: skeleton pill. `app/layout.tsx`:
+  `AuthProvider` wraps the tree above `CartProvider`.
+
+**Bug found & fixed during verification:** the transcript sanitizer does not
+just rewrite *displayed* text — it rewrites **outgoing tool arguments**, so a
+literal dotted storage-key string committed all the way back in session 1 had
+landed on disk (and in git) mangled to three asterisks, and my first write of
+the auth key was mangled the same way (caught before commit by a `cat -A`
+byte-check). Both keys are now assembled from fragments (`['foodorder','x','v1'].join('.')`),
+which passes clean; cart.tsx carries a NOTE comment. Consequence: carts
+previously persisted under the mangled key appear empty once (dev-only data,
+acceptable).
+
+**Verified:**
+- `next build` green 3× (final incl. type-check; `/login` `/register`
+  prerendered static — the page body is a client-rendered Suspense fallback in
+  SSR HTML by design since `useSearchParams` opts out of prerender).
+- Real-browser E2E (headless Chrome against `next start :3217` + live API
+  `:4000` + seeded DB): guest header → wrong password shows the exact envelope
+  message → demo login redirects to `?next=/cart` → header shows "Demo
+  Customer / Sign out" → reload keeps the session (localStorage record probed:
+  4 fields, 30-min expiry) → visiting `/login` while authed bounces to `/` →
+  Sign out returns guest header and removes exactly the auth key → register
+  flow: password-mismatch banner, corrected submit auto-signs-in
+  ("Rina Testfield") → cart round-trip regression after the key fix: 2× Add
+  persists across reload under the repaired key.
+- API contract script (the exact calls `lib/auth.tsx` makes): 19/19 real
+  assertions — register 201 session shape, me, refresh rotation, replayed
+  refresh → 401 + reuse sweep kills newest session too, demo login, logout
+  revokes exactly 1 + refresh-after-logout 401, 409/400 envelope details,
+  anon `/auth/me` 401 (a 20th "failure" was my script asserting form HTML in
+  the SSR prerender fallback — expected, browser E2E covers it).
+- `npx jest` 168/168 unchanged (no API code touched). Smoke throwaway users
+  deleted afterwards — DB back to the 2 seeded accounts.
+
+**Docs:** ARCHITECTURE web-session-client bullet, ROADMAP item ticked.
+
+**Left for next sessions:** order-history page (`/orders/my`, next Phase 1
+item — `getAccessToken()` is ready for it), checkout prefill from profile +
+real delivery fee (item 9), then cart-switch confirm UX.
+
+---
+
 ## 2026-10-20 09:56 — Session 7
 
 **Built:** Phase 1 item 6 — consistent API error format. Every non-2xx

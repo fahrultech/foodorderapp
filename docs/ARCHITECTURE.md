@@ -83,6 +83,17 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   verify the old one. Empty patch → 400 (never a silent no-op "success").
 - **No token revocation list for access tokens** — deliberate: short TTL +
   stateless verification. Re-add a deny-list only if TTL ever grows.
+- **Web session client** (`apps/web/lib/auth.tsx`): the storefront keeps the
+  pair in `localStorage` as `{access_token, refresh_token, expires_at, user}`
+  under key `foodorder.auth.v1` and rehydrates on every page load, so sign-in
+  survives reloads. `AuthProvider` refreshes proactively 60 s before access-token
+  expiry (deduped via an in-flight promise; a network failure retries once after
+  30 s), clears the session on the first terminal 401 (revoked/rotated/unknown —
+  the API's reuse-detection sweep makes that the correct client response), and
+  `logout()` revokes server-side best-effort before always clearing locally.
+  Pages never touch the token directly — they call `login/register/logout` or
+  `getAccessToken()`, which refreshes on demand; `/login` honors a same-origin
+  `?next=` only (`//` and `/\` prefixes rejected).
 
 ## Data model (v0)
 

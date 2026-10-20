@@ -26,6 +26,10 @@ docker compose exec api npm run seed
 
 Demo login: `demo@foodorder.app` / `demo1234`
 
+Accounts work end-to-end on the storefront: `/login` and `/register` sign you
+in (session kept in the browser, refreshed automatically), and the header shows
+who is signed in.
+
 ## Local development (no Docker)
 
 ```bash
