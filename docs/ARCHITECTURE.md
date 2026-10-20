@@ -43,6 +43,16 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   `InitSchema` migration reproduces the Phase 0 dev schema exactly. Pending
   migrations run automatically on API boot; `db:stamp-baseline` adopts
   pre-migration databases. Entity changes require a committed migration.
+- **One error envelope everywhere** — a global `ErrorFormatFilter`
+  (`@Catch()`) renders *every* failure — guards, ValidationPipe, controllers,
+  the router's own 404 — as `{ error: { code, message, details } }`,
+  preserving the HTTP status. `code` is stable per status (unknown ones get
+  `HTTP_<n>`); `AppException` carries explicit domain codes + structured
+  `details`. Validation constraint lists move to `details` under a generic
+  `"Validation failed"` headline; non-HttpExceptions are logged with stack
+  and answered as a sanitized 500 so driver internals never reach clients.
+  The web `lib/api.ts` throws a typed `ApiError` (`status`, `code`,
+  `details`) parsed from this envelope. See README *Error envelope*.
 
 ## Auth (Phase 1)
 

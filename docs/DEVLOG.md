@@ -4,6 +4,80 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
+## 2026-10-20 09:56 — Session 7
+
+**Built:** Phase 1 item 6 — consistent API error format. Every non-2xx
+response from the API now has exactly one shape, `{ error: { code, message,
+details } }`, HTTP status preserved:
+- `common/error-format.filter.ts` — global `@Catch()` ExceptionFilter wired
+  in `main.ts` (`app.useGlobalFilters`). Normalizes *all* failure sources:
+  guard/controller `HttpException`s get stable status-derived codes
+  (`NOT_FOUND`, `UNAUTHORIZED`, `CONFLICT`, …, `HTTP_<n>` for exotic ones),
+  ValidationPipe failures move their constraint list into `details` under a
+  `"Validation failed"` headline, the router's implicit 404 (`Cannot GET …`)
+  is enveloped like any other, and any non-HttpException is logged with its
+  stack server-side and answered as a sanitized 500 — driver internals can
+  never reach a client. Object bodies without a usable message fall back to
+  canonical reason phrases (local map; Nest 11 removed `getStatusText`).
+- `common/app-exception.ts` — `AppException(status, code, message, details)`
+  for explicit domain codes (e.g. `MIN_ORDER_NOT_MET`) + structured details;
+  filter passes them through untouched. No existing throw needed changing —
+  the envelope wraps the plain message exceptions as-is; adopting domain
+  codes in services is available for future sessions.
+- `common/app-config.ts` — the ValidationPipe options are now exported as the
+  single source of truth used by both `main.ts` and the integration spec, so
+  tests exercise the *real* production config instead of a re-declared copy.
+- **Web client adapted to the new contract** (it read `body.message`):
+  `apps/web/lib/api.ts` now throws a typed `ApiError(message, status, code,
+  details)` parsed from `body.error`, with fallback to the old shape for
+  robustness. Checkout UI keeps working unchanged (`err.message`).
+
+**Verified:**
+- `nest build` clean; `npx jest` **168/168** across 16 suites (was 145/14) —
+  +11 unit specs (`error-format.filter.spec.ts`: envelope shape for every
+  exception class, always-present `details` key, validation-array→details,
+  AppException passthrough incl. array details, 500 sanitization assert the
+  leak text is *absent*, 418/custom fallbacks, junk-details coercion, code
+  never rewrites status) and +12 HTTP-level integration specs
+  (`error-format.integration.spec.ts`: a real Nest app booted with the
+  production pipe+filter config on an ephemeral port, no supertest — probes
+  success untouched, guard 401, controller 404, unknown-route 404, real
+  ValidationPipe 400 with exact constraint details, injected-prop strip
+  behavior, genuine-crash route returns sanitized 500 with no stack text,
+  AppException round-trip incl. object details, malformed-JSON-body 400).
+- `next build` green; web runtime smoke: `next start` on :3217 → `/` and
+  `/checkout` HTTP 200, home SSR rendered seeded restaurants against the
+  new API.
+- Live API smoke on the new build (:4000, DB reseeded after): **22/22 valid
+  assertions** (a 23rd script expectation — restaurants `?limit` over max →
+  400 — was wrong, not an API bug; see the gap note below) — envelope shape
+  (`code,message,details` exactly) verified on
+  unknown route, malformed/unknown uuid order reads, anon + garbage-token
+  `/orders/my`, bad query enum/page under a valid token (guards run before
+  pipes, so unauthenticated requests 401 first — pre-existing Nest order,
+  caught and corrected my script's assumption), `limit` over max, register
+  validation, duplicate email 409, wrong password 409, unknown refresh 401,
+  below-min-order 400, cancel-without-token 401, cancel foreign order 404,
+  PATCH malformed uuid 404, customer on owner route 403, empty profile patch
+  400, and two success paths (guest 201 server-priced total, `/health`) to
+  prove the filter never touches 2xx bodies.
+- Gap found (pre-existing, honest note): `GET /restaurants` query params are
+  *not* DTO-validated at all (no ListRestaurantsDto — service clamps
+  `limit` to 1..50 defensively), so `?limit=abc` silently falls back to the
+  default instead of answering the ValidationPipe envelope the orders list
+  does. Left as follow-up below.
+
+**Docs:** README gained an *Error envelope* section under API surface;
+ARCHITECTURE decisions bullet; ROADMAP item ticked. Dev DB restored to
+canonical seed; API left running on :4000 with the new build; web smoke
+server stopped.
+
+**Left for next sessions:** add `ListRestaurantsDto` validation for
+`GET /restaurants` (query parity with `/orders/my`); optionally adopt
+`AppException` domain codes in orders/auth services (min-order, status
+transition); docker compose end-to-end still carried from session 1; next
+roadmap item — web login & register pages.
+
 ## 2026-10-19 14:16 — Session 6
 
 **Built:** Phase 1 item 5 — orders status filter + pagination on `/orders/my` + customer cancellation:

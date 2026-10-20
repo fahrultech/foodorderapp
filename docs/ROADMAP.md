@@ -12,7 +12,7 @@
 - [x] API: menu item CRUD for owners (add/edit/available toggle) + validation tests
 - [x] API: auth refresh tokens + `PATCH /users/me` profile update (jest coverage for all auth paths)
 - [x] API: orders — filter by status, pagination on `/orders/my`, order cancellation by customer
-- [ ] API: error-format middleware (consistent `{ error: { code, message, details } }`) + tests
+- [x] API: error-format middleware (consistent `{ error: { code, message, details } }`) + tests
 - [ ] Web: login & register pages wired to auth API, token stored, header shows user
 - [ ] Web: order-history page (`/orders/my`) with status badges, pulls live
 - [ ] Web: checkout — show real delivery fee + min-order warning from restaurant before submit

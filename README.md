@@ -71,6 +71,23 @@ NEXT_PUBLIC_API_URL=http://localhost:4000/api npm run dev
 
 Order status machine: `pending → confirmed → preparing → delivering → completed` (cancellable until preparing).
 
+### Error envelope
+
+Every non-2xx API response has exactly one shape (global `ErrorFormatFilter`):
+
+```json
+{ "error": { "code": "NOT_FOUND", "message": "Order not found", "details": null } }
+```
+
+- `code` — stable machine code. Derived from status (`BAD_REQUEST`, `UNAUTHORIZED`,
+  `FORBIDDEN`, `NOT_FOUND`, `CONFLICT`, `INTERNAL_SERVER_ERROR`, …, `HTTP_<n>` for
+  the rest); domain exceptions can carry a more specific one (e.g. `MIN_ORDER_NOT_MET`).
+- `message` — human-readable; localized later.
+- `details` — `null`, or a `string[]` of validation constraints when
+  `message` is `"Validation failed"`, or a structured object for codes that
+  ship facts (e.g. `{minimumCents, subtotalCents}`).
+- Unexpected errors return a sanitized 500 — internals are logged server-side only.
+
 ## Repo layout
 
 ```
