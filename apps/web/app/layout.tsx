@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import './globals.css';
 import { CartProvider } from '@/lib/cart';
+import { AuthProvider } from '@/lib/auth';
 import Header from '@/components/Header';
 
 export const metadata: Metadata = {
@@ -12,13 +13,15 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en">
       <body>
-        <CartProvider>
-          <Header />
-          <main className="mx-auto max-w-6xl px-4 pb-24 pt-6">{children}</main>
-          <footer className="border-t border-stone-200 py-8 text-center text-sm text-stone-500">
-            FoodOrder — built with Next.js, NestJS and PostgreSQL
-          </footer>
-        </CartProvider>
+        <AuthProvider>
+          <CartProvider>
+            <Header />
+            <main className="mx-auto max-w-6xl px-4 pb-24 pt-6">{children}</main>
+            <footer className="border-t border-stone-200 py-8 text-center text-sm text-stone-500">
+              FoodOrder — built with Next.js, NestJS and PostgreSQL
+            </footer>
+          </CartProvider>
+        </AuthProvider>
       </body>
     </html>
   );

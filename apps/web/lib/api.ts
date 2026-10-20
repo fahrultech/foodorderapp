@@ -59,6 +59,37 @@ export interface Order {
   createdAt: string;
 }
 
+/** Client-facing user shape (matches `toSafeUser` on the API). */
+export interface SafeUser {
+  id: string;
+  email: string;
+  name: string;
+  phone: string | null;
+  address: string | null;
+  role: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Response of register/login/refresh — one auth session. */
+export interface Session {
+  access_token: string;
+  refresh_token: string;
+  token_type: string;
+  /** Access-token lifetime in seconds. */
+  expires_in: number;
+  refresh_expires_at: string;
+  user: SafeUser;
+}
+
+export interface RegisterInput {
+  email: string;
+  name: string;
+  password: string;
+  phone?: string;
+  address?: string;
+}
+
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api';
 
 /** Error thrown by `request()` for non-2xx API responses. */
@@ -95,6 +126,16 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+/** Bearer header for the authed endpoints. */
+function bearer(token: string): { Authorization: string } {
+  return { Authorization: `Bearer ${token}` };
+}
+
+/** True when an ApiError means "the access token is no longer accepted". */
+export function isUnauthorized(err: unknown): boolean {
+  return err instanceof ApiError && err.status === 401;
+}
+
 export const api = {
   listRestaurants: (params: { search?: string; cuisine?: string } = {}) => {
     const qs = new URLSearchParams();
@@ -108,6 +149,27 @@ export const api = {
   createOrder: (payload: CreateOrderPayload) =>
     request<Order>('/orders', { method: 'POST', body: JSON.stringify(payload) }),
   getOrder: (id: string) => request<Order>(`/orders/${id}`),
+  // --- auth ---
+  register: (input: RegisterInput) =>
+    request<Session>('/auth/register', { method: 'POST', body: JSON.stringify(input) }),
+  login: (email: string, password: string) =>
+    request<Session>('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ email, password }),
+    }),
+  /** Rotate the refresh token for a brand-new session (old token is single-use). */
+  refresh: (refreshToken: string) =>
+    request<Session>('/auth/refresh', {
+      method: 'POST',
+      body: JSON.stringify({ refresh_token: refreshToken }),
+    }),
+  me: (accessToken: string) => request<SafeUser>('/auth/me', { headers: bearer(accessToken) }),
+  logout: (accessToken: string, refreshToken: string) =>
+    request<{ success: boolean; revoked_sessions: number }>('/auth/logout', {
+      method: 'POST',
+      headers: bearer(accessToken),
+      body: JSON.stringify({ refresh_token: refreshToken }),
+    }),
 };
 
 export function formatPrice(cents: number): string {
