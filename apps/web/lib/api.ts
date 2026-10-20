@@ -61,6 +61,19 @@ export interface Order {
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api';
 
+/** Error thrown by `request()` for non-2xx API responses. */
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly code?: string,
+    readonly details?: unknown,
+  ) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_URL}${path}`, {
     ...init,
@@ -69,7 +82,15 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body?.message || `API error ${res.status}`);
+    // API error envelope: { error: { code, message, details } } (docs/ARCHITECTURE.md)
+    const envelope = body?.error;
+    const legacy = Array.isArray(body?.message) ? body.message.join('; ') : body?.message;
+    throw new ApiError(
+      envelope?.message || legacy || `API error ${res.status}`,
+      res.status,
+      envelope?.code,
+      envelope?.details ?? null,
+    );
   }
   return res.json() as Promise<T>;
 }
