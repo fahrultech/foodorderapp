@@ -50,6 +50,12 @@ export default function Header() {
           )}
           {status === 'signedIn' && user && (
             <>
+              <Link
+                href="/orders/my"
+                className={pathname.startsWith('/orders') ? 'font-semibold text-brand-600' : 'text-stone-600 hover:text-stone-900'}
+              >
+                My orders
+              </Link>
               <span className="hidden items-center gap-1.5 sm:flex" title={user.email}>
                 <span
                   aria-hidden

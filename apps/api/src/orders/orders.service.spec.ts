@@ -62,6 +62,8 @@ describe('OrdersService.findMine — pagination + status filter', () => {
     expect(args.skip).toBe(0);
     expect(args.take).toBe(20);
     expect(args.order).toEqual({ createdAt: 'DESC' });
+    // history cards show a line summary + restaurant without extra calls
+    expect(args.relations).toEqual({ restaurant: true, items: true });
     expect(out).toMatchObject({ page: 1, limit: 20 });
     expect(Array.isArray(out.items)).toBe(true);
   });

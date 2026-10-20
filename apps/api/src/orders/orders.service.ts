@@ -113,7 +113,9 @@ export class OrdersService {
 
     const [items, total] = await this.orders.findAndCount({
       where,
-      relations: { restaurant: true },
+      // items included so the web order-history page can render a per-order
+      // line summary without an extra request per card.
+      relations: { restaurant: true, items: true },
       order: { createdAt: 'DESC' },
       skip: (page - 1) * limit,
       take: limit,

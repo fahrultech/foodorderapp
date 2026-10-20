@@ -59,6 +59,32 @@ export interface Order {
   createdAt: string;
 }
 
+/** Status values the API's OrderStatus enum accepts (see apps/api/src/orders/order.entity.ts). */
+export const ORDER_STATUSES = [
+  'pending',
+  'confirmed',
+  'preparing',
+  'delivering',
+  'completed',
+  'cancelled',
+] as const;
+export type OrderStatus = (typeof ORDER_STATUSES)[number];
+
+/** Statuses from which a customer may still cancel (mirrors STATUS_FLOW in the API). */
+export const CANCELABLE_STATUSES: ReadonlySet<OrderStatus> = new Set([
+  'pending',
+  'confirmed',
+  'preparing',
+]);
+
+/** Page envelope of GET /orders/my (same shape restaurants list uses, plus page/limit). */
+export interface MyOrdersPage {
+  items: Order[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
 /** Client-facing user shape (matches `toSafeUser` on the API). */
 export interface SafeUser {
   id: string;
@@ -149,6 +175,24 @@ export const api = {
   createOrder: (payload: CreateOrderPayload) =>
     request<Order>('/orders', { method: 'POST', body: JSON.stringify(payload) }),
   getOrder: (id: string) => request<Order>(`/orders/${id}`),
+  /**
+   * Paginated order history for the signed-in customer. Server caps limit at
+   * 50 and returns newest-first; `status` must be one of ORDER_STATUSES.
+   */
+  listMyOrders: (
+    accessToken: string,
+    params: { status?: OrderStatus; page?: number; limit?: number } = {},
+  ) => {
+    const qs = new URLSearchParams();
+    if (params.status) qs.set('status', params.status);
+    if (params.page) qs.set('page', String(params.page));
+    if (params.limit) qs.set('limit', String(params.limit));
+    const suffix = qs.toString() ? `?${qs.toString()}` : '';
+    return request<MyOrdersPage>(`/orders/my${suffix}`, { headers: bearer(accessToken) });
+  },
+  /** Self-cancel while the status machine allows it (pending/confirmed/preparing). */
+  cancelOrder: (accessToken: string, id: string) =>
+    request<Order>(`/orders/${id}/cancel`, { method: 'POST', headers: bearer(accessToken) }),
   // --- auth ---
   register: (input: RegisterInput) =>
     request<Session>('/auth/register', { method: 'POST', body: JSON.stringify(input) }),
