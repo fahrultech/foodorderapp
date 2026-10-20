@@ -27,7 +27,9 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   (own orders only — foreign/guest orders answer 404 so existence is not
   leaked); the open `PATCH /:id/status` path remains the restaurant-side lever.
 - **Paginated reads** — `GET /orders/my` (`?status&page&limit`, default 20,
-  max 50) and `GET /restaurants` share the `{items,total,page,limit}` envelope.
+  max 50) and `GET /restaurants` share the `{items,total,page,limit}` envelope;
+  `/orders/my` rows load `restaurant` + `items` relations so the web history
+  page renders full cards in one request.
 - **Optional auth on checkout** — `POST /orders` uses `OptionalJwtAuthGuard`:
   a valid access token attaches the order to the user (enabling history and
   self-cancel); a missing, expired or garbage token silently proceeds as a

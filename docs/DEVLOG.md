@@ -4,6 +4,70 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
+## 2026-10-20 14:45 — Session 9
+
+**Built:** Phase 1 item 8 — **web order-history page (`/orders/my`) with
+status badges, pulls live**.
+
+- `apps/web/app/orders/my/page.tsx` — client page: auth-gated (guests get a
+  sign-in prompt linking `/login?next=/orders/my`, already honored by the
+  login page's open-redirect-safe `?next=` handling), live `GET /orders/my`
+  rows newest-first, **status filter chips** (All + 6 statuses), **status
+  badges** per order, per-order line summary (first 2 items + "+N more"),
+  totals in cents via `formatPrice`, pagination footer + Prev/Next at
+  `limit=10`, manual ↻ Refresh, and **silent 30 s polling** while the tab is
+  visible so badges stay live without skeleton flicker.
+- Self-service **Cancel order** button rendered only where the client copy of
+  the state machine allows it (`pending/confirmed/preparing` — mirrors
+  `STATUS_FLOW`); confirm dialog → `POST /orders/:id/cancel` → success notice
+  + silent reload; API 400 ("can no longer be cancelled") surfaces as a
+  red banner and the list refreshes to the truth.
+- 401-on-read handling: retry once with a rotated token via `getAccessToken()`,
+  second 401 → local sign-out → guest prompt (terminal revocation is the
+  correct answer, matching the session model from session 8).
+- `apps/web/lib/api.ts` — `listMyOrders` / `cancelOrder` bearer methods,
+  `ORDER_STATUSES`, `CANCELABLE_STATUSES`, `MyOrdersPage` envelope type.
+  `components/StatusBadge.tsx` — shared badge with literal per-status Tailwind
+  classes (scanner-safe). `Header.tsx` — "My orders" nav link for signed-in
+  users. Loading state renders identically server + first client paint
+  (hydration-safe).
+- Small API enabler: `findMine` now loads `items` alongside `restaurant`
+  relations, so one request renders full cards (unit tests assert both).
+
+**Verified:**
+- `nest build` clean; `jest` **168/168** (16 suites) incl. updated
+  `findMine` relations assertion. `next build` green — `/orders/my` prerenders
+  as the static client shell by design.
+- API restarted on :4000 (fresh build); **curl smoke 22/22**: 401 no/garbage
+  token; 5 authed orders created via Bearer checkout; rows carry
+  restaurant+items[]; newest-first; `?status=` filter + BAD_REQUEST on junk
+  status; `limit=2` pages 1/2/3 → 2/2/1 rows with distinct content; cancel →
+  cancelled, re-cancel → BAD_REQUEST, cancelled row under filter; guest-order
+  cancel → 404 (no existence leak); completed-order cancel → BAD_REQUEST;
+  public list + `/health` regression green.
+- Real-browser E2E (`next start :3217` + live API + seeded DB): guest prompt →
+  demo login through `?next=/orders/my` → 5 live cards with exactly the
+  expected badge mix; filter chips hit the server (Cancelled 1, Completed 1,
+  Pending 2, Preparing → empty state); cancel button present only on
+  Pending/Confirmed cards; UI cancel → notice, card left the Pending view,
+  **hard reload kept the server state** (2 Cancelled / 1 Pending); Details
+  link targets the real order UUID; Refresh re-pulls; header shows "My
+  orders"; guest "Smoke Guest" order never leaked into user history; sign out
+  returns the guest prompt. (Screenshot IPC timed out twice — harness-only,
+  all assertions taken from the live DOM.)
+- Throwaway data cleaned: the 6 smoke orders deleted via psql (DB back to 0
+  orders / 2 seeded users), `:3217` server stopped, `:4000` left running the
+  committed build.
+
+**Docs:** README endpoint-table row note, ARCHITECTURE paginated-reads bullet,
+ROADMAP item ticked.
+
+**Left for next sessions:** checkout real-fee + min-order warning (Phase 1
+item 9), cart-switch confirm UX (item 10), then Phase 2 portal — the
+`CANCELABLE_STATUSES`/badge pieces here are reusable for the owner inbox.
+
+---
+
 ## 2026-10-20 12:55 — Session 8
 
 **Built:** Phase 1 item 7 — **web login & register pages wired to the auth
