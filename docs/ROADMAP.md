@@ -6,7 +6,7 @@
 
 ## Phase 0 — Foundation (day 1) ✅ done in initial commits
 
-## Phase 1 — Core ordering, hardened
+## Phase 1 — Core ordering, hardened ✅ complete 2026-10-21
 - [x] API: replace `synchronize: true` with TypeORM migrations (baseline migration from current schema)
 - [x] API: owner role on restaurants (`ownerId`), restaurants CRUD for owners (create/update own restaurant)
 - [x] API: menu item CRUD for owners (add/edit/available toggle) + validation tests
@@ -16,7 +16,7 @@
 - [x] Web: login & register pages wired to auth API, token stored, header shows user
 - [x] Web: order-history page (`/orders/my`) with status badges, pulls live
 - [x] Web: checkout — show real delivery fee + min-order warning from restaurant before submit
-- [ ] Web: cart persistence across restaurant switches (confirm-modal UX)
+- [x] Web: cart persistence across restaurant switches (confirm-modal UX)
 
 ## Phase 2 — Restaurant portal
 - [ ] Portal: owner dashboard route (`/dashboard`) — orders inbox by status

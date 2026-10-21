@@ -20,7 +20,11 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
 - **Server-side pricing** — order totals are computed from DB menu prices at
   checkout, never trusted from the client. Cart contents only send `menuItemId`s.
 - **One-restaurant carts** — a cart holds dishes from a single restaurant
-  (matches delivery/logic reality); switching restaurants clears via the cart rule.
+  (matches delivery/logic reality). Adding a dish from a *different*
+  restaurant never wipes the cart silently: the CartProvider raises a
+  `switchRequest` and a confirmation modal ("Start a new cart?") shows the
+  current cart (count, restaurant, subtotal) vs the one-item new cart —
+  Keep discards the add, Replace swaps. Escape/backdrop close = Keep.
 - **Order status machine** — transitions validated server-side
   (`pending→confirmed→preparing→delivering→completed`, cancellable through preparing).
   `POST /orders/:id/cancel` lets the *customer* use exactly that machine edge

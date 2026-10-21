@@ -4,6 +4,53 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
+## 2026-10-21 10:49 — Session 11
+
+**Built:** Phase 1 item 10 (last one — **Phase 1 complete**) — **cart
+persistence across restaurant switches via a confirmation modal**.
+
+- `apps/web/lib/cart.tsx` — `add()` no longer silently wipes the cart when a
+  dish from a *different* restaurant is added. It now returns
+  `'added' | 'needs-switch'`; on foreign items it raises a `switchRequest`
+  (item snapshot + target restaurant) and leaves the cart untouched.
+  New `confirmSwitch()` replaces the cart with a single line for the pending
+  item, `cancelSwitch()` dismisses. Same-restaurant adds keep the previous
+  merge/qty-cap behavior. localStorage key + hydration logic unchanged.
+- `apps/web/components/CartSwitchModal.tsx` (new) — presentational
+  `role=dialog aria-modal` rendered by `CartProvider` (no import cycle:
+  dialog imports only the `SwitchRequest` *type* from cart.tsx). Body names
+  both sides of the switch with live numbers — "Your cart holds N items from
+  X ($Y)… adding Z from W would discard your current cart" — plus a
+  "New cart would contain" preview card. Focus lands on **Keep current
+  cart** (safe default); Escape and backdrop click both cancel; card click
+  is stop-propagated.
+- `apps/web/components/AddToCartButton.tsx` — flashes "Added ✓" only on the
+  `'added'` result, so a blocked switch never pretends the dish went in.
+
+**Verified:**
+- `next build` green (8/8 pages).
+- Real-browser E2E (`next start :3217` + live :4000 API + seeded DB):
+  - 2 items added at Warung Nusantara → badge 2; navigate to Sushi Kan →
+    Add → dialog "Start a new cart?" with exact copy "2 items from Warung
+    Nusantara ($43.00)" + Salmon Nigiri $19.00 preview; badge stayed 2
+    (cart not wiped);
+  - **Escape** → dialog gone, badge 2 · **Keep current cart** → dialog gone,
+    badge 2 · **Replace cart** → badge 1, `/cart` shows "From Sushi Kan" +
+    the nigiri line, $19.00 subtotal;
+  - reload → cart persisted (badge 1, From Sushi Kan);
+  - regression: two adds from the *same* restaurant → no dialog, badge
+    increments normally;
+  - a11y attributes confirmed live: `aria-modal=true`,
+    `aria-labelledby/describedby` wired, autofocus on Keep.
+- Test web server stopped; :4000 API left running; browser localStorage
+  cleared after E2E.
+
+**Docs:** ROADMAP item ticked + Phase 1 marked complete, ARCHITECTURE
+one-restaurant-cart bullet rewritten to describe the confirm flow.
+
+**Left for next sessions:** Phase 2 begins — owner dashboard route
+(`/dashboard`) orders inbox (first unchecked item).
+
 ## 2026-10-20 19:50 — Session 10
 
 **Built:** Phase 1 item 9 — **web checkout shows the real delivery fee +
