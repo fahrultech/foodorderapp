@@ -3,14 +3,10 @@
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAuth } from '@/lib/auth';
-import {
-  ApiError,
-  ORDER_STATUSES,
-  api,
-  formatPrice,
-  isUnauthorized,
-} from '@/lib/api';
+import { ORDER_STATUSES, api, formatPrice } from '@/lib/api';
+import { authedCall } from '@/lib/authed-call';
 import type { Order, OrderStatus, Restaurant, RestaurantOrdersPage } from '@/lib/api';
+import PortalTabs from '@/components/PortalTabs';
 import StatusBadge from '@/components/StatusBadge';
 
 /**
@@ -66,48 +62,6 @@ function lineSummary(order: Order): string {
   const lines = order.items ?? [];
   if (lines.length === 0) return '—';
   return lines.map((l) => `${l.quantity} × ${l.name}`).join(', ');
-}
-
-/**
- * One authed API call with the same resilience the customer history page
- * uses: on 401 rotate once and retry; a second 401 signs this device out.
- * Returns a discriminated result so callers can tell signed-out (silent)
- * from a real error (banner).
- */
-async function authedCall<T>(
-  getAccessToken: () => Promise<string | null>,
-  logout: () => Promise<void>,
-  fn: (token: string) => Promise<T>,
-): Promise<{ ok: true; data: T } | { ok: false; kind: 'signedOut' } | { ok: false; kind: 'error'; message: string }> {
-  const token = await getAccessToken();
-  if (!token) return { ok: false, kind: 'signedOut' };
-  try {
-    return { ok: true, data: await fn(token) };
-  } catch (err) {
-    if (isUnauthorized(err)) {
-      const fresh = await getAccessToken();
-      try {
-        if (fresh) return { ok: true, data: await fn(fresh) };
-      } catch (err2) {
-        if (!isUnauthorized(err2)) {
-          return {
-            ok: false,
-            kind: 'error',
-            message: err2 instanceof ApiError ? err2.message : 'Cannot reach the API.',
-          };
-        }
-        await logout();
-        return { ok: false, kind: 'signedOut' };
-      }
-      await logout();
-      return { ok: false, kind: 'signedOut' };
-    }
-    return {
-      ok: false,
-      kind: 'error',
-      message: err instanceof ApiError ? err.message : 'Cannot reach the API. Is the server running?',
-    };
-  }
 }
 
 export default function DashboardPage() {
@@ -279,6 +233,7 @@ export default function DashboardPage() {
     return (
       <div className="mx-auto max-w-2xl">
         <h1 className="text-2xl font-extrabold">Restaurant dashboard</h1>
+        <PortalTabs />
         <div className="mt-6 rounded-2xl border border-dashed border-stone-300 bg-white p-10 text-center">
           <p className="text-2xl">🍳</p>
           <h2 className="mt-2 text-lg font-bold">You don’t own a restaurant yet</h2>
@@ -309,6 +264,9 @@ export default function DashboardPage() {
           ↻ Refresh
         </button>
       </div>
+
+      {/* Portal section nav (shared with /dashboard/menu) */}
+      <PortalTabs />
 
       {/* Restaurant switcher — only when the owner has more than one */}
       {restaurants && restaurants.length > 1 && (

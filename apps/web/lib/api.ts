@@ -27,6 +27,24 @@ export interface MenuItem {
   restaurantId: string;
 }
 
+/**
+ * Owner menu write payload. `POST /restaurants/:id/menu` takes the whole
+ * shape; `PATCH /menu/items/:id` takes any subset. Optional text fields sent
+ * as `null` explicitly CLEAR the value (class-validator @IsOptional skips
+ * null/undefined and MenuService stores it). Money is integer cents — use
+ * `parseMoneyToCents` for user input, never float math.
+ */
+export interface MenuItemInput {
+  name: string;
+  priceCents: number;
+  description?: string | null;
+  category?: string | null;
+  imageUrl?: string | null;
+  prepMinutes?: number;
+  /** Create-only: start the dish hidden (draft). Updates go via the availability route. */
+  isAvailable?: boolean;
+}
+
 export interface OrderLine {
   menuItemId: string;
   name: string;
@@ -243,6 +261,42 @@ export const api = {
       { method: 'PATCH', headers: bearer(accessToken) },
     ),
 
+  // --- owner menu management ---
+  /**
+   * FULL dish list for a restaurant — the owner view. Public route, but the
+   * storefront renders `GET /restaurants/:id` instead; this returns items in
+   * ANY availability (drafts included), sorted category/name like the server.
+   */
+  listRestaurantMenu: (restaurantId: string) =>
+    request<MenuItem[]>(`/restaurants/${restaurantId}/menu`),
+  /** POST /restaurants/:restaurantId/menu — ownership enforced server-side. */
+  createMenuItem: (accessToken: string, restaurantId: string, input: MenuItemInput) =>
+    request<MenuItem>(`/restaurants/${restaurantId}/menu`, {
+      method: 'POST',
+      headers: bearer(accessToken),
+      body: JSON.stringify(input),
+    }),
+  /** PATCH /menu/items/:id — only present keys change; availability lives on its own route. */
+  updateMenuItem: (accessToken: string, itemId: string, patchBody: Partial<MenuItemInput>) =>
+    request<MenuItem>(`/menu/items/${itemId}`, {
+      method: 'PATCH',
+      headers: bearer(accessToken),
+      body: JSON.stringify(patchBody),
+    }),
+  /** PATCH /menu/items/:id/availability — first-class toggle. */
+  setMenuItemAvailability: (accessToken: string, itemId: string, isAvailable: boolean) =>
+    request<MenuItem>(`/menu/items/${itemId}/availability`, {
+      method: 'PATCH',
+      headers: bearer(accessToken),
+      body: JSON.stringify({ isAvailable }),
+    }),
+  /**
+   * DELETE /menu/items/:id — hard delete. Past orders keep name/price
+   * snapshots (order_items FK is ON DELETE SET NULL), so history stays readable.
+   */
+  deleteMenuItem: (accessToken: string, itemId: string) =>
+    request<MenuItem>(`/menu/items/${itemId}`, { method: 'DELETE', headers: bearer(accessToken) }),
+
   // --- auth ---
   register: (input: RegisterInput) =>
     request<Session>('/auth/register', { method: 'POST', body: JSON.stringify(input) }),
@@ -269,3 +323,23 @@ export const api = {
 export function formatPrice(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
 }
+
+/**
+ * Dollar string -> integer cents WITHOUT float math ("12", "12.5", "12.50"),
+ * mirroring the API's priceCents bounds (1 … 10_000_000). Returns null for
+ * anything the server would reject — the server stays the authority; this is
+ * only for fast client feedback.
+ */
+export function parseMoneyToCents(raw: string): number | null {
+  const s = raw.trim().replace(/\s+/g, '');
+  if (!/^\d{1,8}(\.\d{1,2})?$/.test(s)) return null;
+  const [whole, frac = ''] = s.split('.');
+  const cents = Number(whole) * 100 + Number((frac + '00').slice(0, 2));
+  return cents >= 1 && cents <= 10000000 ? cents : null;
+}
+
+/** Integer cents -> form input value ("1250" -> "12.50"). */
+export function centsToInput(cents: number): string {
+  return (cents / 100).toFixed(2);
+}
+
