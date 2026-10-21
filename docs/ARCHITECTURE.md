@@ -48,6 +48,17 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   then the order must live under the path's restaurant (else 404 — a foreign
   order id gives no information) and the move must be a `STATUS_FLOW` edge.
 
+- **Owner menu manager** — web `/dashboard/menu` does full dish CRUD on the
+  existing owner routes (`POST /restaurants/:id/menu`, `PATCH /menu/items/:id`,
+  `PATCH /menu/items/:id/availability`, `DELETE /menu/items/:id`, all
+  JWT+OWNER+ownership-guarded in `MenuService.assertCanManage`). The list view
+  reads the UNFILTERED `GET /restaurants/:id/menu` so hidden drafts stay
+  visible to the owner; the edit form clears optional text fields by sending
+  `null` (@IsOptional skips null → MenuService stores it). `MenuService.remove`
+  snapshots the entity BEFORE `repo.remove()` — TypeORM's `remove()` nulls the
+  primary column on the disposed entity, so a naive `return item` serialized
+  JSON without `id` (caught by session 14 runtime smoke; the jest repo mock
+  now reproduces the mutation to guard it).
 - **Optional auth on checkout** — `POST /orders` uses `OptionalJwtAuthGuard`:
   a valid access token attaches the order to the user (enabling history and
   self-cancel); a missing, expired or garbage token silently proceeds as a

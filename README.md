@@ -24,11 +24,15 @@ Seed the demo data (restaurants, menus, demo users):
 docker compose exec api npm run seed
 ```
 
-Demo login: `demo@foodorder.app` / `demo1234`
+Demo logins: `demo@foodorder.app` / `demo1234` (customer) and
+`owner@foodorder.app` / `demo1234` (owns Warung Nusantara + Seoul Street).
 
 Accounts work end-to-end on the storefront: `/login` and `/register` sign you
 in (session kept in the browser, refreshed automatically), and the header shows
-who is signed in.
+who is signed in. Owner accounts also get a portal — `/dashboard` (order inbox
+with accept/prepare/deliver/complete/cancel actions) and `/dashboard/menu`
+(add, edit, hide and delete dishes) — both gated server-side by JWT + owner
+role + restaurant ownership, not just by the UI.
 
 ## Local development (no Docker)
 

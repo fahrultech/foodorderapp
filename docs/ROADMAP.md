@@ -21,7 +21,7 @@
 ## Phase 2 — Restaurant portal
 - [x] Portal: owner dashboard route (`/dashboard`) — orders inbox by status
 - [x] Portal: owner can accept (pending→confirmed), start, deliver, complete, cancel
-- [ ] Portal: menu management UI (CRUD against owner endpoints)
+- [x] Portal: menu management UI (CRUD against owner endpoints)
 - [ ] Portal: live order updates via polling every 10s → then SSE
 - [x] API: `/restaurants/:id/orders` scoped to owner with JWT role guard
 

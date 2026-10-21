@@ -4,6 +4,87 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
+## 2026-10-21 18:57 — Session 14
+
+**Built:** Phase 2 item 3 — **owner menu management UI** at
+`/dashboard/menu`: full dish CRUD against the existing owner endpoints
+(no new API surface for the feature itself), plus one real API bug the
+runtime smoke caught and fixed on the way.
+
+- `apps/web/app/dashboard/menu/page.tsx` (new) — restaurant switcher +
+  full dish list from `GET /restaurants/:id/menu` (UNFILTERED, so hidden
+  drafts are visible to the owner), rows grouped by category in server
+  order (category, name), per-row **Hide/Show** (first-class availability
+  route), **Edit** and two-step **Delete** (Delete → Confirm/Keep, no
+  window.confirm). Toggle + delete patch the list in place; create/edit
+  refetch (renames can move a row between category groups). Single
+  write in flight at a time (row buttons disable, `…` on the busy row);
+  failures raise the amber banner; gating + skeletons mirror `/dashboard`
+  (signed-out card, customer card, no-restaurant empty state, storefront
+  deep link, dish/hidden counts in the subtitle).
+- `apps/web/components/MenuItemForm.tsx` (new) — create/edit dialog for
+  name*, price*, category (datalist of existing categories), description,
+  imageUrl, prepMinutes (+ create-only "start as hidden draft" checkbox).
+  Client mirrors DTO bounds but the server is authority (a rejected submit
+  keeps the dialog open with typed values intact). Money via
+  `parseMoneyToCents`/`centsToInput` in `lib/api.ts` — integer cents, no
+  float math ("12.50" → 1250 by string split). Clearing category/
+  description/imageUrl on edit sends explicit `null` (@IsOptional skips
+  null; MenuService stores it). Escape/backdrop close; availability is NOT
+  an edit field (it has its own route + row toggle).
+- `apps/web/lib/api.ts` — `MenuItemInput` + `listRestaurantMenu`,
+  `createMenuItem`, `updateMenuItem`, `setMenuItemAvailability`,
+  `deleteMenuItem`; money helpers above.
+- `apps/web/lib/authed-call.ts` (new) — the dashboard's rotate-and-retry
+  auth helper EXTRACTED verbatim (no behavior change) so both portal pages
+  share it; `apps/web/app/dashboard/page.tsx` now imports it and got the
+  same `PortalTabs` nav (Orders ↔ Menu) as the menu page.
+- `components/PortalTabs.tsx` (new) — two-pill portal section nav.
+- **API fix** `apps/api/src/menu/menu.service.ts` — `remove()` returned the
+  entity AFTER `repo.remove()`, and TypeORM nulls the primary column on the
+  disposed entity, so `DELETE /menu/items/:id` answered 200 with JSON
+  **missing `id`**. Now snapshots `{ ...item }` before deletion.
+  `menu.service.spec.ts` — repo `remove` mock now reproduces that
+  in-place PK mutation (the old identity mock was hiding the bug): reverting
+  the service fix makes 'owner deletes own dish' FAIL (red→green proven),
+  and the runtime smoke covers the real TypeORM path.
+
+**Verified:**
+- `next build` green — `/dashboard/menu` 7 kB (First Load 113 kB),
+  `/dashboard` still 5.89 kB after the helper extraction.
+- `jest` **186/186 pass** (16 suites) after the spec-mock change; targeted
+  RED proof: with the snapshot line reverted, menu suite = 1 failed, with
+  the fix = 31/31; full suite green again before commit.
+- API rebuilt (`nest build`), booted on :4000 against local Postgres.
+- Runtime smoke (`scratch/smoke_menu_crud.py`, **24/24 PASS**, live
+  curl-equivalents as the demo owner): create dish + create hidden draft;
+  draft visible in owner list view; update incl. `null`-clear of category;
+  hide/show toggle; guest order of the updated dish priced from the EDITED
+  price (3500¢); DELETE returns the full dish now; deleted dish absent
+  from menu; **order line snapshot survives the delete** (name+price kept,
+  menuItemId FK nulled); no-token → 401; customer token create/edit/delete
+  → 403; owner editing/deleting a Sushi Kan (foreign) dish → 403;
+  whitespace name → 400; priceCents 0 → 400; whitelist strips body
+  `restaurantId`/`evil` → dish still lands under the URL restaurant.
+  Temp dishes cleaned up; menu count restored to baseline.
+- `next start -p 3100` served `/dashboard/menu` HTTP 200 (auth-gated
+  client shell renders its skeleton server-side, as designed; killed after).
+
+**Docs:** README now lists both demo accounts + the portal (orders inbox and
+menu manager, server-side gating noted); ARCHITECTURE gained the
+owner-menu-manager bullet (incl. the TypeORM `remove()` PK-nulling trap);
+ROADMAP Phase 2 item 3 ticked.
+
+**Artifacts left in dev DB:** one `Smoke Menu` guest order (completed dish
+deleted, snapshot intact) — same harmless demo noise as earlier sessions.
+
+**Left for next sessions:** Phase 2 item 4 — 10s polling → SSE for the
+dashboard. Menu rows could later get an image thumbnail + drag-reorder
+(polish pass). (Checked, no issue: hidden dishes still render on the
+storefront but `AddToCartButton` disables them and `OrdersService` rejects
+ordering an unavailable dish with 400 — verified by grep of both paths.)
+
+
 ## 2026-10-21 15:19 — Session 13
 
 **Built:** Phase 2 item 2 — **owner status actions on the dashboard inbox**
