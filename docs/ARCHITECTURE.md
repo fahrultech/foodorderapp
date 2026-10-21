@@ -29,7 +29,9 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   (`pending→confirmed→preparing→delivering→completed`, cancellable through preparing).
   `POST /orders/:id/cancel` lets the *customer* use exactly that machine edge
   (own orders only — foreign/guest orders answer 404 so existence is not
-  leaked); the open `PATCH /:id/status` path remains the restaurant-side lever.
+  leaked); restaurant-side progression goes through the owner-scoped
+  `PATCH /restaurants/:id/orders/:orderId/status` route, and the generic
+  `PATCH /orders/:id/status` path is admin-only (it used to be open).
 - **Paginated reads** — `GET /orders/my` (`?status&page&limit`, default 20,
   max 50) and `GET /restaurants` share the `{items,total,page,limit}` envelope;
   `/orders/my` rows load `restaurant` + `items` relations so the web history
@@ -40,7 +42,12 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   `JwtAuthGuard + RolesGuard @Roles(OWNER)` and re-checked in
   `OrdersService.findForRestaurant`: only the restaurant's owner (or an admin)
   may read its orders — restaurant pages are public, order data is not. The
-  web `/dashboard` page consumes it after `GET /restaurants/mine`.
+  web `/dashboard` page consumes it after `GET /restaurants/mine`, and its
+  action buttons use `PATCH /restaurants/:id/orders/:orderId/status`
+  (`OrdersService.setStatusForRestaurant`): same guard + ownership check,
+  then the order must live under the path's restaurant (else 404 — a foreign
+  order id gives no information) and the move must be a `STATUS_FLOW` edge.
+
 - **Optional auth on checkout** — `POST /orders` uses `OptionalJwtAuthGuard`:
   a valid access token attaches the order to the user (enabling history and
   self-cancel); a missing, expired or garbage token silently proceeds as a

@@ -4,6 +4,72 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
+## 2026-10-21 15:19 — Session 13
+
+**Built:** Phase 2 item 2 — **owner status actions on the dashboard inbox**
+(accept / start preparing / out for delivery / complete / cancel), closing the
+security gap session 12 flagged: restaurant-side transitions now go through a
+scoped, authenticated route and the previously-open generic route is admin-only.
+
+- `apps/api/src/orders/orders.service.ts` — `setStatusForRestaurant(restaurantId,
+  orderId, status, actor)`: restaurant 404 → ownership 403 (admin bypass) →
+  order 404 if it lives under a DIFFERENT restaurant than the path (existence
+  of foreign order ids is not leaked) → `STATUS_FLOW` 400 → save. Ownership
+  check extracted into `getOwnedRestaurant`, now shared with
+  `findForRestaurant` (identical semantics, no behavior change to the inbox).
+- `apps/api/src/orders/dto/set-order-status.dto.ts` (new) — `@IsEnum(OrderStatus)`
+  on the `status` query param: junk values get a clean 400 from ValidationPipe
+  instead of falling through to the service's generic message.
+- `apps/api/src/orders/restaurant-orders.controller.ts` —
+  `PATCH :orderId/status` with `JwtAuthGuard + RolesGuard @Roles(OWNER)`
+  (customer token → 403; admin passes the role gate and relies on the
+  service-side bypass — RolesGuard lets ADMIN through any @Roles list).
+- `apps/api/src/orders/orders.controller.ts` — **hardening:** `PATCH /orders/:id/status`
+  was completely unauthenticated; now `JwtAuthGuard + RolesGuard @Roles(ADMIN)`
+  as the ops backdoor. No code in web/seed called it (grep confirmed).
+- `apps/web/lib/api.ts` — `setRestaurantOrderStatus(token, rid, oid, status)`.
+- `apps/web/app/dashboard/page.tsx` — per-status action buttons on inbox cards
+  from an `OWNER_ACTIONS` map mirroring STATUS_FLOW (server is still the
+  authority): pending → Accept + Cancel, confirmed → Start preparing + Cancel,
+  preparing → Out for delivery + Cancel, delivering → Mark completed, terminal
+  statuses → none. Success patches the card's status AND the tab counts in
+  place (no refetch flash); one action in flight at a time (all buttons
+  disabled, busy card shows `…`); failures raise an amber alert banner;
+  401s use the shared rotate-and-retry `authedCall`. Subtitle no longer says
+  "read-only".
+- Tests: 15 new jest specs (`OrdersService.setStatusForRestaurant` describe):
+  each legal edge ×4, owner-cancel ×3 + delivering-cancel refused, illegal
+  back-migrations leave orders untouched, 403-before-load + admin bypass on
+  an unowned restaurant, cross-restaurant order 404, unknown-restaurant /
+  malformed-order-id / missing-order 404s without a save, guest order
+  (userId null) actionable by the restaurant owner.
+
+**Verified:**
+- `nest build` clean; `jest` **186/186 pass** (16 suites; orders suite 36).
+- `next build` green (`/dashboard` 5.37 kB).
+- API booted on :4000 against local Postgres; new route mapped in startup log.
+- Runtime smoke (`/home/ubuntu/.hermes/cache/scratch/smoke_owner_actions.py`,
+  25/25 PASS, live curl-equivalents): full chain
+  pending→confirmed→preparing→delivering→completed on a fresh guest order at
+  the demo owner's Seoul Street; back-migration from completed → 400; junk
+  status value → 400; skip-ahead pending→delivering → 400; owner cancel
+  pending→cancelled → 200; no-token → 401; customer token → 403; owner
+  PATCHing a foreign restaurant's path → 403; foreign order id under the
+  owner's path → 404; generic `PATCH /orders/:id/status` → 401 unauth / 403
+  owner / 403 customer.
+- Three "Smoke ..." guest orders left in the dev DB (A completed, B cancelled,
+  C pending at Sushi Kan — invisible in the demo owner's inbox); harmless
+  demo noise, same as earlier sessions' smoke artifacts.
+
+**Docs:** README route table (new owner-action row; generic status row marked
+admin-only), ARCHITECTURE status-machine + owner-inbox bullets, ROADMAP item 2
+ticked.
+
+**Left for next sessions:** Phase 2 item 3 — menu management UI (CRUD against
+the existing owner menu endpoints); then item 4 — 10s polling → SSE. The
+dashboard could also show an "order moved" hint when a card's status leaves
+the active tab filter — minor polish.
+
 ## 2026-10-21 14:00 — Session 12
 
 **Built:** Phase 2 items 1 + 5 (the dashboard can't exist without its API,
