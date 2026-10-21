@@ -1,10 +1,10 @@
 # FoodOrder — Daily Session Plan
 
-**Date:** 2026-10-21 (Wednesday)
+**Date:** 2026-10-22 (Thursday)
 **Sessions:** 4 (randomized)
-**Start times (Asia/Shanghai):** 10:49, 13:49, 15:19, 18:45
+**Start times (Asia/Shanghai):** 12:32, 16:10, 17:45, 19:42
 
-- Each session runs the one-shot dev job `foodorder-run-2026-10-21-HHMM`.
+- Each session runs the one-shot dev job `foodorder-run-2026-10-22-HHMM`.
 - Randomization rules: starts inside 09:05–19:55, sorted, ≥90 minutes apart, minutes never :00/:30.
 - Schedule is regenerated every working morning (Mon–Sat) by the morning planner; do not reuse a previous day's pattern.
 - **Sunday is a rest day — no coding sessions.**
