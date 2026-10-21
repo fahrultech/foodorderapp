@@ -110,10 +110,14 @@ export class MenuService {
   /**
    * Hard delete. Safe for history: order_items keeps name/price snapshots and
    * its menuItemId FK is ON DELETE SET NULL, so past orders stay readable.
+   * Returns a PRE-DELETE snapshot: TypeORM's `remove()` nulls the primary
+   * column on the entity it disposes, so returning `item` directly would
+   * serialize JSON WITHOUT `id` (found by runtime smoke, session 14).
    */
   async remove(id: string, actor: Actor): Promise<MenuItem> {
     const item = await this.loadManagedItem(id, actor);
+    const removed = { ...item };
     await this.repo.remove(item);
-    return item;
+    return removed;
   }
 }

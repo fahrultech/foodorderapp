@@ -50,7 +50,14 @@ function build(
     ),
     create: jest.fn((x: any) => x),
     save: jest.fn(async (x: any) => ({ ...fakeItem(), ...x })),
-    remove: jest.fn(async (x: any) => x),
+    // Faithful to TypeORM: remove() DISPOSES the entity IN PLACE, nulling its
+    // primary column — so a naive `return item` after remove() loses `id`
+    // (the exact bug session 14's runtime smoke caught). The service must
+    // snapshot before calling this; reverting that would fail the tests below.
+    remove: jest.fn(async (x: any) => {
+      delete x.id;
+      return x;
+    }),
   };
   const restaurantRepo: any = {
     findOne: jest.fn(async ({ where }: any) =>
