@@ -4,6 +4,72 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
+## 2026-10-21 14:00 — Session 12
+
+**Built:** Phase 2 items 1 + 5 (the dashboard can't exist without its API,
+so both landed as one vertical slice) — **owner portal `/dashboard` orders
+inbox** backed by **`GET /restaurants/:id/orders`** scoped to the owner.
+
+- `apps/api/src/orders/orders.service.ts` — `findForRestaurant(restaurantId,
+  actor, query)`: ownership enforced server-side (unknown/garbage id → 404,
+  foreign restaurant → 403, admin bypass), same `ListMyOrdersDto`
+  status/page/limit as `findMine`, plus a per-status `counts` map computed
+  over ALL statuses so inbox tabs stay accurate while a filter is active.
+- `apps/api/src/orders/restaurant-orders.controller.ts` (new) —
+  `@Controller('restaurants/:id/orders')` with `JwtAuthGuard + RolesGuard
+  @Roles(OWNER)`; lives in OrdersModule (which already imports
+  RestaurantsModule) to avoid a module cycle. Registered in `orders.module.ts`.
+- `apps/web/lib/api.ts` — `listMyRestaurants` + `listRestaurantOrders` and
+  the `RestaurantOrdersPage` envelope type (`counts: Record<OrderStatus, number>`).
+- `apps/web/app/dashboard/page.tsx` (new) — client page: auth-gated (guest →
+  sign-in prompt with `?next=/dashboard`; customer role → "portal is for
+  restaurant owners" card), loads `/restaurants/mine` (empty → owner empty
+  state), restaurant switcher when the owner has 2+, status tabs with live
+  count badges, newest-first order cards (code, badge, time, full line list,
+  customer/phone/address/note block, total incl. delivery), Details link to
+  `/orders/:id`, Prev/Next pagination, manual ↻ Refresh. 401 → rotate-and-
+  retry once, terminal 401 signs the device out (shared `authedCall` helper).
+  Read-only by design — accept/complete actions and 10s polling are the next
+  portal items.
+- `apps/web/components/Header.tsx` — "Dashboard" nav link only for
+  owner/admin roles.
+- `apps/api/src/database/seed.ts` — 7 demo orders across statuses: 4 at Warung
+  Nusantara + 2 at Seoul Street (both owned by `owner@foodorder.app`) and 1 at
+  Sushi Kan (NOT owned — proves scoping on a fresh clone); FO-SEED1 is attached
+  to `demo@foodorder.app` so customer history has data too. Integer-cent
+  snapshots mirror `OrdersService.create`.
+
+**Verified:**
+- `nest build` clean; jest 16 suites / 173 tests pass — 5 new
+  `findForRestaurant` specs (404 before any query, 403 non-owner + admin
+  bypass, strict restaurant scoping, newest-first pagination + limit clamping,
+  status filter with all-status counts).
+- `next build` green (9/9 pages, `/dashboard` prerenders as client shell).
+- Dev DB rebuilt via `npm run seed` (6 restos, 27 dishes, 7 orders) and API
+  restarted on :4000 from the new build. Curl smoke as owner: `/restaurants/
+  mine` → 2 restaurants; Warung inbox → total 4, counts
+  {pending 1, confirmed 1, preparing 1, completed 1}, items carry line items;
+  `?status=pending&limit=5` → FO-SEED1 only, counts unchanged; foreign
+  restaurant → 403; garbage id → 404 envelope; no token → 401;
+  `?status=bogus` → 400 validation message; customer token → 403
+  "Insufficient role". Regression: `/orders/my` as demo shows seeded FO-SEED1.
+- Real-browser E2E (`next start :3217` + live :4000): owner login → header
+  shows Dashboard → Seoul Street inbox renders (tabs All2/Pending1/
+  Cancelled1, cards FO-SEED5/6); switch to Warung → All4 tabs + FO-SEED4→1
+  newest-first, Sushi Kan's FO-SEED7 absent; Pending tab → FO-SEED1 only +
+  "1 order pending" footer; Details → `/orders/:id` with correct $28.00 +
+  $3.00 = $31.00 server-priced totals. Customer account: no Dashboard link,
+  /dashboard renders the owner-only card; guest: sign-in prompt.
+- Test web server stopped; :4000 API left running; browser localStorage cleared.
+
+**Docs:** README endpoint table + ARCHITECTURE "Owner inbox scoping" bullet,
+ROADMAP items 1 and 5 ticked.
+
+**Left for next sessions:** Phase 2 item 2 — owner status actions
+(accept/start/deliver/complete/cancel from the inbox; the open
+`PATCH /orders/:id/status` route is currently unauthenticated and should get
+the same owner guard when wired); then menu management UI, then 10s polling.
+
 ## 2026-10-21 10:49 — Session 11
 
 **Built:** Phase 1 item 10 (last one — **Phase 1 complete**) — **cart

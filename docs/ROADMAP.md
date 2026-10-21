@@ -19,11 +19,11 @@
 - [x] Web: cart persistence across restaurant switches (confirm-modal UX)
 
 ## Phase 2 — Restaurant portal
-- [ ] Portal: owner dashboard route (`/dashboard`) — orders inbox by status
+- [x] Portal: owner dashboard route (`/dashboard`) — orders inbox by status
 - [ ] Portal: owner can accept (pending→confirmed), start, deliver, complete, cancel
 - [ ] Portal: menu management UI (CRUD against owner endpoints)
 - [ ] Portal: live order updates via polling every 10s → then SSE
-- [ ] API: `/restaurants/:id/orders` scoped to owner with JWT role guard
+- [x] API: `/restaurants/:id/orders` scoped to owner with JWT role guard
 
 ## Phase 3 — Customer experience
 - [ ] Dish search within restaurant page + category anchors

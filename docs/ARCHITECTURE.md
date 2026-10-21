@@ -34,6 +34,13 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   max 50) and `GET /restaurants` share the `{items,total,page,limit}` envelope;
   `/orders/my` rows load `restaurant` + `items` relations so the web history
   page renders full cards in one request.
+- **Owner inbox scoping** — `GET /restaurants/:id/orders` (same query DTO +
+  envelope, plus a per-status `counts` map computed over ALL statuses so the
+  dashboard tabs stay accurate while filtered) is guarded by
+  `JwtAuthGuard + RolesGuard @Roles(OWNER)` and re-checked in
+  `OrdersService.findForRestaurant`: only the restaurant's owner (or an admin)
+  may read its orders — restaurant pages are public, order data is not. The
+  web `/dashboard` page consumes it after `GET /restaurants/mine`.
 - **Optional auth on checkout** — `POST /orders` uses `OptionalJwtAuthGuard`:
   a valid access token attaches the order to the user (enabling history and
   self-cancel); a missing, expired or garbage token silently proceeds as a

@@ -63,6 +63,7 @@ NEXT_PUBLIC_API_URL=http://localhost:4000/api npm run dev
 | POST | `/api/restaurants` | Create own restaurant (owner) |
 | PATCH | `/api/restaurants/:id` | Edit own restaurant (owner) |
 | GET | `/api/restaurants/mine` | Owner's restaurants |
+| GET | `/api/restaurants/:id/orders` | Owner orders inbox (Bearer, owner role) — `?status=&page=&limit=`, returns `{items,total,page,limit,counts}`; ownership enforced server-side (403 for foreign restaurants, admins bypass) |
 | POST | `/api/restaurants/:restaurantId/menu` | Add dish (owner) |
 | PATCH | `/api/menu/items/:id` | Edit dish (owner) |
 | PATCH | `/api/menu/items/:id/availability` | Toggle availability (owner) |
