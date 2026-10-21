@@ -14,15 +14,42 @@ import type { Order, OrderStatus, Restaurant, RestaurantOrdersPage } from '@/lib
 import StatusBadge from '@/components/StatusBadge';
 
 /**
- * Owner portal (Phase 2): orders inbox for the signed-in owner's restaurants.
- * v1 is read-only — accept/start/deliver/complete actions and live updates are
- * the following roadmap items. Data comes from GET /restaurants/:id/orders,
- * which the API scopes to the caller (JWT + owner role + ownership check).
+ * Owner portal (Phase 2): orders inbox for the signed-in owner's restaurants,
+ * with status actions (accept / start preparing / out for delivery / complete
+ * / cancel) wired to PATCH /restaurants/:id/orders/:orderId/status — the API
+ * scopes every call to the caller (JWT + owner role + ownership + flow check).
+ * Live updates via polling are the next roadmap item.
  */
 
 const PAGE_SIZE = 10;
 
 type Filter = 'all' | OrderStatus;
+
+/**
+ * Owner-side action buttons per status. Mirrors STATUS_FLOW in the API, but
+ * the server is the authority: anything illegal gets a 400 anyway. `kind`
+ * only picks the styling (forward progression vs destructive cancel).
+ */
+const OWNER_ACTIONS: Record<
+  OrderStatus,
+  { to: OrderStatus; label: string; kind: 'primary' | 'danger' }[]
+> = {
+  pending: [
+    { to: 'confirmed', label: '✓ Accept', kind: 'primary' },
+    { to: 'cancelled', label: 'Cancel', kind: 'danger' },
+  ],
+  confirmed: [
+    { to: 'preparing', label: 'Start preparing', kind: 'primary' },
+    { to: 'cancelled', label: 'Cancel', kind: 'danger' },
+  ],
+  preparing: [
+    { to: 'delivering', label: 'Out for delivery', kind: 'primary' },
+    { to: 'cancelled', label: 'Cancel', kind: 'danger' },
+  ],
+  delivering: [{ to: 'completed', label: '✓ Mark completed', kind: 'primary' }],
+  completed: [],
+  cancelled: [],
+};
 
 function formatDateTime(iso: string): string {
   try {
@@ -93,6 +120,8 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  const [busyOrderId, setBusyOrderId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const isOwnerish = user?.role === 'owner' || user?.role === 'admin';
 
@@ -123,6 +152,7 @@ export default function DashboardPage() {
     if (status !== 'signedIn' || !isOwnerish || !selectedId) return;
     setLoading(true);
     setError(null);
+    setActionError(null);
     const res = await authedCall(getAccessToken, logout, (t) =>
       api.listRestaurantOrders(t, selectedId, {
         status: filter === 'all' ? undefined : filter,
@@ -148,6 +178,40 @@ export default function DashboardPage() {
     setPage(1);
     setFilter('all');
     setData(null);
+  }
+
+  /**
+   * Fire an owner status action. On success the inbox is patched IN PLACE
+   * (item status + the two affected tab counts) instead of refetching — one
+   * card moving between tabs is cheap to track locally, and a stale refetch
+   * could flash the old state. One action at a time: every button disables
+   * while a PATCH is in flight.
+   */
+  async function act(order: Order, action: { to: OrderStatus; label: string }) {
+    if (!selectedId || busyOrderId) return;
+    setBusyOrderId(order.id);
+    setActionError(null);
+    const res = await authedCall(getAccessToken, logout, (t) =>
+      api.setRestaurantOrderStatus(t, selectedId, order.id, action.to),
+    );
+    if (res.ok) {
+      setData((d) => {
+        if (!d) return d;
+        const from = order.status as OrderStatus;
+        return {
+          ...d,
+          items: d.items.map((o) => (o.id === order.id ? { ...o, status: action.to } : o)),
+          counts: {
+            ...d.counts,
+            [from]: Math.max(0, d.counts[from] - 1),
+            [action.to]: d.counts[action.to] + 1,
+          },
+        };
+      });
+    } else if (res.kind === 'error') {
+      setActionError(`"${action.label}" failed: ${res.message}`);
+    }
+    setBusyOrderId(null);
   }
 
   const selected = useMemo(
@@ -234,8 +298,8 @@ export default function DashboardPage() {
         <div>
           <h1 className="text-2xl font-extrabold">Restaurant dashboard</h1>
           <p className="mt-1 text-sm text-stone-500">
-            Incoming orders for {selected?.name ?? 'your restaurant'} · read-only inbox (status
-            actions coming next)
+            Incoming orders for {selected?.name ?? 'your restaurant'} · act on each order as it
+            moves through the kitchen
           </p>
         </div>
         <button
@@ -311,6 +375,15 @@ export default function DashboardPage() {
         </p>
       )}
 
+      {actionError && (
+        <p
+          className="mt-4 rounded-xl bg-amber-50 px-4 py-2.5 text-sm font-semibold text-amber-800"
+          role="alert"
+        >
+          {actionError}
+        </p>
+      )}
+
       {loading && !data ? (
         <div className="mt-6 space-y-4">
           {[0, 1, 2].map((i) => (
@@ -364,12 +437,29 @@ export default function DashboardPage() {
                       incl. {formatPrice(order.deliveryFeeCents)} delivery
                     </span>
                   </span>
-                  <Link
-                    href={`/orders/${order.id}`}
-                    className="rounded-lg bg-stone-900 px-3 py-1.5 text-xs font-bold text-white hover:bg-stone-700"
-                  >
-                    Details
-                  </Link>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {(OWNER_ACTIONS[order.status as OrderStatus] ?? []).map((a) => (
+                      <button
+                        key={a.to}
+                        onClick={() => void act(order, a)}
+                        disabled={busyOrderId !== null}
+                        aria-busy={busyOrderId === order.id}
+                        className={`rounded-lg px-3 py-1.5 text-xs font-bold transition-colors disabled:cursor-wait disabled:opacity-50 ${
+                          a.kind === 'primary'
+                            ? 'bg-emerald-600 text-white hover:bg-emerald-700'
+                            : 'border border-rose-200 bg-white text-rose-700 hover:bg-rose-50'
+                        }`}
+                      >
+                        {busyOrderId === order.id ? '…' : a.label}
+                      </button>
+                    ))}
+                    <Link
+                      href={`/orders/${order.id}`}
+                      className="rounded-lg bg-stone-900 px-3 py-1.5 text-xs font-bold text-white hover:bg-stone-700"
+                    >
+                      Details
+                    </Link>
+                  </div>
                 </div>
               </div>
             ))}

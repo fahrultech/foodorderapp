@@ -340,3 +340,158 @@ describe('OrdersService.findForRestaurant — owner orders inbox', () => {
     expect((count as jest.Mock).mock.calls.length).toBe(6);
   });
 });
+
+describe('OrdersService.setStatusForRestaurant — owner status actions', () => {
+  const REST_ID = '11111111-1111-4111-8111-111111111111';
+  const OTHER_REST = '22222222-2222-4222-8222-222222222222';
+  const ADMIN_ID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+  const ownerActor = { sub: OWNER_ID, role: UserRole.OWNER };
+
+  function buildActions(
+    order: Order | null,
+    opts: { ownerId?: string | null; restaurantExists?: boolean } = {},
+  ) {
+    const findOne = jest.fn(async ({ where }: any) =>
+      order && order.id === where.id ? order : null,
+    );
+    const save = jest.fn(async (x: Order) => x);
+    const repo = { findOne, save } as unknown as Repository<Order>;
+    const restaurants = {
+      findOne: jest.fn(async (id: string) =>
+        !isUuid(id) || opts.restaurantExists === false
+          ? null
+          : ({ id, ownerId: opts.ownerId ?? OWNER_ID } as any),
+      ),
+    } as unknown as RestaurantsService;
+    const service = new OrdersService(repo, {} as MenuService, restaurants);
+    return { service, findOne, save };
+  }
+
+  const legal: Array<[OrderStatus, OrderStatus]> = [
+    [OrderStatus.PENDING, OrderStatus.CONFIRMED],
+    [OrderStatus.CONFIRMED, OrderStatus.PREPARING],
+    [OrderStatus.PREPARING, OrderStatus.DELIVERING],
+    [OrderStatus.DELIVERING, OrderStatus.COMPLETED],
+  ];
+  it.each(legal)(
+    'owner advances a %s order to %s',
+    async (from: OrderStatus, to: OrderStatus) => {
+      const order = fakeOrder({ restaurantId: REST_ID, status: from });
+      const { service, save } = buildActions(order);
+      const out: any = await service.setStatusForRestaurant(
+        REST_ID,
+        ORDER_ID,
+        to,
+        ownerActor,
+      );
+      expect(out.status).toBe(to);
+      expect(save).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it.each([OrderStatus.PENDING, OrderStatus.CONFIRMED, OrderStatus.PREPARING])(
+    'owner can cancel a %s order (restaurant-side cancellation)',
+    async (from: OrderStatus) => {
+      const order = fakeOrder({ restaurantId: REST_ID, status: from });
+      const { service } = buildActions(order);
+      const out: any = await service.setStatusForRestaurant(
+        REST_ID,
+        ORDER_ID,
+        OrderStatus.CANCELLED,
+        ownerActor,
+      );
+      expect(out.status).toBe(OrderStatus.CANCELLED);
+    },
+  );
+
+  it('refuses owner-cancel of a delivering order — food is already out', async () => {
+    const order = fakeOrder({ restaurantId: REST_ID, status: OrderStatus.DELIVERING });
+    const { service, save } = buildActions(order);
+    await expect(
+      service.setStatusForRestaurant(REST_ID, ORDER_ID, OrderStatus.CANCELLED, ownerActor),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  it('400s illegal transitions and leaves the order untouched', async () => {
+    for (const [from, to] of [
+      [OrderStatus.PENDING, OrderStatus.DELIVERING],
+      [OrderStatus.PENDING, OrderStatus.COMPLETED],
+      [OrderStatus.COMPLETED, OrderStatus.CONFIRMED],
+      [OrderStatus.CANCELLED, OrderStatus.PENDING],
+    ] as Array<[OrderStatus, OrderStatus]>) {
+      const order = fakeOrder({ restaurantId: REST_ID, status: from });
+      const { service, save } = buildActions(order);
+      await expect(
+        service.setStatusForRestaurant(REST_ID, ORDER_ID, to, ownerActor),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(order.status).toBe(from);
+      expect(save).not.toHaveBeenCalled();
+    }
+  });
+
+  it('403s a non-owner before loading the order; admin bypasses', async () => {
+    const order = fakeOrder({ restaurantId: REST_ID });
+    const intruder = buildActions(order, { ownerId: INTRUDER_ID });
+    await expect(
+      intruder.service.setStatusForRestaurant(REST_ID, ORDER_ID, OrderStatus.CONFIRMED, {
+        sub: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+        role: UserRole.OWNER,
+      }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(intruder.findOne).not.toHaveBeenCalled();
+
+    // Admin passes even an unowned (ownerId null) restaurant.
+    const admin = buildActions(order, { ownerId: null });
+    const out: any = await admin.service.setStatusForRestaurant(
+      REST_ID,
+      ORDER_ID,
+      OrderStatus.CONFIRMED,
+      { sub: ADMIN_ID, role: UserRole.ADMIN },
+    );
+    expect(out.status).toBe(OrderStatus.CONFIRMED);
+  });
+
+  it('404s an order that lives under a different restaurant than the path', async () => {
+    const order = fakeOrder({ restaurantId: OTHER_REST });
+    const { service, save } = buildActions(order);
+    await expect(
+      service.setStatusForRestaurant(REST_ID, ORDER_ID, OrderStatus.CONFIRMED, ownerActor),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  it('404s for unknown restaurant or malformed/garbage ids before saving', async () => {
+    const order = fakeOrder({ restaurantId: REST_ID });
+
+    const gone = buildActions(order, { restaurantExists: false });
+    await expect(
+      gone.service.setStatusForRestaurant(REST_ID, ORDER_ID, OrderStatus.CONFIRMED, ownerActor),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(gone.findOne).not.toHaveBeenCalled();
+
+    const badOrder = buildActions(order);
+    await expect(
+      badOrder.service.setStatusForRestaurant(REST_ID, 'not-a-uuid', OrderStatus.CONFIRMED, ownerActor),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(badOrder.findOne).not.toHaveBeenCalled();
+
+    const missing = buildActions(null);
+    await expect(
+      missing.service.setStatusForRestaurant(REST_ID, ORDER_ID, OrderStatus.CONFIRMED, ownerActor),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('owner can action a guest order (userId null) under their restaurant', async () => {
+    const order = fakeOrder({ restaurantId: REST_ID, userId: null });
+    const { service } = buildActions(order);
+    const out: any = await service.setStatusForRestaurant(
+      REST_ID,
+      ORDER_ID,
+      OrderStatus.CONFIRMED,
+      ownerActor,
+    );
+    expect(out.status).toBe(OrderStatus.CONFIRMED);
+  });
+});
+

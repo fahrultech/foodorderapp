@@ -143,11 +143,7 @@ export class OrdersService {
     actor: { sub: string; role: UserRole },
     q: ListMyOrdersDto = {},
   ) {
-    const restaurant = await this.restaurants.findOne(restaurantId);
-    if (!restaurant) throw new NotFoundException('Restaurant not found');
-    if (actor.role !== UserRole.ADMIN && restaurant.ownerId !== actor.sub) {
-      throw new ForbiddenException('You do not own this restaurant');
-    }
+    await this.getOwnedRestaurant(restaurantId, actor);
 
     const page = Math.max(1, Number(q.page) || 1);
     const limit = Math.min(MAX_PAGE_SIZE, Math.max(1, Number(q.limit) || DEFAULT_PAGE_SIZE));
@@ -169,6 +165,59 @@ export class OrdersService {
     }
 
     return { items, total, page, limit, counts };
+  }
+
+  /**
+   * Shared ownership gate for the owner portal routes: unknown/malformed
+   * restaurant -> 404; someone else's restaurant -> 403 (admins bypass).
+   * Same semantics findForRestaurant has always had.
+   */
+  private async getOwnedRestaurant(
+    restaurantId: string,
+    actor: { sub: string; role: UserRole },
+  ): Promise<{ id: string; ownerId: string | null }> {
+    const restaurant = await this.restaurants.findOne(restaurantId);
+    if (!restaurant) throw new NotFoundException('Restaurant not found');
+    if (actor.role !== UserRole.ADMIN && restaurant.ownerId !== actor.sub) {
+      throw new ForbiddenException('You do not own this restaurant');
+    }
+    return restaurant;
+  }
+
+  /**
+   * Owner-portal status action (Phase 2): the restaurant's owner (or an admin)
+   * moves one of that restaurant's orders along STATUS_FLOW — accept, start
+   * preparing, out for delivery, complete, or cancel on the restaurant's side.
+   * Ordering of checks matters: 404 restaurant, 403 foreign restaurant, then
+   * 404 for an order that does not exist *or* lives under a different
+   * restaurant (the path scope is enforced without leaking other
+   * restaurants' order existence), then 400 for a flow violation. The
+   * restaurant the order belongs to is loaded via findOne's relations, so the
+   * response shape matches the rest of the orders API.
+   */
+  async setStatusForRestaurant(
+    restaurantId: string,
+    orderId: string,
+    status: OrderStatus,
+    actor: { sub: string; role: UserRole },
+  ) {
+    await this.getOwnedRestaurant(restaurantId, actor);
+    if (!isUuid(orderId)) throw new NotFoundException('Order not found');
+
+    const order = await this.orders.findOne({
+      where: { id: orderId },
+      relations: { items: true, restaurant: true },
+    });
+    if (!order || order.restaurantId !== restaurantId) {
+      throw new NotFoundException('Order not found');
+    }
+    if (!STATUS_FLOW[order.status].includes(status)) {
+      throw new BadRequestException(
+        `Cannot move order from ${order.status} to ${status}`,
+      );
+    }
+    order.status = status;
+    return this.orders.save(order);
   }
 
   /**

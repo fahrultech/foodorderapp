@@ -14,7 +14,10 @@ import { ListMyOrdersDto } from './dto/list-my-orders.dto';
 import { OrderStatus } from './order.entity';
 import { JwtAuthGuard } from '../common/jwt-auth.guard';
 import { OptionalJwtAuthGuard } from '../common/optional-jwt-auth.guard';
+import { RolesGuard } from '../common/roles.guard';
+import { Roles } from '../common/roles.decorator';
 import { CurrentUser } from '../common/current-user.decorator';
+import { UserRole } from '../users/user.entity';
 
 @Controller('orders')
 export class OrdersController {
@@ -55,8 +58,17 @@ export class OrdersController {
     return { next: await this.service.nextStatuses(id) };
   }
 
+  /**
+   * Generic status transition — ADMIN only since Phase 2. Owner-portal
+   * actions go through PATCH /restaurants/:id/orders/:orderId/status, which
+   * scopes the write to the caller's restaurants; this route stays as the
+   * ops backdoor and used to be completely unauthenticated.
+   */
   @Patch(':id/status')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
   updateStatus(@Param('id') id: string, @Query('status') status: OrderStatus) {
     return this.service.updateStatus(id, status);
   }
+
 }

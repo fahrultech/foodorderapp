@@ -226,6 +226,23 @@ export const api = {
       { headers: bearer(accessToken) },
     );
   },
+  /**
+   * Owner status action — PATCH /restaurants/:rid/orders/:oid/status?status=.
+   * Server enforces: JWT + owner role + the restaurant belongs to the caller
+   * (admins bypass) + the order lives under that restaurant + STATUS_FLOW.
+   * Illegal transition -> 400, foreign restaurant -> 403, wrong-path order -> 404.
+   */
+  setRestaurantOrderStatus: (
+    accessToken: string,
+    restaurantId: string,
+    orderId: string,
+    status: OrderStatus,
+  ) =>
+    request<Order>(
+      `/restaurants/${restaurantId}/orders/${orderId}/status?status=${status}`,
+      { method: 'PATCH', headers: bearer(accessToken) },
+    ),
+
   // --- auth ---
   register: (input: RegisterInput) =>
     request<Session>('/auth/register', { method: 'POST', body: JSON.stringify(input) }),
