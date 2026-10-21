@@ -50,6 +50,14 @@ export default function Header() {
           )}
           {status === 'signedIn' && user && (
             <>
+              {(user.role === 'owner' || user.role === 'admin') && (
+                <Link
+                  href="/dashboard"
+                  className={pathname.startsWith('/dashboard') ? 'font-semibold text-brand-600' : 'text-stone-600 hover:text-stone-900'}
+                >
+                  Dashboard
+                </Link>
+              )}
               <Link
                 href="/orders/my"
                 className={pathname.startsWith('/orders') ? 'font-semibold text-brand-600' : 'text-stone-600 hover:text-stone-900'}

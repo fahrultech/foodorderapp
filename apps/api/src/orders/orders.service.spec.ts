@@ -1,9 +1,15 @@
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
 import { Repository } from 'typeorm';
 import { OrdersService } from './orders.service';
 import { Order, OrderStatus } from './order.entity';
 import { MenuService } from '../menu/menu.service';
 import { RestaurantsService } from '../restaurants/restaurants.service';
+import { UserRole } from '../users/user.entity';
+import { isUuid } from '../common/uuid';
 
 const ORDER_ID = '55555555-5555-4555-8555-555555555555';
 const OWNER_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -189,5 +195,148 @@ describe('OrdersService.findOne — malformed uuid guard', () => {
   it('404s on a well-formed but unknown id', async () => {
     const { service } = build([]);
     await expect(service.findOne(ORDER_ID)).rejects.toBeInstanceOf(NotFoundException);
+  });
+});
+
+describe('OrdersService.findForRestaurant — owner orders inbox', () => {
+  const REST_ID = '11111111-1111-4111-8111-111111111111';
+  const OTHER_REST = '22222222-2222-4222-8222-222222222222';
+  const ADMIN_ID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+
+  const ownerActor = { sub: OWNER_ID, role: UserRole.OWNER };
+
+  function buildPortal(
+    orders: Order[],
+    opts: { ownerId?: string | null; restaurantExists?: boolean } = {},
+  ) {
+    const findAndCount = jest.fn(async ({ where, skip, take }: any) => {
+      const all = orders
+        .filter(
+          (o) =>
+            o.restaurantId === where.restaurantId &&
+            (!where.status || o.status === where.status),
+        )
+        .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+      return [all.slice(skip ?? 0, (skip ?? 0) + (take ?? all.length)), all.length];
+    });
+    const count = jest.fn(async ({ where }: any) =>
+      orders.filter((o) => o.restaurantId === where.restaurantId && o.status === where.status)
+        .length,
+    );
+    const repo = { findAndCount, count } as unknown as Repository<Order>;
+    const restaurants = {
+      findOne: jest.fn(async (id: string) =>
+        !isUuid(id) || opts.restaurantExists === false
+          ? null
+          : ({ id, ownerId: opts.ownerId ?? OWNER_ID } as any),
+      ),
+    } as unknown as RestaurantsService;
+    const service = new OrdersService(repo, {} as MenuService, restaurants);
+    return { service, findAndCount, count, restaurants };
+  }
+
+  const at = (n: number) => new Date(2026, 9, n);
+
+  it('404s for an unknown or malformed restaurant id before listing anything', async () => {
+    const { service, findAndCount } = buildPortal([], { restaurantExists: false });
+    await expect(service.findForRestaurant(REST_ID, ownerActor)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+    expect(findAndCount).not.toHaveBeenCalled();
+
+    await expect(service.findForRestaurant('garbage', ownerActor)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+  });
+
+  it('403s a non-owner; admin bypasses the ownership check', async () => {
+    const rows = [fakeOrder({ restaurantId: REST_ID })];
+    const { service } = buildPortal(rows);
+    await expect(
+      service.findForRestaurant(REST_ID, { sub: INTRUDER_ID, role: UserRole.OWNER }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+
+    const admin = buildPortal(rows);
+    const out: any = await admin.service.findForRestaurant(REST_ID, {
+      sub: ADMIN_ID,
+      role: UserRole.ADMIN,
+    });
+    expect(out.total).toBe(1);
+  });
+
+  it('scopes strictly to the restaurant — other restaurants’ orders never leak', async () => {
+    const rows = [
+      fakeOrder({ id: ORDER_ID, restaurantId: REST_ID }),
+      fakeOrder({ id: '77777777-7777-4777-8777-777777777777', restaurantId: OTHER_REST }),
+    ];
+    const { service } = buildPortal(rows);
+    const out: any = await service.findForRestaurant(REST_ID, ownerActor);
+    expect(out.total).toBe(1);
+    expect(out.items.map((o: Order) => o.restaurantId)).toEqual([REST_ID]);
+  });
+
+  it('paginates newest-first and clamps limit like findMine', async () => {
+    const rows = Array.from({ length: 12 }, (_, i) =>
+      fakeOrder({
+        id: `55555555-5555-4555-8555-55555555555${i}`,
+        restaurantId: REST_ID,
+        createdAt: at(i + 1),
+      }),
+    );
+    const { service, findAndCount } = buildPortal(rows);
+    const out: any = await service.findForRestaurant(REST_ID, ownerActor, { page: 2, limit: 5 });
+    expect(out).toMatchObject({ page: 2, limit: 5, total: 12 });
+    expect(out.items.length).toBe(5);
+    expect(out.items[0].createdAt).toEqual(at(7)); // 6th newest
+    const args = (findAndCount as jest.Mock).mock.calls[0][0];
+    expect(args.relations).toEqual({ items: true });
+    expect(args.order).toEqual({ createdAt: 'DESC' });
+
+    const clamped: any = await service.findForRestaurant(REST_ID, ownerActor, {
+      page: 0 as any,
+      limit: 999 as any,
+    });
+    expect(clamped.page).toBe(1);
+    expect(clamped.limit).toBe(50);
+  });
+
+  it('filters by status and reports per-status counts over ALL statuses', async () => {
+    const rows = [
+      fakeOrder({ id: ORDER_ID, restaurantId: REST_ID, status: OrderStatus.PENDING, createdAt: at(1) }),
+      fakeOrder({
+        id: '88888888-8888-4888-8888-888888888881',
+        restaurantId: REST_ID,
+        status: OrderStatus.PENDING,
+        createdAt: at(2),
+      }),
+      fakeOrder({
+        id: '88888888-8888-4888-8888-888888888882',
+        restaurantId: REST_ID,
+        status: OrderStatus.COMPLETED,
+        createdAt: at(3),
+      }),
+      fakeOrder({
+        id: '88888888-8888-4888-8888-888888888883',
+        restaurantId: OTHER_REST,
+        status: OrderStatus.PENDING,
+        createdAt: at(4),
+      }),
+    ];
+    const { service, count } = buildPortal(rows);
+    const pending: any = await service.findForRestaurant(REST_ID, ownerActor, {
+      status: OrderStatus.PENDING,
+    });
+    expect(pending.total).toBe(2);
+    expect(pending.items.every((o: Order) => o.status === OrderStatus.PENDING)).toBe(true);
+    // counts are NOT affected by the status filter — tabs need the whole picture
+    expect(pending.counts).toEqual({
+      pending: 2,
+      confirmed: 0,
+      preparing: 0,
+      delivering: 0,
+      completed: 1,
+      cancelled: 0,
+    });
+    expect((count as jest.Mock).mock.calls.length).toBe(6);
   });
 });

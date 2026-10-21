@@ -85,6 +85,15 @@ export interface MyOrdersPage {
   limit: number;
 }
 
+/**
+ * Envelope of GET /restaurants/:id/orders — owner inbox page. `counts` is a
+ * per-status total over ALL statuses (not affected by the status filter), so
+ * the dashboard tabs can show live badges.
+ */
+export interface RestaurantOrdersPage extends MyOrdersPage {
+  counts: Record<OrderStatus, number>;
+}
+
 /** Client-facing user shape (matches `toSafeUser` on the API). */
 export interface SafeUser {
   id: string;
@@ -193,6 +202,30 @@ export const api = {
   /** Self-cancel while the status machine allows it (pending/confirmed/preparing). */
   cancelOrder: (accessToken: string, id: string) =>
     request<Order>(`/orders/${id}/cancel`, { method: 'POST', headers: bearer(accessToken) }),
+  // --- owner portal ---
+  /** Restaurants owned by the signed-in owner (GET /restaurants/mine). */
+  listMyRestaurants: (accessToken: string) =>
+    request<Restaurant[]>('/restaurants/mine', { headers: bearer(accessToken) }),
+  /**
+   * Orders inbox for one of the caller's restaurants. The server 403s
+   * restaurants the caller does not own (admins bypass); `status` must be one
+   * of ORDER_STATUSES, limit is capped at 50 server-side.
+   */
+  listRestaurantOrders: (
+    accessToken: string,
+    restaurantId: string,
+    params: { status?: OrderStatus; page?: number; limit?: number } = {},
+  ) => {
+    const qs = new URLSearchParams();
+    if (params.status) qs.set('status', params.status);
+    if (params.page) qs.set('page', String(params.page));
+    if (params.limit) qs.set('limit', String(params.limit));
+    const suffix = qs.toString() ? `?${qs.toString()}` : '';
+    return request<RestaurantOrdersPage>(
+      `/restaurants/${restaurantId}/orders${suffix}`,
+      { headers: bearer(accessToken) },
+    );
+  },
   // --- auth ---
   register: (input: RegisterInput) =>
     request<Session>('/auth/register', { method: 'POST', body: JSON.stringify(input) }),

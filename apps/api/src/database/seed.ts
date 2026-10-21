@@ -3,6 +3,7 @@ import * as bcrypt from 'bcryptjs';
 import { User, UserRole } from '../users/user.entity';
 import { Restaurant } from '../restaurants/restaurant.entity';
 import { MenuItem } from '../menu/menu-item.entity';
+import { Order, OrderStatus } from '../orders/order.entity';
 import { AppDataSource } from './data-source';
 
 const restaurants = [
@@ -118,6 +119,7 @@ async function main() {
 
   const restaurantRepo = dataSource.getRepository(Restaurant);
   const menuRepo = dataSource.getRepository(MenuItem);
+  const orderRepo = dataSource.getRepository(Order);
 
   // Users first — restaurants reference the demo owner.
   const passwordHash = await bcrypt.hash('demo1234', 10);
@@ -141,6 +143,7 @@ async function main() {
   );
   console.log('Seeded users: demo@foodorder.app / owner@foodorder.app (password: demo1234)');
 
+  const created: { restaurant: Restaurant; items: MenuItem[] }[] = [];
   for (const r of restaurants) {
     const restaurant = await restaurantRepo.save(
       restaurantRepo.create({
@@ -167,9 +170,93 @@ async function main() {
       }),
     );
     await menuRepo.save(items);
+    created.push({ restaurant, items });
     console.log(`  + ${restaurant.name} (${items.length} items)`);
   }
-  void demoCustomer;
+
+  // Demo orders so both surfaces have data on a fresh clone: the customer
+  // history page and the owner dashboard inbox (/dashboard, Phase 2). The
+  // demo owner owns Warung Nusantara + Seoul Street; the sushi-kan order is
+  // NOT owned by the demo owner — it demonstrates server-side inbox scoping
+  // (it must never appear in the demo owner's dashboard). Money stays in
+  // integer cents, snapshots mirror what OrdersService.create would store.
+  const bySlug = new Map(created.map((c) => [c.restaurant.slug, c]));
+  const orderSpecs: Array<{
+    slug: string;
+    code: string;
+    status: OrderStatus;
+    customerName: string;
+    contactPhone: string;
+    deliveryAddress: string;
+    note?: string;
+    userId?: string;
+    lines: [number, number][]; // [menu index, quantity]
+  }> = [
+    {
+      slug: 'warung-nusantara', code: 'FO-SEED1', status: OrderStatus.PENDING,
+      customerName: 'Demo Customer', contactPhone: '+62 812 3456 7890',
+      deliveryAddress: 'Jl. Sudirman No. 1, Jakarta', userId: demoCustomer.id,
+      note: 'Extra sambal on the side, please.', lines: [[0, 1], [4, 2]],
+    },
+    {
+      slug: 'warung-nusantara', code: 'FO-SEED2', status: OrderStatus.CONFIRMED,
+      customerName: 'Ayu Lestari', contactPhone: '+62 813 1111 2222',
+      deliveryAddress: 'Jl. Kebon Sirih No. 12, Jakarta', lines: [[1, 1], [2, 1]],
+    },
+    {
+      slug: 'warung-nusantara', code: 'FO-SEED3', status: OrderStatus.PREPARING,
+      customerName: 'Budi Hartono', contactPhone: '+62 821 3333 4444',
+      deliveryAddress: 'Kompleks Melati Blok C4, Jakarta', lines: [[3, 1], [0, 1]],
+    },
+    {
+      slug: 'warung-nusantara', code: 'FO-SEED4', status: OrderStatus.COMPLETED,
+      customerName: 'Sinta Dewi', contactPhone: '+62 855 5555 6666',
+      deliveryAddress: 'Jl. Merdeka No. 7, Jakarta', lines: [[0, 2], [4, 1]],
+    },
+    {
+      slug: 'seoul-street', code: 'FO-SEED5', status: OrderStatus.PENDING,
+      customerName: 'Rina Park', contactPhone: '+62 878 7777 8888',
+      deliveryAddress: 'Jl. Dago No. 45, Bandung', note: 'Less spicy on the tteokbokki.',
+      lines: [[0, 1], [1, 2]],
+    },
+    {
+      slug: 'seoul-street', code: 'FO-SEED6', status: OrderStatus.CANCELLED,
+      customerName: 'Andi Wijaya', contactPhone: '+62 812 9999 0000',
+      deliveryAddress: 'Jl. Cihampelas No. 9, Bandung', lines: [[2, 1]],
+    },
+    {
+      slug: 'sushi-kan', code: 'FO-SEED7', status: OrderStatus.PENDING,
+      customerName: 'Maya Tanaka', contactPhone: '+62 811 2222 3333',
+      deliveryAddress: 'Jl. Senopati No. 21, Jakarta', lines: [[0, 1], [3, 2]],
+    },
+  ];
+
+  for (const spec of orderSpecs) {
+    const entry = bySlug.get(spec.slug)!;
+    let subtotal = 0;
+    const lines = spec.lines.map(([idx, quantity]) => {
+      const m = entry.items[idx];
+      subtotal += m.priceCents * quantity;
+      return { menuItemId: m.id, name: m.name, unitPriceCents: m.priceCents, quantity };
+    });
+    await orderRepo.save(
+      orderRepo.create({
+        code: spec.code,
+        restaurantId: entry.restaurant.id,
+        userId: spec.userId ?? null as any,
+        customerName: spec.customerName,
+        contactPhone: spec.contactPhone,
+        deliveryAddress: spec.deliveryAddress,
+        note: spec.note ?? null as any,
+        status: spec.status,
+        subtotalCents: subtotal,
+        deliveryFeeCents: entry.restaurant.deliveryFeeCents,
+        totalCents: subtotal + entry.restaurant.deliveryFeeCents,
+        items: lines,
+      }),
+    );
+    console.log(`  + order ${spec.code} → ${entry.restaurant.name} (${spec.status})`);
+  }
 
   await dataSource.destroy();
   console.log('Done.');

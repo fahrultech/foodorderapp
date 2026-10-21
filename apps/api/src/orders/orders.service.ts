@@ -1,7 +1,13 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { FindOptionsWhere, Repository } from 'typeorm';
 import { Order, OrderStatus } from './order.entity';
+import { UserRole } from '../users/user.entity';
 import { OrderItem } from './order-item.entity';
 import { CreateOrderDto } from './dto/create-order.dto';
 import {
@@ -121,6 +127,48 @@ export class OrdersService {
       take: limit,
     });
     return { items, total, page, limit };
+  }
+
+  /**
+   * Owner-facing orders inbox for one restaurant (Phase 2 portal). Scoping is
+   * enforced server-side: only the restaurant's owner may list its orders
+   * (admins bypass). An unknown/garbage id is 404; someone else's restaurant
+   * is 403 — restaurant pages are public so existence is not secret, the
+   * ORDER data is. Same paginated envelope as findMine, plus per-status
+   * `counts` for the inbox tabs (simple count queries per status — cheap at
+   * this scale and trivially mock-testable).
+   */
+  async findForRestaurant(
+    restaurantId: string,
+    actor: { sub: string; role: UserRole },
+    q: ListMyOrdersDto = {},
+  ) {
+    const restaurant = await this.restaurants.findOne(restaurantId);
+    if (!restaurant) throw new NotFoundException('Restaurant not found');
+    if (actor.role !== UserRole.ADMIN && restaurant.ownerId !== actor.sub) {
+      throw new ForbiddenException('You do not own this restaurant');
+    }
+
+    const page = Math.max(1, Number(q.page) || 1);
+    const limit = Math.min(MAX_PAGE_SIZE, Math.max(1, Number(q.limit) || DEFAULT_PAGE_SIZE));
+
+    const where: FindOptionsWhere<Order> = { restaurantId };
+    if (q.status) where.status = q.status;
+
+    const [items, total] = await this.orders.findAndCount({
+      where,
+      relations: { items: true },
+      order: { createdAt: 'DESC' },
+      skip: (page - 1) * limit,
+      take: limit,
+    });
+
+    const counts = {} as Record<OrderStatus, number>;
+    for (const status of Object.values(OrderStatus)) {
+      counts[status] = await this.orders.count({ where: { restaurantId, status } });
+    }
+
+    return { items, total, page, limit, counts };
   }
 
   /**
