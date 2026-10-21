@@ -16,9 +16,12 @@ export default function AddToCartButton({
   const inCart = lines.find((l) => l.menuItemId === item.id);
 
   function onClick() {
-    add(item, restaurant);
-    setAdded(true);
-    setTimeout(() => setAdded(false), 900);
+    // 'needs-switch' opens the cart-switch confirmation dialog (see CartSwitchModal) —
+    // only flash "Added" when the dish actually entered the cart.
+    if (add(item, restaurant) === 'added') {
+      setAdded(true);
+      setTimeout(() => setAdded(false), 900);
+    }
   }
 
   return (
