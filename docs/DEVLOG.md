@@ -4,6 +4,54 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
+## 2026-10-22 19:56 — Session 18
+
+**Built:** Phase 3 item 2 — **Favorites (heart on dishes + `/users/me/favorites` API)**.
+
+- API: new `Favorite` entity (`user_favorites`: unique `(userId, menuItemId)`,
+  cascading FKs to users and menu_items) + migration
+  `AddUserFavorites1792669513778` (generated, DDL reviewed, applied to dev DB).
+  `FavoritesService` + three Bearer routes on `UsersController`:
+  `GET /users/me/favorites` (flat dish+restaurant rows, newest first),
+  `POST /users/me/favorites` (`{menuItemId}`, `@HttpCode(200)`, idempotent —
+  `created:false` on re-add, `created:true` on insert, 404 for unknown dish,
+  unique-violation 23505 absorbed as the already-there case for the
+  double-click race), `DELETE /users/me/favorites/:menuItemId` (idempotent
+  `removed:true/false`, non-uuid path id → 404 via `isUuid` before Postgres).
+  DTO `AddFavoriteDto` carries `@IsUUID('4')` (whitelist-safe). Seed now gives
+  the demo customer 3 hearts; TRUNCATE list covers `user_favorites`.
+- Web: `FavoritesProvider` (`lib/favorites.tsx`) — one fetch per signed-in
+  session, optimistic toggle → server merge, rollback + resync on failure,
+  per-dish in-flight lock, load-seq guard against stale responses across
+  user switch/logout. `FavoriteButton` (♡/♥, `aria-pressed`, label flips;
+  guests route to `/login?next=<menu path>`). Hearts wired into `MenuBrowser`
+  rows; new `/favorites` page (guest card, skeleton, empty state, rows with
+  restaurant link + un-heart + Add-to-cart); "Saved" link in the header.
+
+**Verified:**
+- `nest build` clean; `jest` **217/217** (new `favorites.service.spec.ts` 9
+  tests: list shape/defensive filter, add created/re-add/race-23505/non-unique
+  rethrow/404-dish, remove both outcomes).
+- Migration: `migration:run` on dev DB (table + unique + 2 cascade FKs);
+  `npm run seed` rebuilt with 3 favorites; API booted 0 pending.
+- Runtime smoke (API on :4000) — **18/18 curl checks**: unauth 401 envelope,
+  seeded total=3 + row shape + newest-first, add→created:true→re-add→
+  created:false (200)→total=4, bad-uuid 400, unknown dish 404, remove→
+  removed:true→re-remove removed:false→back to 3, garbage path id 404,
+  cross-account isolation (fresh user sees 0).
+- Web: `next build` clean; live browser test (`next start` :3000) — seeded
+  hearts render pressed=true on Warung menu, click ♡ on Rendang → pressed
+  true, `/favorites` shows 4 newest-first, un-heart there → 3 rows (and
+  server list shrank), Add-to-cart from the page bumps the badge, guest
+  heart-click redirects to `/login?next=`, guest `/favorites` shows the
+  sign-in card. One real bug caught and fixed mid-verification: the skeleton
+  was gated on `status==='signedIn' && pending`, so the loading state painted
+  nothing.
+
+**Left for next sessions:** next roadmap item — order tracking timeline UI.
+
+---
+
 ## 2026-10-22 17:55 — Session 17
 
 **Built:** Phase 3 item 1 — **dish search within the restaurant page +

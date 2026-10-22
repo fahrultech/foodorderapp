@@ -144,6 +144,21 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   (authorization) and password are *not* self-writable — email change needs a
   verification flow, role change is admin-only, and a password change must
   verify the old one. Empty patch → 400 (never a silent no-op "success").
+- **Favorites (`/api/users/me/favorites`, Bearer)** — hearts on dishes in the
+  `user_favorites` table (unique `(userId, menuItemId)`, both FKs cascade, so
+  deleting a user or a dish never leaves dangling hearts). Add is deliberately
+  idempotent: an existing heart answers 200 `{created:false}` (the unique
+  index plus a 23505 catch covers the concurrent double-click race), and
+  un-heart likewise answers `{removed:false}` for unknown pairs — the web
+  heart button can fire optimistically and refetch on mismatch. Rows are
+  always scoped to the JWT subject; there is no `:userId` route to leak.
+- **Web favorites client** (`apps/web/lib/favorites.tsx`): one app-wide
+  `FavoritesProvider` fetches the set once per signed-in user; menus and the
+  `/favorites` page share it, toggles are optimistic with rollback + resync on
+  failure, and a load-sequence guard drops stale responses after a user
+  switch/logout. Guests clicking a heart are routed to `/login?next=` (the
+  existing back-pointer flow), and SSR/first paint always render the neutral
+  heart so hydration matches.
 - **No token revocation list for access tokens** — deliberate: short TTL +
   stateless verification. Re-add a deny-list only if TTL ever grows.
 - **Web session client** (`apps/web/lib/auth.tsx`): the storefront keeps the
