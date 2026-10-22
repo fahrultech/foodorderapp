@@ -30,7 +30,8 @@ Demo logins: `demo@foodorder.app` / `demo1234` (customer) and
 Accounts work end-to-end on the storefront: `/login` and `/register` sign you
 in (session kept in the browser, refreshed automatically), and the header shows
 who is signed in. Owner accounts also get a portal — `/dashboard` (order inbox
-with accept/prepare/deliver/complete/cancel actions) and `/dashboard/menu`
+with accept/prepare/deliver/complete/cancel actions, live-updating every 10s
+with NEW badges and a pause toggle) and `/dashboard/menu`
 (add, edit, hide and delete dishes) — both gated server-side by JWT + owner
 role + restaurant ownership, not just by the UI.
 

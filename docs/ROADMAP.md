@@ -22,7 +22,8 @@
 - [x] Portal: owner dashboard route (`/dashboard`) — orders inbox by status
 - [x] Portal: owner can accept (pending→confirmed), start, deliver, complete, cancel
 - [x] Portal: menu management UI (CRUD against owner endpoints)
-- [ ] Portal: live order updates via polling every 10s → then SSE
+- [x] Portal: live order updates via polling every 10s (NEW badges, pause/resume, visibility catch-up)
+- [ ] Portal: live order updates via SSE (server push replacing the 10s poll)
 - [x] API: `/restaurants/:id/orders` scoped to owner with JWT role guard
 
 ## Phase 3 — Customer experience

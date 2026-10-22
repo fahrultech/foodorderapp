@@ -47,6 +47,13 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   (`OrdersService.setStatusForRestaurant`): same guard + ownership check,
   then the order must live under the path's restaurant (else 404 — a foreign
   order id gives no information) and the move must be a `STATUS_FLOW` edge.
+  The inbox is LIVE: while the tab is visible the page silently re-polls this
+  endpoint every 10s (`lib/live-sync.ts` gates the tick: paused / hidden /
+  action-in-flight all skip it; `visibilitychange` and resuming from pause
+  catch up immediately). Responses are dropped when the view (restaurant /
+  filter / page) changed mid-flight, and a poll that started before a
+  successful status action is discarded so the card never regresses.
+  SSE server-push replaces the cadence in a later item; the UI stays the same.
 
 - **Owner menu manager** — web `/dashboard/menu` does full dish CRUD on the
   existing owner routes (`POST /restaurants/:id/menu`, `PATCH /menu/items/:id`,

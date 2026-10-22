@@ -4,6 +4,68 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
+## 2026-10-22 12:46 — Session 15
+
+**Built:** Phase 2 item 4 (polling half) — **live order updates on the
+owner dashboard**: the inbox silently re-polls `GET /restaurants/:id/orders`
+every 10s. SSE (the "→ then SSE" half) split out as its own unchecked item.
+
+- `apps/web/lib/live-sync.ts` (new, pure + unit-testable) —
+  `POLL_INTERVAL_MS = 10_000`; `diffNewOrderIds(prev, next)` (ids that
+  appeared since the last tick, next-order preserved); `shouldPoll({live,
+  hidden, busy})` gate; `pollIsStaleVsAction(fetchStart, actionDone)` —
+  drops a poll snapshot fired BEFORE an owner action but resolving after it
+  (would visibly regress the card the owner just accepted).
+- `apps/web/app/dashboard/page.tsx` — `loadOrders` refactored into
+  `fetchInbox(mode: 'full' | 'silent')`: full = today's visible load
+  (skeleton + banner) on entry / view change / ↻ Refresh; silent = the tick
+  (page swapped in place incl. tab counts, no skeleton). `applyPage` is the
+  single writer of `data` + `dataRef` (the silent-diff baseline) so the two
+  can never diverge — act() patches now route through it too. A `viewKey`
+  (restaurant:filter:page) epoch drops straggler responses that resolve
+  after the owner switched views — a pre-existing race polling would have
+  amplified. One `setInterval` per (restaurant, live) with the tick swapped
+  via `tickRef`, so filter/page/busy changes never re-phase the 10s cadence;
+  ticks skip while `document.hidden` and `visibilitychange` catches up
+  instantly; resuming from pause also syncs immediately.
+- UI: **Live pill** (green pulsing dot / amber "Live · retrying" / gray
+  "Paused") doubles as the pause toggle (`aria-pressed`), "updated HH:MM:SS"
+  label, a small amber line when a tick fails while last-good data stays on
+  screen, and a sky **NEW** badge (`role=status`) on cards that appeared
+  since the previous tick (cleared by the next one).
+
+**Verified:**
+- `tsc --noEmit` + `next build` green — `/dashboard` 5.89 → 6.71 kB.
+- Pure helpers: standalone `tsc` compile + node assert run — **12/12 pass**
+  (diff ordering/empties, shouldPoll truth table, stale-guard boundary).
+- API untouched; `jest` **186/186** still green.
+- **Browser E2E** (Chromium vs `next start :3100` + API :4000 + local
+  Postgres, signed in as demo owner, no page interaction during tests):
+  guest order FO-X9U4 created via API at 12:43:09 → appeared on the open
+  dashboard with NEW badge at the 12:43:15 tick (counts All6→8, Pending3→5,
+  "updated" advanced); pause → order FO-UBZR invisible after 13s, pill
+  "Paused", timestamp frozen → resume → caught up within 2s (All9/Pending6,
+  1 badge); Accept on FO-X9U4 patched in place (Pending5/Confirmed1) and
+  the NEXT tick kept it (no regression — stale-guard path live); 3 smoke
+  orders cancelled via UI buttons, counts settled at Pending3/Cancelled5 =
+  original baseline. Test servers killed after.
+- E2E also caught a stale `.next` server (killed parent pid, next-server
+  child survived → ChunkLoadError) — harness mishap, not an app bug; fixed
+  by killing the real listener pid and rebuilding clean.
+
+**Docs:** README portal line mentions live updates; ARCHITECTURE inbox
+bullet gained the polling contract + race rules; ROADMAP item ticked, SSE
+split out as new unchecked item.
+
+**Artifacts left in dev DB:** three `Poll/Paused Smoke` guest orders
+(FO-VV9A, FO-X9U4, FO-UBZR), all cancelled — same harmless demo noise as
+earlier sessions.
+
+**Left for next sessions:** Phase 2 item — SSE feed (server push replacing
+the poll; UI already final). Menu rows could later get image thumbnails +
+drag-reorder (polish pass).
+
+
 ## 2026-10-21 18:57 — Session 14
 
 **Built:** Phase 2 item 3 — **owner menu management UI** at
