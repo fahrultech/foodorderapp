@@ -1,20 +1,35 @@
 'use client';
 
 import Link from 'next/link';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '@/lib/auth';
 import { ORDER_STATUSES, api, formatPrice } from '@/lib/api';
 import { authedCall } from '@/lib/authed-call';
 import type { Order, OrderStatus, Restaurant, RestaurantOrdersPage } from '@/lib/api';
 import PortalTabs from '@/components/PortalTabs';
 import StatusBadge from '@/components/StatusBadge';
+import {
+  POLL_INTERVAL_MS,
+  diffNewOrderIds,
+  pollIsStaleVsAction,
+  shouldPoll,
+} from '@/lib/live-sync';
 
 /**
  * Owner portal (Phase 2): orders inbox for the signed-in owner's restaurants,
  * with status actions (accept / start preparing / out for delivery / complete
  * / cancel) wired to PATCH /restaurants/:id/orders/:orderId/status — the API
  * scopes every call to the caller (JWT + owner role + ownership + flow check).
- * Live updates via polling are the next roadmap item.
+ *
+ * Live updates (roadmap item 4): the inbox silently re-polls
+ * `GET /restaurants/:id/orders` every 10s. A silent poll never shows the
+ * skeleton — it swaps the whole page (items + per-status tab counts) in
+ * place, badges rows that newly appeared with NEW, and is skipped while the
+ * tab is hidden or an action is in flight; coming back to a hidden tab
+ * catches up immediately. Poll failures only dim the Live pill ("retrying")
+ * — existing data and the manual refresh path stay intact. The toggle lets
+ * owners pause the traffic; SSE (the "→ then SSE" half of the item) will
+ * later replace this cadence with server push on the same UI.
  */
 
 const PAGE_SIZE = 10;
@@ -58,6 +73,15 @@ function formatDateTime(iso: string): string {
   }
 }
 
+/** HH:MM:SS label for the last successful sync (client-only value). */
+function formatClock(ms: number): string {
+  try {
+    return new Intl.DateTimeFormat(undefined, { timeStyle: 'medium' }).format(new Date(ms));
+  } catch {
+    return '';
+  }
+}
+
 function lineSummary(order: Order): string {
   const lines = order.items ?? [];
   if (lines.length === 0) return '—';
@@ -76,6 +100,19 @@ export default function DashboardPage() {
   const [reloadKey, setReloadKey] = useState(0);
   const [busyOrderId, setBusyOrderId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+
+  // --- live polling state (see file header) ---
+  const [live, setLive] = useState(true);
+  const [lastSyncAt, setLastSyncAt] = useState<number | null>(null);
+  const [syncIssue, setSyncIssue] = useState<string | null>(null);
+  const [newIds, setNewIds] = useState<ReadonlySet<string>>(() => new Set());
+  // Mirror of `data` for the silent tick (the poll closure must stay
+  // identity-stable, so it reads the previous page through this ref).
+  const dataRef = useRef<RestaurantOrdersPage | null>(null);
+  // Wall-clock of the last successful status action; used to DROP a silent
+  // poll that was fired before it but resolves after it (stale snapshot
+  // would regress the card the owner just acted on).
+  const lastActionAtRef = useRef(0);
 
   const isOwnerish = user?.role === 'owner' || user?.role === 'admin';
 
@@ -102,36 +139,136 @@ export default function DashboardPage() {
   }, [status, isOwnerish, reloadKey]);
 
   // --- orders inbox for the selected restaurant ---
-  const loadOrders = useCallback(async () => {
-    if (status !== 'signedIn' || !isOwnerish || !selectedId) return;
-    setLoading(true);
-    setError(null);
-    setActionError(null);
-    const res = await authedCall(getAccessToken, logout, (t) =>
-      api.listRestaurantOrders(t, selectedId, {
-        status: filter === 'all' ? undefined : filter,
-        page,
-        limit: PAGE_SIZE,
-      }),
-    );
-    if (res.ok) {
-      setData(res.data);
-    } else if (res.kind === 'error') {
-      setError(res.message);
-    }
-    setLoading(false);
-  }, [status, isOwnerish, selectedId, filter, page, getAccessToken, logout]);
+  // Identity of the current view; responses that resolve after the owner
+  // has switched restaurant/filter/page are DROPPED (they would otherwise
+  // overwrite the fresh view with stale data — a pre-existing race the
+  // polling feature must not amplify).
+  const viewKey = selectedId ? `${selectedId}:${filter}:${page}` : '';
+  const viewKeyRef = useRef(viewKey);
+  viewKeyRef.current = viewKey;
+
+  /** Single writer for the rendered inbox page + its ref mirror (diff baseline). */
+  const applyPage = useCallback((next: RestaurantOrdersPage | null) => {
+    dataRef.current = next;
+    setData(next);
+  }, []);
+
+  /**
+   * Fetch the current view once. `mode: 'full'` is the visible load
+   * (skeleton + error banner) used on entry, restaurant/filter/page
+   * changes and the manual refresh. `mode: 'silent'` is a polling tick:
+   * the page is swapped in place (items + tab counts), NEW badges mark
+   * rows that just appeared, and a failure only sets `syncIssue` — the
+   * last good data stays on screen.
+   */
+  const fetchInbox = useCallback(
+    async (mode: 'full' | 'silent') => {
+      if (status !== 'signedIn' || !isOwnerish || !selectedId) return;
+      if (mode === 'full') {
+        setLoading(true);
+        setError(null);
+        setActionError(null);
+      }
+      const startedAt = Date.now();
+      const myKey = viewKey;
+      const res = await authedCall(getAccessToken, logout, (t) =>
+        api.listRestaurantOrders(t, selectedId, {
+          status: filter === 'all' ? undefined : filter,
+          page,
+          limit: PAGE_SIZE,
+        }),
+      );
+      // The owner switched views while this was in flight — the view-change
+      // effect already started a correct fetch; ignore this straggler.
+      if (viewKeyRef.current !== myKey) return;
+      if (res.ok) {
+        if (
+          mode === 'silent' &&
+          pollIsStaleVsAction(startedAt, lastActionAtRef.current)
+        ) {
+          // An owner action landed after this poll was fired — its PATCH
+          // response already updated the card. Applying the pre-action
+          // snapshot would flash the old status; wait for the NEXT tick.
+          return;
+        }
+        const prev = mode === 'silent' ? dataRef.current : null;
+        setNewIds(
+          prev
+            ? new Set(
+                diffNewOrderIds(
+                  prev.items.map((o) => o.id),
+                  res.data.items.map((o) => o.id),
+                ),
+              )
+            : new Set<string>(),
+        );
+        applyPage(res.data);
+        setLastSyncAt(Date.now());
+        setSyncIssue(null);
+        if (mode === 'full') setError(null);
+      } else if (res.kind === 'error') {
+        if (mode === 'full') setError(res.message);
+        else setSyncIssue(res.message);
+      }
+      if (mode === 'full') setLoading(false);
+    },
+    [status, isOwnerish, selectedId, filter, page, viewKey, getAccessToken, logout, applyPage],
+  );
 
   useEffect(() => {
-    void loadOrders();
-  }, [loadOrders, reloadKey]);
+    void fetchInbox('full');
+  }, [fetchInbox, reloadKey]);
+
+  // --- the 10s polling tick ---
+  // One interval per (restaurant, live toggle); the callback it fires is
+  // swapped through `tickRef` so changing filter/page/busy never re-creates
+  // the interval (which would reset the 10s phase and could stack ticks).
+  const tick = useCallback(() => {
+    if (
+      !shouldPoll({
+        live,
+        hidden: typeof document !== 'undefined' && document.hidden,
+        busy: busyOrderId !== null,
+      })
+    ) {
+      return;
+    }
+    void fetchInbox('silent');
+  }, [live, busyOrderId, fetchInbox]);
+
+  const tickRef = useRef(tick);
+  useEffect(() => {
+    tickRef.current = tick;
+  }, [tick]);
+
+  useEffect(() => {
+    if (status !== 'signedIn' || !isOwnerish || !selectedId || !live) return;
+    const id = window.setInterval(() => tickRef.current(), POLL_INTERVAL_MS);
+    // Catch up the moment the tab becomes visible again (ticks are skipped
+    // while hidden, so the owner doesn't stare at a stale inbox).
+    const onVisible = () => {
+      if (!document.hidden) tickRef.current();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      window.clearInterval(id);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [status, isOwnerish, selectedId, live]);
+
+  // Immediate catch-up when Live is switched back on — after pausing, the
+  // owner shouldn't have to wait a full interval for the inbox to refresh.
+  // (On initial mount this is a harmless extra fetch of the same view.)
+  useEffect(() => {
+    if (live) tickRef.current();
+  }, [live]);
 
   // Reset paging + selection-safe filter when the restaurant changes.
   function switchRestaurant(id: string) {
     setSelectedId(id);
     setPage(1);
     setFilter('all');
-    setData(null);
+    applyPage(null);
   }
 
   /**
@@ -139,7 +276,9 @@ export default function DashboardPage() {
    * (item status + the two affected tab counts) instead of refetching — one
    * card moving between tabs is cheap to track locally, and a stale refetch
    * could flash the old state. One action at a time: every button disables
-   * while a PATCH is in flight.
+   * while a PATCH is in flight. The completion timestamp also makes any
+   * silent poll that STARTED before it (and would resolve with the
+   * pre-action snapshot) get dropped by `fetchInbox`.
    */
   async function act(order: Order, action: { to: OrderStatus; label: string }) {
     if (!selectedId || busyOrderId) return;
@@ -149,10 +288,10 @@ export default function DashboardPage() {
       api.setRestaurantOrderStatus(t, selectedId, order.id, action.to),
     );
     if (res.ok) {
-      setData((d) => {
-        if (!d) return d;
+      const d = dataRef.current;
+      if (d) {
         const from = order.status as OrderStatus;
-        return {
+        applyPage({
           ...d,
           items: d.items.map((o) => (o.id === order.id ? { ...o, status: action.to } : o)),
           counts: {
@@ -160,8 +299,9 @@ export default function DashboardPage() {
             [from]: Math.max(0, d.counts[from] - 1),
             [action.to]: d.counts[action.to] + 1,
           },
-        };
-      });
+        });
+      }
+      lastActionAtRef.current = Date.now();
     } else if (res.kind === 'error') {
       setActionError(`"${action.label}" failed: ${res.message}`);
     }
@@ -257,12 +397,44 @@ export default function DashboardPage() {
             moves through the kitchen
           </p>
         </div>
-        <button
-          onClick={() => setReloadKey((k) => k + 1)}
-          className="rounded-xl border border-stone-300 bg-white px-4 py-2 text-sm font-semibold text-stone-700 hover:bg-stone-100"
-        >
-          ↻ Refresh
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Live polling indicator + owner-facing pause/resume (10s cadence). */}
+          <button
+            onClick={() => setLive((v) => !v)}
+            aria-pressed={live}
+            title={
+              live
+                ? 'Live updates on — the inbox re-polls every 10s. Click to pause.'
+                : 'Live updates paused — click to resume 10s polling.'
+            }
+            className={`flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-xs font-bold transition-colors ${
+              live
+                ? syncIssue
+                  ? 'bg-amber-100 text-amber-800 hover:bg-amber-200'
+                  : 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200'
+                : 'bg-stone-200 text-stone-600 hover:bg-stone-300'
+            }`}
+          >
+            <span
+              aria-hidden
+              className={`h-2 w-2 rounded-full ${
+                live ? (syncIssue ? 'bg-amber-500' : 'animate-pulse bg-emerald-500') : 'bg-stone-400'
+              }`}
+            />
+            {live ? (syncIssue ? 'Live · retrying' : 'Live') : 'Paused'}
+          </button>
+          {lastSyncAt != null && (
+            <span className="text-xs text-stone-500" title="Last successful inbox sync">
+              updated {formatClock(lastSyncAt)}
+            </span>
+          )}
+          <button
+            onClick={() => setReloadKey((k) => k + 1)}
+            className="rounded-xl border border-stone-300 bg-white px-4 py-2 text-sm font-semibold text-stone-700 hover:bg-stone-100"
+          >
+            ↻ Refresh
+          </button>
+        </div>
       </div>
 
       {/* Portal section nav (shared with /dashboard/menu) */}
@@ -342,6 +514,16 @@ export default function DashboardPage() {
         </p>
       )}
 
+      {/* A polling tick failed but the last good inbox stays visible; the
+          next tick (or ↻ Refresh) will recover. Shown via the amber Live
+          pill too — this line adds the reason once. */}
+      {syncIssue && data && (
+        <p className="mt-4 text-xs font-semibold text-amber-700" role="status">
+          Live update failed ({syncIssue}) — showing the last successful sync; retrying in{' '}
+          {POLL_INTERVAL_MS / 1000}s.
+        </p>
+      )}
+
       {loading && !data ? (
         <div className="mt-6 space-y-4">
           {[0, 1, 2].map((i) => (
@@ -373,6 +555,15 @@ export default function DashboardPage() {
                   <div className="flex items-center gap-3">
                     <span className="font-bold">{order.code}</span>
                     <StatusBadge status={order.status} />
+                    {newIds.has(order.id) && (
+                      <span
+                        role="status"
+                        aria-label="New order since last sync"
+                        className="rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide text-sky-800"
+                      >
+                        New
+                      </span>
+                    )}
                   </div>
                   <span className="text-xs text-stone-500">{formatDateTime(order.createdAt)}</span>
                 </div>
