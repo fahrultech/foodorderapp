@@ -112,6 +112,26 @@ export interface RestaurantOrdersPage extends MyOrdersPage {
   counts: Record<OrderStatus, number>;
 }
 
+/**
+ * One hearted dish — `GET /users/me/favorites` row. Dish fields flattened
+ * with the owning restaurant's identity (see FavoritesService.toFavoriteDish).
+ */
+export interface FavoriteDish {
+  menuItemId: string;
+  name: string;
+  description: string | null;
+  priceCents: number;
+  category: string | null;
+  imageUrl: string | null;
+  isAvailable: boolean;
+  prepMinutes: number;
+  restaurantId: string;
+  restaurantName: string;
+  restaurantSlug: string;
+  restaurantIsOpen: boolean;
+  favoritedAt: string;
+}
+
 /** Client-facing user shape (matches `toSafeUser` on the API). */
 export interface SafeUser {
   id: string;
@@ -297,6 +317,34 @@ export const api = {
    */
   deleteMenuItem: (accessToken: string, itemId: string) =>
     request<MenuItem>(`/menu/items/${itemId}`, { method: 'DELETE', headers: bearer(accessToken) }),
+
+  // --- customer favorites (hearts) ---
+  /**
+   * Every dish the signed-in customer hearted, newest first. `total` is the
+   * row count; the heart button on menus and the /favorites page both derive
+   * their state from one fetch.
+   */
+  listMyFavorites: (accessToken: string) =>
+    request<{ items: FavoriteDish[]; total: number }>('/users/me/favorites', {
+      headers: bearer(accessToken),
+    }),
+  /**
+   * Heart a dish. Idempotent server-side: an existing favorite comes back
+   * `created:false` with HTTP 200, so retries from a flaky client are safe.
+   * Unknown dish -> 404.
+   */
+  addFavorite: (accessToken: string, menuItemId: string) =>
+    request<{ created: boolean; item: FavoriteDish }>('/users/me/favorites', {
+      method: 'POST',
+      headers: bearer(accessToken),
+      body: JSON.stringify({ menuItemId }),
+    }),
+  /** Un-heart. Idempotent too (`removed:false` when it wasn't favorited). */
+  removeFavorite: (accessToken: string, menuItemId: string) =>
+    request<{ removed: boolean }>(`/users/me/favorites/${menuItemId}`, {
+      method: 'DELETE',
+      headers: bearer(accessToken),
+    }),
 
   // --- auth ---
   register: (input: RegisterInput) =>

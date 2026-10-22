@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react';
 import type { MenuItem, Restaurant } from '@/lib/api';
 import { formatPrice } from '@/lib/api';
 import AddToCartButton from '@/components/AddToCartButton';
+import FavoriteButton from '@/components/FavoriteButton';
 
 interface DishGroup {
   /** Original category position — keeps anchor ids stable while filtering. */
@@ -129,7 +130,8 @@ export default function MenuBrowser({ restaurant }: { restaurant: Restaurant }) 
                   </div>
                   <div className="text-right">
                     <p className="font-bold">{formatPrice(item.priceCents)}</p>
-                    <div className="mt-2">
+                    <div className="mt-2 flex items-center justify-end gap-1">
+                      <FavoriteButton menuItemId={item.id} />
                       <AddToCartButton
                         item={item}
                         restaurant={{ id: restaurant.id, name: restaurant.name }}

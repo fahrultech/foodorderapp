@@ -59,6 +59,12 @@ export default function Header() {
                 </Link>
               )}
               <Link
+                href="/favorites"
+                className={pathname.startsWith('/favorites') ? 'font-semibold text-brand-600' : 'text-stone-600 hover:text-stone-900'}
+              >
+                Saved
+              </Link>
+              <Link
                 href="/orders/my"
                 className={pathname.startsWith('/orders') ? 'font-semibold text-brand-600' : 'text-stone-600 hover:text-stone-900'}
               >
