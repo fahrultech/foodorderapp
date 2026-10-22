@@ -144,6 +144,7 @@ export interface RegisterInput {
 }
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api';
+export { API_URL };
 
 /** Error thrown by `request()` for non-2xx API responses. */
 export class ApiError extends Error {

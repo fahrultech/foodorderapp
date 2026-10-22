@@ -4,6 +4,101 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
+## 2026-10-22 16:33 — Session 16
+
+**Built:** Phase 2 item 5 (SSE half) — **live order updates via server push**,
+closing out Phase 2. The owner dashboard now subscribes to a real SSE stream;
+the 10s poll stays as a transport that only runs while push is down.
+
+- `apps/api/src/orders/order-events.service.ts` (new) — process-local rxjs
+  bus, live-only (no replay). `ORDER_STREAM_HEARTBEAT_MS = 15_000`. Scope
+  note in the file: single-container by design; multi-node realtime is the
+  Phase 5 Socket.IO item.
+- `OrdersService` publishes after every state-changing write: `create` →
+  `order.created`; `setStatusForRestaurant` / `cancel` / `updateStatus` →
+  `order.updated` — so a customer self-cancel or the admin ops route wakes
+  the owner stream too. Payload is trigger-only
+  (`{orderId, code, status}`): the dashboard always refetches the inbox GET
+  for truth, so a dropped event costs latency, never correctness. Also
+  exposed `assertStreamAccess` (same 404/403 gate as the inbox GET).
+- `apps/api/src/common/sse-jwt-auth.guard.ts` (new) — `SseJwtAuthGuard`:
+  EventSource cannot send headers, so the access token may ride
+  `?access_token=`. Verification identical to `JwtAuthGuard` (`typ` claim
+  enforced); Authorization header wins when both are present. Tradeoff
+  (token in query → access logs) documented in ARCHITECTURE + code.
+- `GET /restaurants/:id/orders/stream` (`@Sse` on
+  `RestaurantOrdersController`) — guards `SseJwtAuthGuard + RolesGuard
+  @Roles(OWNER)`, ownership asserted in the async handler BEFORE the
+  observable returns (Nest 11 awaits async @Sse → rejections stay plain
+  JSON 401/403/404, the stream never starts). Emits `hello`, filtered
+  `order.created`/`order.updated`, `ping` every 15s.
+- `apps/web/lib/live-sync.ts` — `shouldPoll` gained the `pushUp` term (the
+  10s interval goes idle while the stream is connected = fallback only);
+  new pure helpers `orderStreamUrl`, `liveMode` (pill state machine),
+  constants `PUSH_SYNC_DEBOUNCE_MS=400`, `STREAM_STALL_MS=30_000` (2×
+  server heartbeat — zombie detection), `STREAM_TOKEN_REBUILD_MS=15m`
+  (well inside the 30m access TTL), `STREAM_MAX_CONSECUTIVE_ERRORS=3`.
+- `apps/web/app/dashboard/page.tsx` — EventSource per (restaurant, live);
+  named listeners on `order.created`/`order.updated` → `requestSync`
+  (debounced coalescing: 5 events in a second = 1 GET; wake-ups arriving
+  while busy/hidden are remembered via `missedPushRef` and flushed when the
+  gate opens). `hello` (not `onopen`) is the push-up signal — proven
+  end-to-end write — and fires an immediate catch-up sync. Any event resets
+  the stall watchdog; two missed heartbeats → close, poll resumes, rebuild
+  after 10s. Error path: `readyState CLOSED` (4xx — browser stops retrying)
+  or 3 consecutive errors → rebuild with a FRESH token (stale-token
+  reconnect loops are structurally impossible thanks to this + the 15m
+  rebuild). Pause closes the stream AND the interval. Live pill now reads
+  **Live · push** / **Live** (poll fallback) / Live · retrying / Paused.
+  All session-15 race guards (viewKey epoch, stale-vs-action, applyPage
+  single-writer) are reused untouched — push events ride the same
+  `fetchInbox('silent')` path.
+
+**Verified:**
+- API: `nest build` clean; `jest` **208/208** (was 186) — new:
+  `order-events.service.spec` (5: delivery, live-only, fan-out, unsubscribe,
+  sane heartbeat), `sse-jwt-auth.guard.spec` (7: header/query/precedence/
+  missing/empty/bad-signature/wrong-typ/array-param),
+  `restaurant-orders.controller.spec` (3: reject-before-stream 403/404,
+  hello-first, per-restaurant filtering), 7 emit/access cases in
+  `orders.service.spec`.
+- Web: `tsc --noEmit` + `next build` green; `live-sync` standalone assert
+  run **32/32** (all 12 session-15 checks still pass + pushUp gating,
+  liveMode table, stream-URL shape, constants).
+- **Runtime SSE smoke vs live server** (`node dist/main.js` + local
+  Postgres): **18/18** — stream opens with `hello`; `order.created` pushed
+  on guest POST; `order.updated` on owner PATCH; **customer cancel wakes the
+  owner stream**; `ping` observed within 17s; a foreign restaurant's order
+  produced ZERO leaked events; 401 no-token / 403 customer-token / 404
+  unknown rid / 403 foreign rid (all as JSON, stream never started);
+  query-param token path authenticates. (3 initial "FAIL"s were my smoke
+  script expecting 200 where the API legitimately returns 201 — fixed the
+  script, not the app.)
+- **Browser E2E** (Chromium vs `next start :3100` + API :4000, signed-in
+  owner): pill reaches **Live · push**; two guest orders appeared with NEW
+  badges in **507 ms / 512 ms** (vs ≤10s poll); pause → pill Paused, order
+  FO-6AMT invisible for 13s; resume → visible in ~500 ms, pill back on
+  push; UI Accept on FO-6AMT patched in place (Pending8→7, Confirmed2→3)
+  and stayed Confirmed through the push-triggered sync 3s later (the
+  stale-guard path survives the new transport). Servers killed after;
+  E2E/smoke orders cancelled back to a clean baseline (one `SSE Foreign`
+  guest order at a NON-owned restaurant remains — owner cannot patch it by
+  design).
+
+**Docs:** README portal line + stream endpoint row; ARCHITECTURE inbox
+bullet rewritten for the two-transport contract + new Order stream (SSE)
+bullet incl. the query-token tradeoff; ROADMAP item ticked — **Phase 2
+complete** header added.
+
+**Tooling note:** the transcript sanitizer again rewrote `Bearer <token>`
+literals in outgoing tool args (3 test fixtures landed as `'***'` on
+disk). Fixed by assembling `['Bearer', tok].join(' ')` at runtime in
+`sse-jwt-auth.guard.spec.ts` — same pattern as the dotted-key fix.
+
+**Left for next sessions:** Phase 3 item 1 (dish search within restaurant
+page + category anchors); Phase 4 CI can be started any time now that both
+phases are feature-green.
+
 ## 2026-10-22 12:46 — Session 15
 
 **Built:** Phase 2 item 4 (polling half) — **live order updates on the

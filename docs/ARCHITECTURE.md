@@ -47,13 +47,34 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   (`OrdersService.setStatusForRestaurant`): same guard + ownership check,
   then the order must live under the path's restaurant (else 404 — a foreign
   order id gives no information) and the move must be a `STATUS_FLOW` edge.
-  The inbox is LIVE: while the tab is visible the page silently re-polls this
-  endpoint every 10s (`lib/live-sync.ts` gates the tick: paused / hidden /
-  action-in-flight all skip it; `visibilitychange` and resuming from pause
-  catch up immediately). Responses are dropped when the view (restaurant /
-  filter / page) changed mid-flight, and a poll that started before a
-  successful status action is discarded so the card never regresses.
-  SSE server-push replaces the cadence in a later item; the UI stays the same.
+  The inbox is LIVE with two cooperating transports:
+  **SSE push (primary)** — the page subscribes to
+  `GET /restaurants/:id/orders/stream` (see next bullet) and each
+  `order.created` / `order.updated` event fires one debounced silent refetch
+  (`PUSH_SYNC_DEBOUNCE_MS` in `lib/live-sync.ts` coalesces bursts; a wake-up
+  arriving while hidden/busy is remembered and flushed when the gate opens).
+  **10s poll (fallback)** — the interval tick keeps running but goes idle
+  whenever the stream is connected (`shouldPoll` gained the `pushUp` term);
+  if the stream drops, ticks resume within one interval. Responses are
+  dropped when the view (restaurant / filter / page) changed mid-flight, and
+  a sync that started before a successful status action is discarded so the
+  card never regresses.
+- **Order stream (SSE)** — `GET /restaurants/:id/orders/stream` streams
+  `hello` (once), `order.created` / `order.updated` (trigger-only payload
+  `{orderId, code, status}` — data truth always comes from the inbox GET),
+  and a 15s `ping` heartbeat. Events are live-only from a process-local rxjs
+  bus (`OrderEventsService`), published by `OrdersService` after create /
+  owner-status / customer-cancel / admin-status writes; single-container
+  scope is deliberate (multi-node realtime is the Phase 5 Socket.IO item).
+  Auth is `SseJwtAuthGuard` + `RolesGuard @Roles(OWNER)` +
+  `OrdersService.assertStreamAccess` (same 404/403 semantics as the inbox)
+  asserted BEFORE the stream starts. `EventSource` cannot send headers, so
+  the token may ride `?access_token=` — accepted ONLY on this route, header
+  wins when both are present; trade-off: query tokens can reach access
+  logs, mitigated by short TTLs + TLS at deployment. The client watches the
+  heartbeat: two missed cycles (`STREAM_STALL_MS`) mark the connection a
+  zombie → poll fallback + rebuild; the stream is also rebuilt with a fresh
+  token every 15min, well inside the 30m access TTL.
 
 - **Owner menu manager** — web `/dashboard/menu` does full dish CRUD on the
   existing owner routes (`POST /restaurants/:id/menu`, `PATCH /menu/items/:id`,

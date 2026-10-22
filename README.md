@@ -30,8 +30,9 @@ Demo logins: `demo@foodorder.app` / `demo1234` (customer) and
 Accounts work end-to-end on the storefront: `/login` and `/register` sign you
 in (session kept in the browser, refreshed automatically), and the header shows
 who is signed in. Owner accounts also get a portal — `/dashboard` (order inbox
-with accept/prepare/deliver/complete/cancel actions, live-updating every 10s
-with NEW badges and a pause toggle) and `/dashboard/menu`
+with accept/prepare/deliver/complete/cancel actions, live-updating via an SSE
+push stream — with the 10s poll kept as automatic fallback — plus NEW badges
+and a pause toggle) and `/dashboard/menu`
 (add, edit, hide and delete dishes) — both gated server-side by JWT + owner
 role + restaurant ownership, not just by the UI.
 
@@ -69,6 +70,7 @@ NEXT_PUBLIC_API_URL=http://localhost:4000/api npm run dev
 | PATCH | `/api/restaurants/:id` | Edit own restaurant (owner) |
 | GET | `/api/restaurants/mine` | Owner's restaurants |
 | GET | `/api/restaurants/:id/orders` | Owner orders inbox (Bearer, owner role) — `?status=&page=&limit=`, returns `{items,total,page,limit,counts}`; ownership enforced server-side (403 for foreign restaurants, admins bypass) |
+| GET | `/api/restaurants/:id/orders/stream` | SSE live order stream (owner role; Bearer header **or** `?access_token=` for EventSource) — `hello` / `order.created` / `order.updated` / `ping` events; trigger-only payloads, same ownership rules as the inbox |
 | PATCH | `/api/restaurants/:id/orders/:orderId/status?status=` | Owner status action (Bearer, owner role) — accept / start / deliver / complete / cancel; 404 if the order lives under another restaurant, 400 for non-`STATUS_FLOW` moves or junk status values |
 | POST | `/api/restaurants/:restaurantId/menu` | Add dish (owner) |
 | PATCH | `/api/menu/items/:id` | Edit dish (owner) |

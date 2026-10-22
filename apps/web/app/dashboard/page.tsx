@@ -3,14 +3,20 @@
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '@/lib/auth';
-import { ORDER_STATUSES, api, formatPrice } from '@/lib/api';
+import { API_URL, ORDER_STATUSES, api, formatPrice } from '@/lib/api';
 import { authedCall } from '@/lib/authed-call';
 import type { Order, OrderStatus, Restaurant, RestaurantOrdersPage } from '@/lib/api';
 import PortalTabs from '@/components/PortalTabs';
 import StatusBadge from '@/components/StatusBadge';
 import {
   POLL_INTERVAL_MS,
+  PUSH_SYNC_DEBOUNCE_MS,
+  STREAM_MAX_CONSECUTIVE_ERRORS,
+  STREAM_STALL_MS,
+  STREAM_TOKEN_REBUILD_MS,
   diffNewOrderIds,
+  liveMode,
+  orderStreamUrl,
   pollIsStaleVsAction,
   shouldPoll,
 } from '@/lib/live-sync';
@@ -21,15 +27,27 @@ import {
  * / cancel) wired to PATCH /restaurants/:id/orders/:orderId/status — the API
  * scopes every call to the caller (JWT + owner role + ownership + flow check).
  *
- * Live updates (roadmap item 4): the inbox silently re-polls
- * `GET /restaurants/:id/orders` every 10s. A silent poll never shows the
- * skeleton — it swaps the whole page (items + per-status tab counts) in
+ * Live updates (roadmap Phase 2, SSE item): the inbox keeps itself fresh with
+ * TWO cooperating transports:
+ *
+ *  1. PUSH (primary): an EventSource on GET /restaurants/:id/orders/stream.
+ *     `order.created` / `order.updated` events are trigger-only — each one
+ *     fires a debounced SILENT refetch of the inbox (truth always comes from
+ *     the normal GET, so events can never corrupt data, only accelerate it).
+ *     A `ping` heartbeat every 15s proves the stream is alive; two misses
+ *     (STREAM_STALL_MS) declare it a zombie, drop back to polling and rebuild
+ *     the connection.
+ *  2. POLL (fallback): the session-15 10s silent poll. Every tick checks
+ *     `shouldPoll`, which goes idle while the push channel is up — so the
+ *     cadence is a pure safety net, never a second opinion fighting the push.
+ *
+ * A silent sync swaps the whole page (items + per-status tab counts) in
  * place, badges rows that newly appeared with NEW, and is skipped while the
- * tab is hidden or an action is in flight; coming back to a hidden tab
- * catches up immediately. Poll failures only dim the Live pill ("retrying")
- * — existing data and the manual refresh path stay intact. The toggle lets
- * owners pause the traffic; SSE (the "→ then SSE" half of the item) will
- * later replace this cadence with server push on the same UI.
+ * tab is hidden or an action is in flight (a missed wake-up is remembered and
+ * flushed the moment the gate opens again); returning to a hidden tab catches
+ * up immediately. Sync failures only dim the Live pill ("retrying") — the
+ * last good data and the manual refresh stay intact. The toggle pauses BOTH
+ * transports (the stream connection is closed while paused).
  */
 
 const PAGE_SIZE = 10;
@@ -113,6 +131,16 @@ export default function DashboardPage() {
   // poll that was fired before it but resolves after it (stale snapshot
   // would regress the card the owner just acted on).
   const lastActionAtRef = useRef(0);
+
+  // --- SSE push state (see file header) ---
+  const [pushUp, setPushUp] = useState(false);
+  // Coalescing timer for push-triggered syncs (PUSH_SYNC_DEBOUNCE_MS window).
+  const syncTimerRef = useRef<number | null>(null);
+  // A push wake-up arrived while the gate was closed (busy/hidden); flush it
+  // as soon as the gate opens instead of letting the change go unnoticed
+  // until the next event (which may never come) — the interval is idle while
+  // the stream is up, so dropped wake-ups must be remembered.
+  const missedPushRef = useRef(false);
 
   const isOwnerish = user?.role === 'owner' || user?.role === 'admin';
 
@@ -219,22 +247,164 @@ export default function DashboardPage() {
     void fetchInbox('full');
   }, [fetchInbox, reloadKey]);
 
-  // --- the 10s polling tick ---
+  // --- push-triggered sync (SSE wakes the inbox) ---
+  /**
+   * Schedule one silent sync, coalescing bursts: any number of stream events
+   * inside PUSH_SYNC_DEBOUNCE_MS costs a single inbox GET. Unlike the interval
+   * tick this is NOT gated on `pushUp` — it *is* the push transport's data
+   * path. When the gate is closed (hidden tab / action in flight) the
+   * wake-up is remembered and flushed by the effects below once it opens.
+   */
+  const requestSync = useCallback(() => {
+    if (syncTimerRef.current != null) return;
+    syncTimerRef.current = window.setTimeout(() => {
+      syncTimerRef.current = null;
+      if (
+        !shouldPoll({
+          live,
+          hidden: typeof document !== 'undefined' && document.hidden,
+          busy: busyOrderId !== null,
+        })
+      ) {
+        missedPushRef.current = true;
+        return;
+      }
+      void fetchInbox('silent');
+    }, PUSH_SYNC_DEBOUNCE_MS);
+  }, [live, busyOrderId, fetchInbox]);
+
+  // The EventSource handlers are bound once per connection; call through this
+  // ref so they always see the current (filter/page/busy-aware) sync logic.
+  const requestSyncRef = useRef<() => void>(() => {});
+  useEffect(() => {
+    requestSyncRef.current = requestSync;
+  }, [requestSync]);
+
+  // Flush a wake-up dropped while an action was in flight.
+  useEffect(() => {
+    if (busyOrderId === null && missedPushRef.current) {
+      missedPushRef.current = false;
+      requestSync();
+    }
+  }, [busyOrderId, requestSync]);
+
+  // --- the SSE stream (primary live transport) ---
+  // One EventSource per (restaurant, live toggle). The access token cannot go
+  // in an EventSource header, so it rides the query string (server-side
+  // SseJwtAuthGuard) and the connection is REBUILT with a fresh token before
+  // the access TTL can expire — a stale-token reconnect loop is exactly what
+  // the rebuild avoids. Liveness: any event (incl. the 15s `ping`) resets the
+  // stall watchdog; two missed heartbeats = zombie stream → close, rebuild,
+  // and the interval polling resumes in the meantime.
+  useEffect(() => {
+    if (status !== 'signedIn' || !isOwnerish || !selectedId || !live) {
+      setPushUp(false);
+      return;
+    }
+    let disposed = false;
+    let es: EventSource | null = null;
+    let stallTimer: number | null = null;
+    let retryTimer: number | null = null;
+    let errors = 0;
+
+    const clearTimers = () => {
+      if (stallTimer != null) window.clearTimeout(stallTimer);
+      if (retryTimer != null) window.clearTimeout(retryTimer);
+      stallTimer = retryTimer = null;
+    };
+    const armStallWatchdog = () => {
+      if (stallTimer != null) window.clearTimeout(stallTimer);
+      stallTimer = window.setTimeout(() => {
+        // No event (not even a ping) for 2 heartbeat cycles: the connection
+        // is a zombie. Fall back to polling and try a fresh connection.
+        setPushUp(false);
+        errors = 0;
+        if (es) es.close();
+        retryTimer = window.setTimeout(() => void connect(), POLL_INTERVAL_MS);
+      }, STREAM_STALL_MS);
+    };
+
+    const connect = async () => {
+      if (disposed) return;
+      const token = await getAccessToken();
+      if (disposed || !token) return;
+      const source = new EventSource(orderStreamUrl(API_URL, selectedId, token));
+      es = source;
+      const mine = () => !disposed && es === source;
+      const touch = () => {
+        if (mine()) armStallWatchdog();
+      };
+      source.onopen = () => {
+        if (!mine()) return;
+        errors = 0;
+        touch();
+      };
+      source.onerror = () => {
+        if (!mine()) return;
+        setPushUp(false);
+        // readyState CLOSED = the browser gave up (4xx auth/ownership);
+        // otherwise it retries internally with the SAME url token.
+        if (source.readyState === EventSource.CLOSED || ++errors >= STREAM_MAX_CONSECUTIVE_ERRORS) {
+          source.close();
+          if (retryTimer == null) {
+            retryTimer = window.setTimeout(() => {
+              retryTimer = null;
+              void connect();
+            }, POLL_INTERVAL_MS);
+          }
+        }
+      };
+      // 'hello' = stream proven working end-to-end (headers + first write).
+      source.addEventListener('hello', () => {
+        if (!mine()) return;
+        errors = 0;
+        setPushUp(true);
+        touch();
+        // Catch up anything missed between the last sync and this connect.
+        requestSyncRef.current();
+      });
+      for (const type of ['order.created', 'order.updated'] as const) {
+        source.addEventListener(type, () => {
+          if (!mine()) return;
+          touch();
+          requestSyncRef.current();
+        });
+      }
+      source.addEventListener('ping', touch);
+      armStallWatchdog();
+    };
+
+    void connect();
+    // Periodic rebuild with a fresh token, long before the 30m access TTL.
+    const rebuild = window.setInterval(() => void connect(), STREAM_TOKEN_REBUILD_MS);
+    return () => {
+      disposed = true;
+      clearTimers();
+      window.clearInterval(rebuild);
+      if (es) es.close();
+      setPushUp(false);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status, isOwnerish, selectedId, live]);
+
+  // --- the 10s polling tick (fallback transport) ---
   // One interval per (restaurant, live toggle); the callback it fires is
   // swapped through `tickRef` so changing filter/page/busy never re-creates
   // the interval (which would reset the 10s phase and could stack ticks).
+  // While the SSE stream is up, ticks go idle — push is the live transport.
   const tick = useCallback(() => {
     if (
       !shouldPoll({
         live,
         hidden: typeof document !== 'undefined' && document.hidden,
         busy: busyOrderId !== null,
+        pushUp,
       })
     ) {
       return;
     }
     void fetchInbox('silent');
-  }, [live, busyOrderId, fetchInbox]);
+  }, [live, busyOrderId, pushUp, fetchInbox]);
 
   const tickRef = useRef(tick);
   useEffect(() => {
@@ -244,10 +414,11 @@ export default function DashboardPage() {
   useEffect(() => {
     if (status !== 'signedIn' || !isOwnerish || !selectedId || !live) return;
     const id = window.setInterval(() => tickRef.current(), POLL_INTERVAL_MS);
-    // Catch up the moment the tab becomes visible again (ticks are skipped
-    // while hidden, so the owner doesn't stare at a stale inbox).
+    // Catch up the moment the tab becomes visible again (syncs are skipped
+    // while hidden, so the owner doesn't stare at a stale inbox). Route
+    // through requestSync, not the interval tick: with push up, ticks idle.
     const onVisible = () => {
-      if (!document.hidden) tickRef.current();
+      if (!document.hidden) requestSyncRef.current();
     };
     document.addEventListener('visibilitychange', onVisible);
     return () => {
@@ -260,7 +431,7 @@ export default function DashboardPage() {
   // owner shouldn't have to wait a full interval for the inbox to refresh.
   // (On initial mount this is a harmless extra fetch of the same view.)
   useEffect(() => {
-    if (live) tickRef.current();
+    if (live) requestSyncRef.current();
   }, [live]);
 
   // Reset paging + selection-safe filter when the restaurant changes.
@@ -316,6 +487,8 @@ export default function DashboardPage() {
   const inboxTotal = data
     ? Object.values(data.counts).reduce((a, b) => a + b, 0)
     : null;
+
+  const mode = liveMode({ live, pushUp, syncIssue });
 
   // Hydration-safe: 'loading' renders identically on server and first client paint.
   if (status === 'loading') {
@@ -398,30 +571,42 @@ export default function DashboardPage() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {/* Live polling indicator + owner-facing pause/resume (10s cadence). */}
+          {/* Live indicator (which transport keeps the inbox fresh) + pause. */}
           <button
             onClick={() => setLive((v) => !v)}
             aria-pressed={live}
             title={
               live
-                ? 'Live updates on — the inbox re-polls every 10s. Click to pause.'
-                : 'Live updates paused — click to resume 10s polling.'
+                ? pushUp
+                  ? 'Live updates on — the server pushes order changes over SSE. Click to pause.'
+                  : 'Live updates on — SSE is not connected, so the inbox re-polls every 10s. Click to pause.'
+                : 'Live updates paused — click to resume the SSE stream (with 10s polling fallback).'
             }
             className={`flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-xs font-bold transition-colors ${
-              live
-                ? syncIssue
+              mode === 'paused'
+                ? 'bg-stone-200 text-stone-600 hover:bg-stone-300'
+                : mode === 'retrying'
                   ? 'bg-amber-100 text-amber-800 hover:bg-amber-200'
                   : 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200'
-                : 'bg-stone-200 text-stone-600 hover:bg-stone-300'
             }`}
           >
             <span
               aria-hidden
               className={`h-2 w-2 rounded-full ${
-                live ? (syncIssue ? 'bg-amber-500' : 'animate-pulse bg-emerald-500') : 'bg-stone-400'
+                mode === 'paused'
+                  ? 'bg-stone-400'
+                  : mode === 'retrying'
+                    ? 'bg-amber-500'
+                    : 'animate-pulse bg-emerald-500'
               }`}
             />
-            {live ? (syncIssue ? 'Live · retrying' : 'Live') : 'Paused'}
+            {mode === 'paused'
+              ? 'Paused'
+              : mode === 'retrying'
+                ? 'Live · retrying'
+                : mode === 'push'
+                  ? 'Live · push'
+                  : 'Live'}
           </button>
           {lastSyncAt != null && (
             <span className="text-xs text-stone-500" title="Last successful inbox sync">
@@ -519,8 +704,8 @@ export default function DashboardPage() {
           pill too — this line adds the reason once. */}
       {syncIssue && data && (
         <p className="mt-4 text-xs font-semibold text-amber-700" role="status">
-          Live update failed ({syncIssue}) — showing the last successful sync; retrying in{' '}
-          {POLL_INTERVAL_MS / 1000}s.
+          Live update failed ({syncIssue}) — showing the last successful sync; the next push
+          event or tick will retry.
         </p>
       )}
 
