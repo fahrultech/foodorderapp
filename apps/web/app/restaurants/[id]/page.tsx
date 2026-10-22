@@ -1,6 +1,6 @@
 import { notFound } from 'next/navigation';
 import { api, formatPrice } from '@/lib/api';
-import AddToCartButton from '@/components/AddToCartButton';
+import MenuBrowser from '@/components/MenuBrowser';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,9 +16,6 @@ export default async function RestaurantPage({
   } catch {
     notFound();
   }
-
-  const menu = restaurant.menuItems ?? [];
-  const categories = [...new Set(menu.map((m) => m.category || 'Menu'))];
 
   return (
     <div>
@@ -56,40 +53,7 @@ export default async function RestaurantPage({
         </div>
       </section>
 
-      <section className="mt-10 space-y-10">
-        {categories.map((cat) => (
-          <div key={cat}>
-            <h2 className="mb-3 text-xl font-bold">{cat}</h2>
-            <div className="divide-y divide-stone-200 rounded-2xl border border-stone-200 bg-white">
-              {menu
-                .filter((m) => (m.category || 'Menu') === cat)
-                .map((item) => (
-                  <div key={item.id} className="flex items-center gap-4 p-4">
-                    <div className="min-w-0 flex-1">
-                      <h3 className="font-semibold">{item.name}</h3>
-                      {item.description && (
-                        <p className="mt-0.5 truncate text-sm text-stone-500">{item.description}</p>
-                      )}
-                      <p className="mt-1 text-sm text-stone-400">⏱ {item.prepMinutes} min</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="font-bold">{formatPrice(item.priceCents)}</p>
-                      <div className="mt-2">
-                        <AddToCartButton
-                          item={item}
-                          restaurant={{ id: restaurant.id, name: restaurant.name }}
-                        />
-                      </div>
-                    </div>
-                  </div>
-                ))}
-            </div>
-          </div>
-        ))}
-        {menu.length === 0 && (
-          <p className="text-stone-500">This restaurant has no menu items yet.</p>
-        )}
-      </section>
+      <MenuBrowser restaurant={restaurant} />
     </div>
   );
 }
