@@ -2,6 +2,7 @@ import 'dotenv/config';
 import * as path from 'path';
 import { DataSource } from 'typeorm';
 import { User } from '../users/user.entity';
+import { Favorite } from '../users/favorite.entity';
 import { RefreshToken } from '../auth/refresh-token.entity';
 import { Restaurant } from '../restaurants/restaurant.entity';
 import { MenuItem } from '../menu/menu-item.entity';
@@ -27,7 +28,7 @@ export const dataSourceOptions = {
   url:
     process.env.DATABASE_URL ||
     'postgresql://foodorder:***@localhost:5432/foodorder',
-  entities: [User, RefreshToken, Restaurant, MenuItem, Order, OrderItem],
+  entities: [User, Favorite, RefreshToken, Restaurant, MenuItem, Order, OrderItem],
   // Glob works for ts-node (src) and compiled output (dist) alike.
   migrations: [path.join(__dirname, 'migrations', '*.{ts,js}')],
   migrationsRun: true,

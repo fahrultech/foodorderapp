@@ -4,6 +4,7 @@ import { User, UserRole } from '../users/user.entity';
 import { Restaurant } from '../restaurants/restaurant.entity';
 import { MenuItem } from '../menu/menu-item.entity';
 import { Order, OrderStatus } from '../orders/order.entity';
+import { Favorite } from '../users/favorite.entity';
 import { AppDataSource } from './data-source';
 
 const restaurants = [
@@ -114,7 +115,7 @@ async function main() {
   // explicitly even though the users FK cascade would clear it — a seeded DB
   // must never keep live sessions from a previous run.
   await dataSource.query(
-    'TRUNCATE TABLE order_items, orders, menu_items, restaurants, refresh_tokens, users RESTART IDENTITY CASCADE',
+    'TRUNCATE TABLE user_favorites, order_items, orders, menu_items, restaurants, refresh_tokens, users RESTART IDENTITY CASCADE',
   );
 
   const restaurantRepo = dataSource.getRepository(Restaurant);
@@ -256,6 +257,22 @@ async function main() {
       }),
     );
     console.log(`  + order ${spec.code} → ${entry.restaurant.name} (${spec.status})`);
+  }
+
+  // A few hearts for the demo customer so /users/me/favorites and the
+  // storefront "Saved" page have data out of the box.
+  const favRepo = dataSource.getRepository(Favorite);
+  const favoriteSpecs: [string, number][] = [
+    ['warung-nusantara', 0],
+    ['warung-nusantara', 4],
+    ['seoul-street', 0],
+  ];
+  for (const [slug, idx] of favoriteSpecs) {
+    const entry = bySlug.get(slug)!;
+    await favRepo.save(
+      favRepo.create({ userId: demoCustomer.id, menuItemId: entry.items[idx].id }),
+    );
+    console.log(`  + favorite ${entry.items[idx].name} (${entry.restaurant.name})`);
   }
 
   await dataSource.destroy();
