@@ -27,7 +27,7 @@
 - [x] API: `/restaurants/:id/orders` scoped to owner with JWT role guard
 
 ## Phase 3 — Customer experience
-- [ ] Dish search within restaurant page + category anchors
+- [x] Dish search within restaurant page + category anchors
 - [ ] Favorites (heart on dishes, `/users/me/favorites` API)
 - [ ] Order tracking timeline UI (status steps with timestamps on order entity)
 - [ ] Reviews: customers rate completed orders; restaurant rating recomputed server-side

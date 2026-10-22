@@ -36,6 +36,11 @@ and a pause toggle) and `/dashboard/menu`
 (add, edit, hide and delete dishes) — both gated server-side by JWT + owner
 role + restaurant ownership, not just by the UI.
 
+Every restaurant page has instant in-page menu search (matches dish name,
+description or category) with a live match count, plus a sticky category
+anchor bar for jumping between menu sections — all client-side, no server
+round-trip per keystroke.
+
 ## Local development (no Docker)
 
 ```bash

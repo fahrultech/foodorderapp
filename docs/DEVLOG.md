@@ -4,6 +4,48 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
+## 2026-10-22 17:55 — Session 17
+
+**Built:** Phase 3 item 1 — **dish search within the restaurant page +
+category anchors**.
+
+- `apps/web/components/MenuBrowser.tsx` (new, client) — takes the whole
+  restaurant (the page already fetches the full menu, so filtering is pure
+  in-memory; no new API). Sticky toolbar under the global header
+  (`top-[63px]`, measured live) with: search input (name/description/category,
+  case-insensitive), Clear button + Escape-to-clear, `aria-live` match count
+  ("n of m dishes match"), and a category chip bar that anchors to the
+  sections. Chips render only when >1 category is visible, and always mirror
+  the filtered set (anchor ids are positional `cat-<i>` from the unfiltered
+  grouping, so they stay stable while typing). Empty-state card with a
+  "Clear search" action when nothing matches; the "no menu items yet" state
+  is preserved.
+- `apps/web/app/restaurants/[id]/page.tsx` — server component keeps the hero
+  section; the old static category loop moved into `MenuBrowser`. Sections
+  get `scroll-mt-[172px]` so anchor jumps land below the stacked
+  header+toolbar (header 63px + toolbar ~100px).
+- Add-to-cart behaviour untouched: `AddToCartButton` renders inside the
+  filtered rows, cart rules (single-restaurant, switch modal) unaffected.
+
+**Verified:**
+- `next build` clean (only web changed; API untouched).
+- Live stack smoke (Postgres service + `node dist/main.js` on :4000 +
+  `next start` on :3000): `/api/health` db up; SSR HTML of
+  `/restaurants/<warung-id>` contains the search input, 3 anchored sections
+  (`id="cat-0..2"`) and 3 matching chip links.
+- Real-browser interaction test (headless CDP): search "ayam" → 1 of 4
+  dishes, live count text correct; nonsense query → "No dishes match" card,
+  chips collapse to 0; anchor click `#cat-1` → scrollY 0→703, section top
+  lands at 172px (clear of both sticky bars); sticky toolbar top == header
+  bottom (63px) after the alignment fix; Escape clears the input; enabled
+  Add buttons present in filtered rows. Screenshot reviewed — layout clean.
+
+**Docs:** README storefront paragraph, ARCHITECTURE "in-page menu search is
+client-side" decision bullet, ROADMAP item ticked.
+
+**Left for next sessions:** Phase 3 item 2 — favorites (heart on dishes +
+`/users/me/favorites` API: needs entity + migration + seed, its own session).
+
 ## 2026-10-22 16:33 — Session 16
 
 **Built:** Phase 2 item 5 (SSE half) — **live order updates via server push**,

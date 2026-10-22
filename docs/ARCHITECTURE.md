@@ -25,6 +25,10 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   `switchRequest` and a confirmation modal ("Start a new cart?") shows the
   current cart (count, restaurant, subtotal) vs the one-item new cart —
   Keep discards the add, Replace swaps. Escape/backdrop close = Keep.
+- **In-page menu search is client-side** — the restaurant page already ships
+  the full menu in `GET /restaurants/:id`; `MenuBrowser` filters it in memory
+  (name/description/category, case-insensitive) instead of adding a per-keystroke
+  API. Category anchor ids are positional (`cat-<i>`) and stable while filtering.
 - **Order status machine** — transitions validated server-side
   (`pending→confirmed→preparing→delivering→completed`, cancellable through preparing).
   `POST /orders/:id/cancel` lets the *customer* use exactly that machine edge
