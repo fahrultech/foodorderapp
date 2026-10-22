@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { Order } from './order.entity';
 import { OrderItem } from './order-item.entity';
 import { OrdersService } from './orders.service';
+import { OrderEventsService } from './order-events.service';
 import { OrdersController } from './orders.controller';
 import { RestaurantOrdersController } from './restaurant-orders.controller';
 import { MenuModule } from '../menu/menu.module';
@@ -16,7 +17,7 @@ import { AuthModule } from '../auth/auth.module';
     RestaurantsModule,
     AuthModule,
   ],
-  providers: [OrdersService],
+  providers: [OrdersService, OrderEventsService],
   controllers: [OrdersController, RestaurantOrdersController],
   exports: [OrdersService],
 })

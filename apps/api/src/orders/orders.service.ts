@@ -17,6 +17,7 @@ import {
 } from './dto/list-my-orders.dto';
 import { MenuService } from '../menu/menu.service';
 import { RestaurantsService } from '../restaurants/restaurants.service';
+import { OrderEventsService } from './order-events.service';
 import { isUuid } from '../common/uuid';
 
 const STATUS_FLOW: Record<OrderStatus, OrderStatus[]> = {
@@ -34,7 +35,28 @@ export class OrdersService {
     @InjectRepository(Order) private readonly orders: Repository<Order>,
     private readonly menu: MenuService,
     private readonly restaurants: RestaurantsService,
+    private readonly events: OrderEventsService,
   ) {}
+
+  /**
+   * After every state-changing write, tell the live streams something moved.
+   * The SSE consumers refetch the truth via the normal inbox GET — this event
+   * only carries identity + status for cheap client-side coalescing.
+   */
+  private emit(
+    type: 'order.created' | 'order.updated',
+    order: Pick<Order, 'id' | 'code' | 'status' | 'restaurantId'>,
+  ): void {
+    this.events.publish({
+      type,
+      restaurantId: order.restaurantId,
+      payload: {
+        orderId: order.id,
+        code: order.code,
+        status: order.status,
+      },
+    });
+  }
 
   private generateCode(): string {
     const chars = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
@@ -93,7 +115,9 @@ export class OrdersService {
       items,
     });
     const saved = await this.orders.save(order);
-    return this.findOne(saved.id);
+    const full = await this.findOne(saved.id);
+    this.emit('order.created', full);
+    return full;
   }
 
   async findOne(id: string) {
@@ -185,6 +209,18 @@ export class OrdersService {
   }
 
   /**
+   * Ownership gate for the SSE order stream: same 404/403 semantics as the
+   * inbox GET. Called from the @Sse handler BEFORE the observable is returned,
+   * so a rejected caller gets a normal JSON error — the stream never starts.
+   */
+  assertStreamAccess(
+    restaurantId: string,
+    actor: { sub: string; role: UserRole },
+  ): Promise<{ id: string }> {
+    return this.getOwnedRestaurant(restaurantId, actor);
+  }
+
+  /**
    * Owner-portal status action (Phase 2): the restaurant's owner (or an admin)
    * moves one of that restaurant's orders along STATUS_FLOW — accept, start
    * preparing, out for delivery, complete, or cancel on the restaurant's side.
@@ -217,7 +253,9 @@ export class OrdersService {
       );
     }
     order.status = status;
-    return this.orders.save(order);
+    const saved = await this.orders.save(order);
+    this.emit('order.updated', saved);
+    return saved;
   }
 
   /**
@@ -243,7 +281,9 @@ export class OrdersService {
       );
     }
     order.status = OrderStatus.CANCELLED;
-    return this.orders.save(order);
+    const saved = await this.orders.save(order);
+    this.emit('order.updated', saved);
+    return saved;
   }
 
   async updateStatus(id: string, status: OrderStatus) {
@@ -254,7 +294,9 @@ export class OrdersService {
       );
     }
     order.status = status;
-    return this.orders.save(order);
+    const saved = await this.orders.save(order);
+    this.emit('order.updated', saved);
+    return saved;
   }
 
   nextStatuses(id: string) {

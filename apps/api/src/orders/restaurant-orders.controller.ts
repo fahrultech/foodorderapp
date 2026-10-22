@@ -1,8 +1,23 @@
-import { Controller, Get, Param, Patch, Query, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  MessageEvent,
+  Param,
+  Patch,
+  Query,
+  Sse,
+  UseGuards,
+} from '@nestjs/common';
+import { Observable, filter, map, merge, of, timer } from 'rxjs';
 import { OrdersService } from './orders.service';
+import {
+  ORDER_STREAM_HEARTBEAT_MS,
+  OrderEventsService,
+} from './order-events.service';
 import { ListMyOrdersDto } from './dto/list-my-orders.dto';
 import { SetOrderStatusDto } from './dto/set-order-status.dto';
 import { JwtAuthGuard } from '../common/jwt-auth.guard';
+import { SseJwtAuthGuard } from '../common/sse-jwt-auth.guard';
 import { RolesGuard } from '../common/roles.guard';
 import { Roles } from '../common/roles.decorator';
 import { CurrentUser } from '../common/current-user.decorator';
@@ -19,7 +34,10 @@ import { UserRole } from '../users/user.entity';
  */
 @Controller('restaurants/:id/orders')
 export class RestaurantOrdersController {
-  constructor(private readonly service: OrdersService) {}
+  constructor(
+    private readonly service: OrdersService,
+    private readonly events: OrderEventsService,
+  ) {}
 
   @Get()
   @UseGuards(JwtAuthGuard, RolesGuard)
@@ -54,6 +72,53 @@ export class RestaurantOrdersController {
       dto.status,
       { sub: user.sub, role: user.role },
     );
+  }
+
+  /**
+   * Live order stream (Phase 2 item "SSE"): GET /restaurants/:id/orders/stream
+   * — a server-sent-events channel the owner dashboard subscribes to so new
+   * orders and status changes push in (~1s) instead of waiting on the 10s
+   * poll. Contract:
+   *
+   *   event: hello          { restaurantId, serverTime }            — once, on connect
+   *   event: order.created  { orderId, code, status }               — any new order
+   *   event: order.updated  { orderId, code, status }               — any status move
+   *   event: ping           { serverTime }                          — every 15s keep-alive
+   *
+   * Events are TRIGGER-ONLY: the payload identifies the change but carries no
+   * inbox data — the dashboard refetches `GET /restaurants/:id/orders` to get
+   * the truth, so a dropped/malformed event costs latency, never correctness.
+   * Live-only (no replay): a gap between connect and last poll is covered by
+   * the immediate catch-up fetch the client runs on `hello`.
+   *
+   * Guards: SseJwtAuthGuard (bearer header or ?access_token= for EventSource)
+   * + RolesGuard/OWNER (admins pass). Ownership (404 unknown / 403 foreign) is
+   * asserted by the async handler BEFORE the observable is returned — Nest
+   * awaits async @Sse handlers, so rejections stay ordinary JSON errors and
+   * the stream never starts for a caller who could not list the inbox.
+   */
+  @Sse('stream')
+  @UseGuards(SseJwtAuthGuard, RolesGuard)
+  @Roles(UserRole.OWNER)
+  async stream(
+    @Param('id') id: string,
+    @CurrentUser() user: any,
+  ): Promise<Observable<MessageEvent>> {
+    await this.service.assertStreamAccess(id, { sub: user.sub, role: user.role });
+    const orderEvents = this.events
+      .stream()
+      .pipe(
+        filter((e) => e.restaurantId === id),
+        map((e) => ({ type: e.type, data: e.payload } as MessageEvent)),
+      );
+    const hello: MessageEvent = {
+      type: 'hello',
+      data: { restaurantId: id, serverTime: new Date().toISOString() },
+    };
+    const pings = timer(ORDER_STREAM_HEARTBEAT_MS, ORDER_STREAM_HEARTBEAT_MS).pipe(
+      map(() => ({ type: 'ping', data: { serverTime: new Date().toISOString() } } as MessageEvent)),
+    );
+    return merge(of(hello), pings, orderEvents);
   }
 }
 

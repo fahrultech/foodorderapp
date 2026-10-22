@@ -6,6 +6,7 @@ import {
 import { Repository } from 'typeorm';
 import { OrdersService } from './orders.service';
 import { Order, OrderStatus } from './order.entity';
+import { OrderEventsService } from './order-events.service';
 import { MenuService } from '../menu/menu.service';
 import { RestaurantsService } from '../restaurants/restaurants.service';
 import { UserRole } from '../users/user.entity';
@@ -32,6 +33,13 @@ function fakeOrder(overrides: Partial<Order> = {}): Order {
   } as Order;
 }
 
+/** Events-bus mock: records every publish() for emit assertions. */
+function fakeEvents() {
+  return { publish: jest.fn() } as unknown as OrderEventsService & {
+    publish: jest.Mock;
+  };
+}
+
 function build(orders: Order[] = [fakeOrder()]) {
   const findOne = jest.fn(async ({ where }: any) =>
     orders.find((o) => o.id === where.id) ?? null,
@@ -51,12 +59,15 @@ function build(orders: Order[] = [fakeOrder()]) {
   const repo = { findOne, findAndCount, save } as unknown as jest.Mocked<
     Partial<Repository<Order>>
   >;
+  const restaurants = {} as RestaurantsService;
+  const events = fakeEvents();
   const service = new OrdersService(
     repo as Repository<Order>,
     {} as MenuService,
-    {} as RestaurantsService,
+    restaurants,
+    events,
   );
-  return { service, findOne, findAndCount, save };
+  return { service, findOne, findAndCount, save, events };
 }
 
 describe('OrdersService.findMine — pagination + status filter', () => {
@@ -231,7 +242,7 @@ describe('OrdersService.findForRestaurant — owner orders inbox', () => {
           : ({ id, ownerId: opts.ownerId ?? OWNER_ID } as any),
       ),
     } as unknown as RestaurantsService;
-    const service = new OrdersService(repo, {} as MenuService, restaurants);
+    const service = new OrdersService(repo, {} as MenuService, restaurants, fakeEvents());
     return { service, findAndCount, count, restaurants };
   }
 
@@ -356,6 +367,7 @@ describe('OrdersService.setStatusForRestaurant — owner status actions', () => 
     );
     const save = jest.fn(async (x: Order) => x);
     const repo = { findOne, save } as unknown as Repository<Order>;
+    const events = fakeEvents();
     const restaurants = {
       findOne: jest.fn(async (id: string) =>
         !isUuid(id) || opts.restaurantExists === false
@@ -363,8 +375,8 @@ describe('OrdersService.setStatusForRestaurant — owner status actions', () => 
           : ({ id, ownerId: opts.ownerId ?? OWNER_ID } as any),
       ),
     } as unknown as RestaurantsService;
-    const service = new OrdersService(repo, {} as MenuService, restaurants);
-    return { service, findOne, save };
+    const service = new OrdersService(repo, {} as MenuService, restaurants, events);
+    return { service, findOne, save, events };
   }
 
   const legal: Array<[OrderStatus, OrderStatus]> = [
@@ -495,3 +507,145 @@ describe('OrdersService.setStatusForRestaurant — owner status actions', () => 
   });
 });
 
+
+describe('OrdersService — live event emission (SSE bus)', () => {
+  const REST_ID = '11111111-1111-4111-8111-111111111111';
+  const ownerActor = { sub: OWNER_ID, role: UserRole.OWNER };
+
+  function buildActionsWithEvents(order: Order) {
+    const findOne = jest.fn(async ({ where }: any) =>
+      order && order.id === where.id ? order : null,
+    );
+    const save = jest.fn(async (x: Order) => x);
+    const repo = { findOne, save } as unknown as Repository<Order>;
+    const events = fakeEvents();
+    const restaurants = {
+      findOne: jest.fn(async (id: string) => ({ id, ownerId: OWNER_ID } as any)),
+    } as unknown as RestaurantsService;
+    const service = new OrdersService(repo, {} as MenuService, restaurants, events);
+    return { service, events };
+  }
+
+  it('setStatusForRestaurant publishes order.updated with id/code/status payload', async () => {
+    const order = fakeOrder({ restaurantId: REST_ID, status: OrderStatus.PENDING });
+    const { service, events } = buildActionsWithEvents(order);
+    await service.setStatusForRestaurant(REST_ID, ORDER_ID, OrderStatus.CONFIRMED, ownerActor);
+    expect(events.publish).toHaveBeenCalledTimes(1);
+    expect(events.publish.mock.calls[0][0]).toEqual({
+      type: 'order.updated',
+      restaurantId: REST_ID,
+      payload: { orderId: ORDER_ID, code: 'FO-TEST', status: 'confirmed' },
+    });
+  });
+
+  it('customer cancel publishes order.updated too (owner inbox must react)', async () => {
+    const order = fakeOrder({ restaurantId: REST_ID, status: OrderStatus.CONFIRMED });
+    const { service, events } = buildActionsWithEvents(order);
+    await service.cancel(ORDER_ID, OWNER_ID);
+    expect(events.publish).toHaveBeenCalledWith({
+      type: 'order.updated',
+      restaurantId: REST_ID,
+      payload: { orderId: ORDER_ID, code: 'FO-TEST', status: 'cancelled' },
+    });
+  });
+
+  it('admin-generic updateStatus publishes order.updated', async () => {
+    const order = fakeOrder({ restaurantId: REST_ID, status: OrderStatus.PREPARING });
+    const { service, events } = buildActionsWithEvents(order);
+    await service.updateStatus(ORDER_ID, OrderStatus.DELIVERING);
+    expect(events.publish).toHaveBeenCalledTimes(1);
+    expect(events.publish.mock.calls[0][0].payload.status).toBe('delivering');
+  });
+
+  it('publishes NOTHING when the write fails validation or lookup', async () => {
+    const order = fakeOrder({ restaurantId: REST_ID, status: OrderStatus.PENDING });
+    const { service, events } = buildActionsWithEvents(order);
+    await expect(
+      service.setStatusForRestaurant(REST_ID, ORDER_ID, OrderStatus.COMPLETED, ownerActor),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(events.publish).not.toHaveBeenCalled();
+  });
+
+  it('create publishes order.created after the order is saved', async () => {
+    // Full create() path needs menu + restaurants pricing mocks.
+    const created = fakeOrder({ restaurantId: REST_ID });
+    const save = jest.fn(async (x: Partial<Order>) => ({ ...x, id: ORDER_ID }));
+    const repo = {
+      create: (x: any) => x,
+      save,
+      findOne: jest.fn(async () => created),
+    } as unknown as Repository<Order>;
+    const menu = {
+      findByIds: jest.fn(async () => [
+        { id: 'm1', name: 'Nasi', priceCents: 500, isAvailable: true, restaurantId: REST_ID },
+      ]),
+    } as unknown as MenuService;
+    const restaurants = {
+      findOne: jest.fn(async () => ({
+        id: REST_ID,
+        ownerId: OWNER_ID,
+        minOrderCents: 1000,
+        deliveryFeeCents: 300,
+      })),
+    } as unknown as RestaurantsService;
+    const events = fakeEvents();
+    const service = new OrdersService(repo, menu, restaurants, events);
+    await service.create(
+      { restaurantId: REST_ID, customerName: 'A', contactPhone: '1', deliveryAddress: 'x', items: [{ menuItemId: 'm1', quantity: 2 }] } as any,
+      OWNER_ID,
+    );
+    expect(events.publish).toHaveBeenCalledTimes(1);
+    expect(events.publish.mock.calls[0][0]).toMatchObject({
+      type: 'order.created',
+      restaurantId: REST_ID,
+      payload: { orderId: ORDER_ID },
+    });
+  });
+});
+
+describe('OrdersService.assertStreamAccess — SSE ownership gate', () => {
+  const REST_ID = '11111111-1111-4111-8111-111111111111';
+  const ownerActor = { sub: OWNER_ID, role: UserRole.OWNER };
+
+  function buildGate(opts: { ownerId?: string | null; restaurantExists?: boolean } = {}) {
+    const restaurants = {
+      findOne: jest.fn(async (id: string) =>
+        !isUuid(id) || opts.restaurantExists === false
+          ? null
+          : ({ id, ownerId: opts.ownerId ?? OWNER_ID } as any),
+      ),
+    } as unknown as RestaurantsService;
+    const service = new OrdersService(
+      {} as Repository<Order>,
+      {} as MenuService,
+      restaurants,
+      fakeEvents(),
+    );
+    return { service, restaurants };
+  }
+
+  it('resolves for the owner and for an admin (bypass)', async () => {
+    const { service } = buildGate();
+    await expect(service.assertStreamAccess(REST_ID, ownerActor)).resolves.toMatchObject({
+      id: REST_ID,
+    });
+    const admin = buildGate({ ownerId: null });
+    await expect(
+      admin.service.assertStreamAccess(REST_ID, { sub: OWNER_ID, role: UserRole.ADMIN }),
+    ).resolves.toBeTruthy();
+  });
+
+  it('404s unknown/malformed, 403s foreign restaurants — same shape as the inbox', async () => {
+    const gone = buildGate({ restaurantExists: false });
+    await expect(gone.service.assertStreamAccess(REST_ID, ownerActor)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+    await expect(gone.service.assertStreamAccess('garbage', ownerActor)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+    const foreign = buildGate({ ownerId: INTRUDER_ID });
+    await expect(
+      foreign.service.assertStreamAccess(REST_ID, ownerActor),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+});
