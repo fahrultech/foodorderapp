@@ -1,5 +1,7 @@
 # 🍜 FoodOrder
 
+![CI](https://github.com/fahrultech/foodorderapp/actions/workflows/ci.yml/badge.svg)
+
 A real, functional food-ordering platform built with:
 
 - **Frontend:** Next.js 15 (App Router, TypeScript, Tailwind CSS)

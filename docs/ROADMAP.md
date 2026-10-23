@@ -35,7 +35,7 @@
 - [x] Delivery addresses book (multiple saved addresses, pick at checkout)
 
 ## Phase 4 — Ops & quality
-- [ ] GitHub Actions CI: build + test both apps per push
+- [x] GitHub Actions CI: build + test both apps per push
 - [ ] GitHub Actions CD workflow stub (build images, push to registry)
 - [ ] API: structured logging (pino) + request-id middleware
 - [ ] API: rate limiting on auth + order endpoints

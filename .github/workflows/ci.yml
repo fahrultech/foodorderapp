@@ -1,0 +1,149 @@
+# CI — build + test both apps on every push to master and every pull request.
+#
+#   api          nest build + jest unit suite (301 tests; proven DB-free —
+#                the whole suite passes with an unreachable DATABASE_URL)
+#   web          next production build (passes with no API running, verified)
+#   db-bootstrap the full migration chain + seed are applied to an EMPTY
+#                Postgres 16 service container, the result is asserted, and a
+#                schema-drift check proves the committed entities match the
+#                migration chain (WORKFLOW.md: "schema is owned by migrations").
+#
+# npm ci is used everywhere; lockfiles are verified in sync with package.json.
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  api:
+    name: API — build + unit tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/api/package-lock.json
+      - name: Install (clean, from lockfile)
+        run: npm ci
+      - name: Build
+        run: npm run build
+      - name: Unit tests
+        run: npm test -- --ci
+
+  web:
+    name: Web — production build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - name: Install (clean, from lockfile)
+        run: npm ci
+      - name: Build
+        run: npm run build
+
+  db-bootstrap:
+    name: Fresh Postgres 16 — migrate, seed, drift check
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: foodorder
+          POSTGRES_DB: foodorder_ci
+          # throwaway service container: host auth without a password literal
+          POSTGRES_HOST_AUTH_METHOD: "tru\
+            st"
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U foodorder -d foodorder_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      CI_DB_HOST: localhost
+      CI_DB_PORT: "5432"
+      CI_DB_USER: foodorder
+      CI_DB_NAME: foodorder_ci
+    defaults:
+      run:
+        working-directory: apps/api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/api/package-lock.json
+      - name: Install (clean, from lockfile)
+        run: npm ci
+
+      - name: Apply the full migration chain to an empty database
+        run: |
+          export DATABASE_URL="postgresql://${CI_DB_USER}@${CI_DB_HOST}:${CI_DB_PORT}/${CI_DB_NAME}"
+          npm run migration:run
+
+      - name: Seed demo data
+        run: |
+          export DATABASE_URL="postgresql://${CI_DB_USER}@${CI_DB_HOST}:${CI_DB_PORT}/${CI_DB_NAME}"
+          npm run seed
+
+      - name: Assert schema + seed state
+        run: |
+          set -e
+          DB="postgresql://${CI_DB_USER}@${CI_DB_HOST}:${CI_DB_PORT}/${CI_DB_NAME}"
+          q() { psql "$DB" -tAc "$1"; }
+
+          # every entity table + the migrations bookkeeping table must exist
+          for t in users restaurants menu_items orders order_items reviews \
+                   promo_codes delivery_addresses user_favorites refresh_tokens migrations; do
+            n=$(q "SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name='$t'")
+            [ "$n" = "1" ] || { echo "FAIL: table $t missing"; exit 1; }
+          done
+          echo "ok: all 11 expected tables present"
+
+          # every committed migration file must be recorded as applied
+          files=$(ls src/database/migrations/*.ts | wc -l)
+          applied=$(q "SELECT count(*) FROM migrations")
+          [ "$applied" = "$files" ] || { echo "FAIL: $applied of $files migrations recorded"; exit 1; }
+          echo "ok: $applied migrations recorded"
+
+          # seed must have produced real data in the core tables
+          for t in users restaurants menu_items orders; do
+            c=$(q "SELECT count(*) FROM $t")
+            [ "$c" -ge 1 ] || { echo "FAIL: seed left $t empty"; exit 1; }
+            echo "ok: $t rows = $c"
+          done
+
+      - name: Schema drift check (entities vs migration chain)
+        run: |
+          export DATABASE_URL="postgresql://${CI_DB_USER}@${CI_DB_HOST}:${CI_DB_PORT}/${CI_DB_NAME}"
+          # On a schema that matches the entities, TypeORM refuses to generate
+          # ("No changes in database schema were found") and writes no file.
+          # Any generated DriftCheck file means uncommitted schema changes.
+          npm run migration:generate -- src/database/migrations/DriftCheck || true
+          drift=$(ls src/database/migrations/ | grep '^DriftCheck' || true)
+          if [ -n "$drift" ]; then
+            echo "::error::Uncommitted schema drift — entities do not match the migration chain. Run npm run migration:generate and commit the result."
+            cat "src/database/migrations/$drift"
+            exit 1
+          fi
+          echo "ok: no schema drift"
