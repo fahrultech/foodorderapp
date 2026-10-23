@@ -5,6 +5,7 @@ import { Restaurant } from '../restaurants/restaurant.entity';
 import { MenuItem } from '../menu/menu-item.entity';
 import { Order, OrderStatus } from '../orders/order.entity';
 import { Favorite } from '../users/favorite.entity';
+import { DeliveryAddress } from '../users/delivery-address.entity';
 import { Review } from '../reviews/review.entity';
 import { PromoCode, PromoDiscountType } from '../promos/promo-code.entity';
 import { AppDataSource } from './data-source';
@@ -117,7 +118,7 @@ async function main() {
   // explicitly even though the users FK cascade would clear it — a seeded DB
   // must never keep live sessions from a previous run.
   await dataSource.query(
-    'TRUNCATE TABLE user_favorites, reviews, order_items, orders, promo_codes, menu_items, restaurants, refresh_tokens, users RESTART IDENTITY CASCADE',
+    'TRUNCATE TABLE user_favorites, delivery_addresses, reviews, order_items, orders, promo_codes, menu_items, restaurants, refresh_tokens, users RESTART IDENTITY CASCADE',
   );
 
   const restaurantRepo = dataSource.getRepository(Restaurant);
@@ -403,6 +404,33 @@ async function main() {
       favRepo.create({ userId: demoCustomer.id, menuItemId: entry.items[idx].id }),
     );
     console.log(`  + favorite ${entry.items[idx].name} (${entry.restaurant.name})`);
+  }
+
+  // A two-address book for the demo customer so checkout's saved-address
+  // picker has data on a fresh clone. Home matches the address already used
+  // by the demo orders (the picker's default pre-select must line up with
+  // what previous receipts show); Office is the non-default second row,
+  // exactly-one-default invariant included.
+  const addressRepo = dataSource.getRepository(DeliveryAddress);
+  const addressSpecs = [
+    {
+      label: 'Home',
+      recipientName: 'Demo Customer',
+      phone: '+62 812 3456 7890',
+      address: 'Jl. Sudirman No. 1, Jakarta',
+      isDefault: true,
+    },
+    {
+      label: 'Office',
+      recipientName: 'Demo Customer',
+      phone: '+62 821 5555 0000',
+      address: 'SCBD Lot 12, Jl. Jend. Sudirman Kav. 52, Jakarta',
+      isDefault: false,
+    },
+  ];
+  for (const spec of addressSpecs) {
+    await addressRepo.save(addressRepo.create({ userId: demoCustomer.id, ...spec }));
+    console.log(`  + address ${spec.label}${spec.isDefault ? ' (default)' : ''}`);
   }
 
   // Ratings for the demo customer's completed orders, so a fresh seed has a

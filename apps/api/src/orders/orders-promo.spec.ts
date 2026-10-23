@@ -6,6 +6,7 @@ import { OrderEventsService } from './order-events.service';
 import { MenuService } from '../menu/menu.service';
 import { RestaurantsService } from '../restaurants/restaurants.service';
 import { PromosService } from '../promos/promos.service';
+import { AddressesService } from '../users/addresses.service';
 
 /**
  * Focused coverage of the promo hook inside create(): who computes the
@@ -48,7 +49,8 @@ function buildCreate(opts: {
   } as unknown as RestaurantsService;
   const promos = { evaluate: opts.evaluate } as unknown as PromosService;
   const events = { publish: jest.fn() } as unknown as OrderEventsService;
-  const service = new OrdersService(repo, menu, restaurants, events, promos);
+  const addresses = { getOwned: jest.fn() } as unknown as AddressesService;
+  const service = new OrdersService(repo, menu, restaurants, events, promos, addresses);
   return { service, createdLines };
 }
 

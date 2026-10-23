@@ -5,6 +5,7 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
+  IsUUID,
   Matches,
   Max,
   Min,
@@ -33,17 +34,37 @@ export class CreateOrderDto {
   @Type(() => CreateOrderItemDto)
   items: CreateOrderItemDto[];
 
+  /**
+   * Contact fields are individually optional ONLY because a signed-in
+   * customer may instead send `deliveryAddressId` — the server then copies
+   * name/phone/address from the saved row (OrdersService enforces the
+   * either/or: without an address id all three are required, 400).
+   */
+  @IsOptional()
   @IsString()
   @IsNotEmpty()
-  customerName: string;
+  customerName?: string;
 
+  @IsOptional()
   @IsString()
   @Matches(/^\+?[0-9 ()-]{7,20}$/, { message: 'contactPhone looks invalid' })
-  contactPhone: string;
+  contactPhone?: string;
 
+  @IsOptional()
   @IsString()
   @IsNotEmpty()
-  deliveryAddress: string;
+  deliveryAddress?: string;
+
+  /**
+   * Saved-address id from the caller's address book (Phase 3). Trusted only
+   * after the server resolves it against `userId` — the order stores TEXT
+   * snapshots of recipientName/phone/address, so later book edits never
+   * rewrite delivery history. Guests cannot use it (400), foreign/unknown
+   * ids are 404 like every other `users/me` resource.
+   */
+  @IsOptional()
+  @IsUUID('4', { message: 'deliveryAddressId must be a valid saved-address id' })
+  deliveryAddressId?: string;
 
   @IsOptional()
   @IsString()

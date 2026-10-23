@@ -12,6 +12,7 @@ import { RestaurantsService } from '../restaurants/restaurants.service';
 import { UserRole } from '../users/user.entity';
 import { isUuid } from '../common/uuid';
 import { PromosService } from '../promos/promos.service';
+import { AddressesService } from '../users/addresses.service';
 
 const ORDER_ID = '55555555-5555-4555-8555-555555555555';
 const OWNER_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -55,6 +56,13 @@ function fakePromos() {
   } as unknown as PromosService & { evaluate: jest.Mock };
 }
 
+/** Addresses-service mock for constructor arity; create() only calls getOwned when a deliveryAddressId is sent (covered in orders-address.spec.ts). */
+function fakeAddresses() {
+  return {
+    getOwned: jest.fn(),
+  } as unknown as AddressesService & { getOwned: jest.Mock };
+}
+
 function build(orders: Order[] = [fakeOrder()]) {
   const findOne = jest.fn(async ({ where }: any) =>
     orders.find((o) => o.id === where.id) ?? null,
@@ -82,6 +90,7 @@ function build(orders: Order[] = [fakeOrder()]) {
     restaurants,
     events,
     fakePromos(),
+    fakeAddresses(),
   );
   return { service, findOne, findAndCount, save, events };
 }
@@ -258,7 +267,7 @@ describe('OrdersService.findForRestaurant — owner orders inbox', () => {
           : ({ id, ownerId: opts.ownerId ?? OWNER_ID } as any),
       ),
     } as unknown as RestaurantsService;
-    const service = new OrdersService(repo, {} as MenuService, restaurants, fakeEvents(), fakePromos());
+    const service = new OrdersService(repo, {} as MenuService, restaurants, fakeEvents(), fakePromos(), fakeAddresses());
     return { service, findAndCount, count, restaurants };
   }
 
@@ -391,7 +400,7 @@ describe('OrdersService.setStatusForRestaurant — owner status actions', () => 
           : ({ id, ownerId: opts.ownerId ?? OWNER_ID } as any),
       ),
     } as unknown as RestaurantsService;
-    const service = new OrdersService(repo, {} as MenuService, restaurants, events, fakePromos());
+    const service = new OrdersService(repo, {} as MenuService, restaurants, events, fakePromos(), fakeAddresses());
     return { service, findOne, save, events };
   }
 
@@ -538,7 +547,7 @@ describe('OrdersService — live event emission (SSE bus)', () => {
     const restaurants = {
       findOne: jest.fn(async (id: string) => ({ id, ownerId: OWNER_ID } as any)),
     } as unknown as RestaurantsService;
-    const service = new OrdersService(repo, {} as MenuService, restaurants, events, fakePromos());
+    const service = new OrdersService(repo, {} as MenuService, restaurants, events, fakePromos(), fakeAddresses());
     return { service, events };
   }
 
@@ -605,7 +614,7 @@ describe('OrdersService — live event emission (SSE bus)', () => {
       })),
     } as unknown as RestaurantsService;
     const events = fakeEvents();
-    const service = new OrdersService(repo, menu, restaurants, events, fakePromos());
+    const service = new OrdersService(repo, menu, restaurants, events, fakePromos(), fakeAddresses());
     await service.create(
       { restaurantId: REST_ID, customerName: 'A', contactPhone: '1', deliveryAddress: 'x', items: [{ menuItemId: 'm1', quantity: 2 }] } as any,
       OWNER_ID,
@@ -637,6 +646,7 @@ describe('OrdersService.assertStreamAccess — SSE ownership gate', () => {
       restaurants,
       fakeEvents(),
       fakePromos(),
+      fakeAddresses(),
     );
     return { service, restaurants };
   }
@@ -683,7 +693,7 @@ describe('OrdersService — status-step timestamps (tracking timeline)', () => {
     const restaurants = {
       findOne: jest.fn(async () => ({ id: REST_ID, ownerId: OWNER_ID } as any)),
     } as unknown as RestaurantsService;
-    return new OrdersService(repo, {} as MenuService, restaurants, fakeEvents(), fakePromos());
+    return new OrdersService(repo, {} as MenuService, restaurants, fakeEvents(), fakePromos(), fakeAddresses());
   }
 
   it('pending -> confirmed stamps confirmedAt only', async () => {

@@ -10,6 +10,7 @@ import { MenuModule } from '../menu/menu.module';
 import { RestaurantsModule } from '../restaurants/restaurants.module';
 import { AuthModule } from '../auth/auth.module';
 import { PromosModule } from '../promos/promos.module';
+import { UsersModule } from '../users/users.module';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { PromosModule } from '../promos/promos.module';
     RestaurantsModule,
     AuthModule,
     PromosModule,
+    UsersModule,
   ],
   providers: [OrdersService, OrderEventsService],
   controllers: [OrdersController, RestaurantOrdersController],

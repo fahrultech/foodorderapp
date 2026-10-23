@@ -19,6 +19,7 @@ import { MenuService } from '../menu/menu.service';
 import { RestaurantsService } from '../restaurants/restaurants.service';
 import { OrderEventsService } from './order-events.service';
 import { PromosService, normalizePromoCode } from '../promos/promos.service';
+import { AddressesService } from '../users/addresses.service';
 import { isUuid } from '../common/uuid';
 
 const STATUS_FLOW: Record<OrderStatus, OrderStatus[]> = {
@@ -49,6 +50,7 @@ export class OrdersService {
     private readonly restaurants: RestaurantsService,
     private readonly events: OrderEventsService,
     private readonly promos: PromosService,
+    private readonly addresses: AddressesService,
   ) {}
 
   /**
@@ -89,7 +91,52 @@ export class OrdersService {
     if (field && !order[field]) order[field] = now;
   }
 
+  /**
+   * Resolve the delivery contact block before anything else. Either the
+   * client sends name+phone+address explicitly (guest path, unchanged), or a
+   * signed-in customer names one of their saved addresses and the server
+   * copies its stored text — the client's echo of those fields is then
+   * ignored, so checkout can never deliver to a location the account does
+   * not own. The copied text becomes the order's immutable snapshot.
+   */
+  private async resolveContact(
+    dto: CreateOrderDto,
+    userId?: string,
+  ): Promise<{ customerName: string; contactPhone: string; deliveryAddress: string }> {
+    if (dto.deliveryAddressId) {
+      if (!userId) {
+        throw new BadRequestException(
+          'deliveryAddressId requires a signed-in customer',
+        );
+      }
+      const addr = await this.addresses.getOwned(userId, dto.deliveryAddressId);
+      return {
+        customerName: addr.recipientName,
+        contactPhone: addr.phone,
+        deliveryAddress: addr.address,
+      };
+    }
+    const missing = (
+      [
+        ['customerName', dto.customerName],
+        ['contactPhone', dto.contactPhone],
+        ['deliveryAddress', dto.deliveryAddress],
+      ] as const
+    ).filter(([, value]) => !value).map(([name]) => name);
+    if (missing.length > 0) {
+      throw new BadRequestException(
+        `Missing required field(s): ${missing.join(', ')} — or send a saved deliveryAddressId`,
+      );
+    }
+    return {
+      customerName: dto.customerName!,
+      contactPhone: dto.contactPhone!,
+      deliveryAddress: dto.deliveryAddress!,
+    };
+  }
+
   async create(dto: CreateOrderDto, userId?: string) {
+    const contact = await this.resolveContact(dto, userId);
     const restaurant = await this.restaurants.findOne(dto.restaurantId);
     if (!restaurant) throw new NotFoundException('Restaurant not found');
 
@@ -141,9 +188,9 @@ export class OrdersService {
       code: this.generateCode(),
       restaurantId: dto.restaurantId,
       userId: userId ?? null,
-      customerName: dto.customerName,
-      contactPhone: dto.contactPhone,
-      deliveryAddress: dto.deliveryAddress,
+      customerName: contact.customerName,
+      contactPhone: contact.contactPhone,
+      deliveryAddress: contact.deliveryAddress,
       note: dto.note,
       subtotalCents: subtotal,
       discountCents,
