@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { api, formatPrice } from '@/lib/api';
 import OrderTimeline from '@/components/OrderTimeline';
+import RateOrderCard from '@/components/RateOrderCard';
 
 export const dynamic = 'force-dynamic';
 
@@ -60,6 +61,16 @@ export default async function OrderPage({
         </div>
         <OrderTimeline order={order} />
       </div>
+
+      {order.status === 'completed' && (
+        <div className="mt-6 rounded-2xl border border-stone-200 bg-white p-5">
+          <h2 className="font-bold">Rate your order</h2>
+          <p className="mt-1 text-sm text-stone-500">
+            How was {order.restaurant?.name ?? 'the restaurant'}? One review per completed order.
+          </p>
+          <RateOrderCard orderId={order.id} />
+        </div>
+      )}
 
       <div className="mt-6 rounded-2xl border border-stone-200 bg-white p-5">
         <h2 className="font-bold">Items</h2>

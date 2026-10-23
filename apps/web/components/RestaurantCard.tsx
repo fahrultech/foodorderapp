@@ -31,6 +31,7 @@ export default function RestaurantCard({ restaurant }: { restaurant: Restaurant 
           <h2 className="font-semibold text-lg leading-tight">{restaurant.name}</h2>
           <span className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-bold text-amber-800">
             ★ {restaurant.rating.toFixed(1)}
+            {restaurant.ratingCount > 0 ? ` (${restaurant.ratingCount})` : ''}
           </span>
         </div>
         <p className="mt-1 text-sm text-stone-500">

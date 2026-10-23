@@ -8,6 +8,8 @@ export interface Restaurant {
   address: string | null;
   imageUrl: string | null;
   rating: number;
+  /** How many reviews feed `rating` (server-recomputed). 0 = "no reviews yet". */
+  ratingCount: number;
   deliveryFeeCents: number;
   minOrderCents: number;
   avgPrepMinutes: number;
@@ -140,6 +142,41 @@ export interface FavoriteDish {
   restaurantSlug: string;
   restaurantIsOpen: boolean;
   favoritedAt: string;
+}
+
+/**
+ * One review of a completed order (`GET /reviews/my`, restaurant feeds, and
+ * the write responses of POST/PATCH /reviews). Flattened by the API with
+ * order code, restaurant identity and the reviewer's display name.
+ */
+export interface ReviewRow {
+  id: string;
+  orderId: string;
+  orderCode: string;
+  restaurantId: string;
+  restaurantName: string;
+  restaurantSlug: string;
+  reviewerName: string;
+  rating: number;
+  comment: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Server-side rating summary returned after every review write. */
+export interface RestaurantRating {
+  rating: number;
+  ratingCount: number;
+}
+
+/** Envelope of GET /restaurants/:id/reviews — page + rating summary. */
+export interface RestaurantReviewsPage {
+  items: ReviewRow[];
+  total: number;
+  page: number;
+  limit: number;
+  rating: number;
+  ratingCount: number;
 }
 
 /** Client-facing user shape (matches `toSafeUser` on the API). */
@@ -355,6 +392,48 @@ export const api = {
       method: 'DELETE',
       headers: bearer(accessToken),
     }),
+
+  // --- customer reviews (Phase 3) ---
+  /**
+   * Review one of YOUR completed orders. 400 unless the order is completed,
+   * 404 for unknown/foreign orders, 409 when already reviewed. The response
+   * carries the recomputed restaurant rating — clients never write it.
+   */
+  createReview: (accessToken: string, payload: { orderId: string; rating: number; comment?: string | null }) =>
+    request<{ review: ReviewRow; restaurant: RestaurantRating }>('/reviews', {
+      method: 'POST',
+      headers: bearer(accessToken),
+      body: JSON.stringify(payload),
+    }),
+  /** Every review the signed-in customer wrote, newest first. */
+  listMyReviews: (accessToken: string) =>
+    request<{ items: ReviewRow[]; total: number }>('/reviews/my', {
+      headers: bearer(accessToken),
+    }),
+  /** Edit own review (rating and/or comment; `comment: null` clears text). */
+  updateReview: (accessToken: string, id: string, patch: { rating?: number; comment?: string | null }) =>
+    request<{ review: ReviewRow; restaurant: RestaurantRating }>(`/reviews/${id}`, {
+      method: 'PATCH',
+      headers: bearer(accessToken),
+      body: JSON.stringify(patch),
+    }),
+  /** Delete own review. Idempotent: unknown/foreign ids answer `removed:false`. */
+  deleteReview: (accessToken: string, id: string) =>
+    request<{ removed: boolean; restaurant?: RestaurantRating }>(`/reviews/${id}`, {
+      method: 'DELETE',
+      headers: bearer(accessToken),
+    }),
+  /** Public review feed for one restaurant (server-side rating included). */
+  listRestaurantReviews: (
+    restaurantId: string,
+    params: { page?: number; limit?: number } = {},
+  ) => {
+    const qs = new URLSearchParams();
+    if (params.page) qs.set('page', String(params.page));
+    if (params.limit) qs.set('limit', String(params.limit));
+    const suffix = qs.toString() ? `?${qs.toString()}` : '';
+    return request<RestaurantReviewsPage>(`/restaurants/${restaurantId}/reviews${suffix}`);
+  },
 
   // --- auth ---
   register: (input: RegisterInput) =>

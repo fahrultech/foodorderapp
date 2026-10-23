@@ -168,6 +168,25 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   switch/logout. Guests clicking a heart are routed to `/login?next=` (the
   existing back-pointer flow), and SSR/first paint always render the neutral
   heart so hydration matches.
+- **Reviews (`/api/reviews`, Bearer + public feed)** — customers rate their own
+  COMPLETED orders in `reviews` (unique `orderId`: one review per order, the
+  DB enforces it — duplicate POST answers 409 `CONFLICT`; unknown and
+  foreign orders are both 404, no existence leak; other statuses 400). The
+  author is the JWT subject and `restaurantId` is copied from the order — the
+  whitelist strips anything else the body tries to inject. `PATCH`/`DELETE`
+  are author-only (404 otherwise; empty PATCH → 400, DELETE is idempotent).
+  **Server-side rating**: every review write recomputes
+  `restaurants.rating = AVG(rating)` (2 decimals; platform default 4.5 when no
+  reviews remain) plus `ratingCount` — the seed value a restaurant ships with
+  is what it shows *until* its first review lands. Public list
+  `GET /restaurants/:id/reviews` (page envelope + rating summary).
+- **Web review UI**: `RateOrderCard` on `/orders/[id]` (completed orders only)
+  — sign-in prompt for guests (?next= back-pointer), existing-review panel
+  (matched via `GET /reviews/my`), star picker + capped comment, and a 409
+  absorbed as "resync and show the stored review" for double tabs/retries.
+  Restaurant pages render the recomputed badge (`★ 4.3 · 3 reviews`) plus a
+  server-fetched "Recent reviews" section; `Stars.tsx` is display-only and
+  SSR-safe. Review edit/delete exist on the API but have no UI yet.
 - **No token revocation list for access tokens** — deliberate: short TTL +
   stateless verification. Re-add a deny-list only if TTL ever grows.
 - **Web session client** (`apps/web/lib/auth.tsx`): the storefront keeps the
@@ -186,6 +205,7 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
 
 users(1)──(N)orders(1)──(N)order_items(N)──(1)menu_items(N)──(1)restaurants
 users(1)──(N)restaurants  (restaurants.ownerId → users.id; nullable, FK ON DELETE SET NULL, indexed)
+users(1)──(N)reviews(1)──(1)orders(1)──(1)restaurants  (reviews: unique orderId, all FKs ON DELETE CASCADE; restaurants.rating/ratingCount are recomputed server-side on every review write)
 
 Roles: `customer` (default), `owner`, `admin`. Owner-only routes guarded by `JwtAuthGuard` + `RolesGuard` (`@Roles(UserRole.OWNER)`); ADMIN bypasses `@Roles`. Owners create/update only their own restaurants (`PATCH /restaurants/:id` returns 403 unless caller owns the row). `slug`/`rating`/`ownerId` are not owner-writable — slug auto-derived and de-duplicated (`-2`, `-3`…) at create.
 Dish ownership is **derived through the parent restaurant** (menu_items carries no owner column): owner menu routes `POST /restaurants/:id/menu`, `PATCH /menu/items/:id` (content only), `PATCH /menu/items/:id/availability`, `DELETE /menu/items/:id` all check `MenuService.assertCanManage`; platform restaurants (`ownerId null`) are admin-only. Route params that must be uuids are screened by `common/uuid.ts isUuid` → 404 instead of a raw Postgres 22P02 500.

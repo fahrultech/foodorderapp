@@ -4,6 +4,80 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
+## 2026-10-23 11:31 — Session 20
+
+**Built:** Phase 3 item 4 — **customer reviews with server-side restaurant
+rating recompute** (API + storefront).
+
+- API: new `Review` entity (`reviews`: unique `orderId` = one review per
+  completed order, `restaurantId`/`userId` denormalized from the order at
+  insert, all FKs `ON DELETE CASCADE`, indexes on restaurant/user) +
+  migration `AddReviews1792727031487` (generated, DDL reviewed, applied to
+  dev DB) adding the table and `restaurants.ratingCount int default 0`.
+- `ReviewsService` rules: author = JWT subject only; unknown order, malformed
+  uuid and *someone else's* order are all the same 404 (no existence leak —
+  same contract as customer cancel); only `completed` orders are reviewable
+  (400 otherwise); duplicate → 409 `CONFLICT` pre-checked and via a 23505
+  catch for the double-submit race. `PATCH /reviews/:id` (author-only, empty
+  patch 400, `comment:null` clears text), idempotent `DELETE`,
+  `GET /reviews/my`, public `GET /restaurants/:id/reviews` (page envelope +
+  rating summary) via a route-shaped controller in ReviewsModule (the
+  RestaurantOrdersController precedent). Every create/update/delete calls
+  `recomputeRating`: one aggregate SQL (`AVG` rounded to 2 decimals, COALESCE
+  to the platform default 4.5 at zero reviews) + one targeted `UPDATE` — the
+  ONLY writer of `restaurants.rating/ratingCount`; clients can never write it.
+- Wiring: `Review` registered in the CLI `data-source.ts` entity list (first
+  migration generate silently omitted the table — caught by DDL review, the
+  spec pinning the entity count was updated to 8). Seed now adds 3 completed
+  demo-customer orders (FO-SEED8/9/10) + 3 reviews and runs the same
+  aggregate, so a fresh dev DB shows recompute visibly (warung 4.8→4.0 ×2,
+  seoul 4.4→5.0 ×1) and reviews are in the TRUNCATE reset list.
+- Web: `lib/api.ts` Review types + 5 client methods + `Restaurant.ratingCount`;
+  `components/Stars.tsx` (SSR-safe display row with `aria-label`);
+  `components/RateOrderCard.tsx` on `/orders/[id]` (completed orders only) —
+  guest sign-in prompt with `?next=`, existing-review panel via `/reviews/my`,
+  accessible star fieldset + 2000-char comment, 409 handled as resync-not-error;
+  restaurant page shows the recomputed badge (`★ 4.0 · 2 reviews`) + a
+  server-fetched "Recent reviews" section (10 shown, total note); home
+  `RestaurantCard` badge gained the `(n)` count.
+
+**Verified:**
+- `nest build` clean; `jest` **254/254** (31 new: 22 service specs — order
+  gating incl. foreign-404, dup 409 + race 409, non-unique error passthrough,
+  recompute wiring/number coercion, author-only PATCH/DELETE semantics,
+  envelope clamping; 9 DTO specs — star bounds incl. stringified/decimal,
+  uuid screening, comment null-cap/2000-limit, whitelist stripping of
+  injected `userId`/`restaurantId`/`id`/`orderId`/`status`).
+- Migration applied to dev DB (`migration:run`; boot reports 0 pending);
+  seed rebuilt and psql confirmed per-restaurant rating/count aggregates.
+- Runtime smoke (API on :4000, python/urllib) — **36 checks**: public feed
+  shape/404/clamp; login (201 is the pre-existing auth shape); `/reviews/my`
+  3 rows + 401; dup 409; pending 400; foreign/guest order 404; rating 6 and
+  bad uuid 400; no-token 401; full write cycle on a fresh order driven
+  pending→completed by the owner: review 1★ → GET restaurant 3.0×3 → PATCH 5★
+  → 4.33×3 → comment clear → DELETE → 4.0×2 → re-review 201 (unique released)
+  → idempotent double-delete `removed:false` → cleanup restored 4.0×2.
+  Injected `userId` provably stripped: the forged row was authored by the JWT
+  subject and DB restored afterwards.
+- `next build` clean; live `next start` :3000 curl checks: warung page SSR
+  contains the feed (both seeded comments, "4.0", "2 reviews", reviewer name);
+  completed order page has the rate card, pending order page does not.
+- Browser test (login as demo customer): reviewed order shows the
+  existing-review panel; unreviewed completed order → clicked 5 stars, typed
+  comment, submitted → thanks panel with stars+comment, restaurant page then
+  showed **★ 4.3 · 3 reviews** and the new comment in the feed (end-to-end
+  recompute proof). Test review deleted via API afterwards — dev DB back to
+  seeded 4.0×2 (one extra smoke order FO-XBHF remains in history, harmless;
+  `npm run seed` resets it).
+
+**Docs:** ARCHITECTURE reviews bullets + ER line + `ratingCount` data-model
+note; ROADMAP item ticked.
+
+**Left for next sessions:** review edit/delete UI (API supports it, card is
+create-only); "My reviews" page; promo codes (next roadmap item).
+
+---
+
 ## 2026-10-23 09:29 — Session 19
 
 **Built:** Phase 3 item 3 — **order tracking timeline UI (status steps with
