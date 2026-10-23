@@ -45,8 +45,18 @@ export class Restaurant {
   @Column({ nullable: true })
   imageUrl: string;
 
+  /**
+   * Display rating: the seed/curated value until the FIRST review lands, then
+   * the recomputed average of `reviews.rating` (2 decimals) — the ONLY writer
+   * is `ReviewsService.recomputeRating`, never a client. `ratingCount === 0`
+   * means "no reviews yet" (UI shows this as the platform-level score).
+   */
   @Column({ type: 'float', default: 4.5 })
   rating: number;
+
+  /** How many reviews currently feed `rating`. Recomputed on every review write. */
+  @Column({ type: 'int', default: 0 })
+  ratingCount: number;
 
   @Column({ type: 'int', default: 0 })
   deliveryFeeCents: number;

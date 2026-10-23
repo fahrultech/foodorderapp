@@ -5,6 +5,7 @@ import { Restaurant } from '../restaurants/restaurant.entity';
 import { MenuItem } from '../menu/menu-item.entity';
 import { Order, OrderStatus } from '../orders/order.entity';
 import { Favorite } from '../users/favorite.entity';
+import { Review } from '../reviews/review.entity';
 import { AppDataSource } from './data-source';
 
 const restaurants = [
@@ -115,7 +116,7 @@ async function main() {
   // explicitly even though the users FK cascade would clear it — a seeded DB
   // must never keep live sessions from a previous run.
   await dataSource.query(
-    'TRUNCATE TABLE user_favorites, order_items, orders, menu_items, restaurants, refresh_tokens, users RESTART IDENTITY CASCADE',
+    'TRUNCATE TABLE user_favorites, reviews, order_items, orders, menu_items, restaurants, refresh_tokens, users RESTART IDENTITY CASCADE',
   );
 
   const restaurantRepo = dataSource.getRepository(Restaurant);
@@ -230,6 +231,27 @@ async function main() {
       customerName: 'Maya Tanaka', contactPhone: '+62 811 2222 3333',
       deliveryAddress: 'Jl. Senopati No. 21, Jakarta', lines: [[0, 1], [3, 2]],
     },
+    // Completed orders owned by the demo customer — the review seeds below
+    // attach to these (reviews must reference orders the rater owns, and only
+    // completed ones can be rated — the seed mirrors the API's own rules).
+    {
+      slug: 'warung-nusantara', code: 'FO-SEED8', status: OrderStatus.COMPLETED,
+      customerName: 'Demo Customer', contactPhone: '+62 812 3456 7890',
+      deliveryAddress: 'Jl. Sudirman No. 1, Jakarta', userId: demoCustomer.id,
+      lines: [[0, 1]],
+    },
+    {
+      slug: 'warung-nusantara', code: 'FO-SEED9', status: OrderStatus.COMPLETED,
+      customerName: 'Demo Customer', contactPhone: '+62 812 3456 7890',
+      deliveryAddress: 'Jl. Sudirman No. 1, Jakarta', userId: demoCustomer.id,
+      lines: [[4, 1]],
+    },
+    {
+      slug: 'seoul-street', code: 'FO-SEED10', status: OrderStatus.COMPLETED,
+      customerName: 'Demo Customer', contactPhone: '+62 878 1234 5678',
+      deliveryAddress: 'Jl. Dago No. 45, Bandung', userId: demoCustomer.id,
+      lines: [[0, 1], [2, 1]],
+    },
   ];
 
   // Step timestamps matching each demo order's status, spread over the last
@@ -260,6 +282,7 @@ async function main() {
     }
   };
 
+  const savedOrders = new Map<string, Order>();
   for (const spec of orderSpecs) {
     const entry = bySlug.get(spec.slug)!;
     let subtotal = 0;
@@ -268,7 +291,7 @@ async function main() {
       subtotal += m.priceCents * quantity;
       return { menuItemId: m.id, name: m.name, unitPriceCents: m.priceCents, quantity };
     });
-    await orderRepo.save(
+    const savedOrder = await orderRepo.save(
       orderRepo.create({
         code: spec.code,
         restaurantId: entry.restaurant.id,
@@ -286,6 +309,7 @@ async function main() {
       }),
     );
     console.log(`  + order ${spec.code} → ${entry.restaurant.name} (${spec.status})`);
+    savedOrders.set(spec.code, savedOrder);
   }
 
   // A few hearts for the demo customer so /users/me/favorites and the
@@ -303,6 +327,40 @@ async function main() {
     );
     console.log(`  + favorite ${entry.items[idx].name} (${entry.restaurant.name})`);
   }
+
+  // Ratings for the demo customer's completed orders, so a fresh seed has a
+  // live review feed AND the server-side recompute is visible: warung-nusantara
+  // drops from its 4.8 seed value to avg(5,3)=4.0 with 2 reviews, seoul-street
+  // rises 4.4 → 5.0 with 1. Written directly here (not via the API) but under
+  // the API's own rules: owned completed orders, one review per order.
+  const reviewRepo = dataSource.getRepository(Review);
+  const reviewSpecs: { code: string; rating: number; comment: string | null }[] = [
+    { code: 'FO-SEED8', rating: 5, comment: 'Nasi goreng juara, sambal mantap!' },
+    { code: 'FO-SEED9', rating: 3, comment: 'Sate enak tapi datang agak dingin.' },
+    { code: 'FO-SEED10', rating: 5, comment: 'Tteokbokki worth every minute.' },
+  ];
+  for (const spec of reviewSpecs) {
+    const order = savedOrders.get(spec.code)!;
+    await reviewRepo.save(
+      reviewRepo.create({
+        orderId: order.id,
+        restaurantId: order.restaurantId,
+        userId: demoCustomer.id,
+        rating: spec.rating,
+        comment: spec.comment,
+      }),
+    );
+    console.log(`  + review ${spec.rating}★ on ${spec.code}`);
+  }
+  // Same aggregate ReviewsService.recomputeRating runs on every review write.
+  await dataSource.query(
+    `UPDATE restaurants SET rating = s.avg, "ratingCount" = s.cnt
+       FROM (SELECT "restaurantId",
+                    ROUND(AVG(rating)::numeric, 2)::float8 AS avg,
+                    COUNT(*)::int AS cnt
+               FROM reviews GROUP BY "restaurantId") s
+      WHERE restaurants.id = s."restaurantId"`,
+  );
 
   await dataSource.destroy();
   console.log('Done.');
