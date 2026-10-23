@@ -9,6 +9,7 @@ import { RestaurantOrdersController } from './restaurant-orders.controller';
 import { MenuModule } from '../menu/menu.module';
 import { RestaurantsModule } from '../restaurants/restaurants.module';
 import { AuthModule } from '../auth/auth.module';
+import { PromosModule } from '../promos/promos.module';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { AuthModule } from '../auth/auth.module';
     MenuModule,
     RestaurantsModule,
     AuthModule,
+    PromosModule,
   ],
   providers: [OrdersService, OrderEventsService],
   controllers: [OrdersController, RestaurantOrdersController],

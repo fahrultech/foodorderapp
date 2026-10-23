@@ -8,6 +8,7 @@ import { MenuItem } from '../menu/menu-item.entity';
 import { Order } from '../orders/order.entity';
 import { OrderItem } from '../orders/order-item.entity';
 import { Review } from '../reviews/review.entity';
+import { PromoCode } from '../promos/promo-code.entity';
 import { InitSchema1792213437047 } from './migrations/1792213437047-InitSchema';
 
 describe('database/data-source', () => {
@@ -16,10 +17,10 @@ describe('database/data-source', () => {
     expect(dataSourceOptions.migrationsRun).toBe(true);
   });
 
-  it('registers exactly the eight entities and a ts/js migration glob', () => {
-    expect(dataSourceOptions.entities).toHaveLength(8);
+  it('registers exactly the nine entities and a ts/js migration glob', () => {
+    expect(dataSourceOptions.entities).toHaveLength(9);
     expect(dataSourceOptions.entities).toEqual(
-      expect.arrayContaining([User, Favorite, RefreshToken, Restaurant, MenuItem, Order, OrderItem, Review]),
+      expect.arrayContaining([User, Favorite, RefreshToken, Restaurant, MenuItem, Order, OrderItem, Review, PromoCode]),
     );
     expect(dataSourceOptions.migrations).toHaveLength(1);
     expect(dataSourceOptions.migrations[0]).toMatch(/migrations\/\*\.\{ts,js\}$/);

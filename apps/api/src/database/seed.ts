@@ -6,6 +6,7 @@ import { MenuItem } from '../menu/menu-item.entity';
 import { Order, OrderStatus } from '../orders/order.entity';
 import { Favorite } from '../users/favorite.entity';
 import { Review } from '../reviews/review.entity';
+import { PromoCode, PromoDiscountType } from '../promos/promo-code.entity';
 import { AppDataSource } from './data-source';
 
 const restaurants = [
@@ -116,7 +117,7 @@ async function main() {
   // explicitly even though the users FK cascade would clear it — a seeded DB
   // must never keep live sessions from a previous run.
   await dataSource.query(
-    'TRUNCATE TABLE user_favorites, reviews, order_items, orders, menu_items, restaurants, refresh_tokens, users RESTART IDENTITY CASCADE',
+    'TRUNCATE TABLE user_favorites, reviews, order_items, orders, promo_codes, menu_items, restaurants, refresh_tokens, users RESTART IDENTITY CASCADE',
   );
 
   const restaurantRepo = dataSource.getRepository(Restaurant);
@@ -183,6 +184,71 @@ async function main() {
   // (it must never appear in the demo owner's dashboard). Money stays in
   // integer cents, snapshots mirror what OrdersService.create would store.
   const bySlug = new Map(created.map((c) => [c.restaurant.slug, c]));
+
+  // Promo codes so a fresh seed can demo checkout discounts end-to-end:
+  // one platform-wide percent (with cap), one restaurant-scoped fixed, and
+  // one retired code that must be *rejected* (isActive=false) to prove the
+  // kill-switch path. Codes are stored normalized-uppercase like the API does.
+  const promoRepo = dataSource.getRepository(PromoCode);
+  const promoSpecs = [
+    {
+      code: 'WELCOME10',
+      description: '10% off your cart, max $20 off — orders above $20',
+      discountType: PromoDiscountType.PERCENT,
+      valueCents: 10,
+      maxDiscountCents: 2000,
+      minSubtotalCents: 2000,
+      restaurantSlug: null,
+      isActive: true,
+    },
+    {
+      code: 'WARUNGHEMAT',
+      description: '$5 off at Warung Nusantara (orders above $30)',
+      discountType: PromoDiscountType.FIXED,
+      valueCents: 500,
+      maxDiscountCents: null,
+      minSubtotalCents: 3000,
+      restaurantSlug: 'warung-nusantara',
+      isActive: true,
+    },
+    {
+      code: 'LAUNCH99',
+      description: 'Retired launch special — kept to demo the inactive path',
+      discountType: PromoDiscountType.PERCENT,
+      valueCents: 99,
+      maxDiscountCents: null,
+      minSubtotalCents: 0,
+      restaurantSlug: null,
+      isActive: false,
+    },
+  ];
+  const seededPromos = new Map<string, PromoCode>();
+  for (const spec of promoSpecs) {
+    const saved = await promoRepo.save(
+      promoRepo.create({
+        code: spec.code,
+        description: spec.description,
+        discountType: spec.discountType,
+        valueCents: spec.valueCents,
+        maxDiscountCents: spec.maxDiscountCents,
+        minSubtotalCents: spec.minSubtotalCents,
+        restaurantId: spec.restaurantSlug ? bySlug.get(spec.restaurantSlug)!.restaurant.id : null,
+        isActive: spec.isActive,
+      }),
+    );
+    seededPromos.set(saved.code, saved);
+    console.log(`  + promo ${saved.code}${spec.isActive ? '' : ' (inactive)'}`);
+  }
+  // Same math as PromosService.evaluate (integer cents, clamped to subtotal).
+  const promoDiscount = (promo: PromoCode, subtotal: number): number => {
+    const raw =
+      promo.discountType === PromoDiscountType.PERCENT
+        ? Math.floor((subtotal * promo.valueCents) / 100)
+        : promo.valueCents;
+    const capped = promo.maxDiscountCents !== null ? Math.min(raw, promo.maxDiscountCents) : raw;
+    return Math.max(0, Math.min(capped, subtotal));
+  };
+
   const orderSpecs: Array<{
     slug: string;
     code: string;
@@ -193,12 +259,14 @@ async function main() {
     note?: string;
     userId?: string;
     lines: [number, number][]; // [menu index, quantity]
+    promoCode?: string; // must pass the same gates the API enforces
   }> = [
     {
       slug: 'warung-nusantara', code: 'FO-SEED1', status: OrderStatus.PENDING,
       customerName: 'Demo Customer', contactPhone: '+62 812 3456 7890',
       deliveryAddress: 'Jl. Sudirman No. 1, Jakarta', userId: demoCustomer.id,
       note: 'Extra sambal on the side, please.', lines: [[0, 1], [4, 2]],
+      promoCode: 'WELCOME10', // subtotal 2800 ≥ 2000 → 10% = 280 off
     },
     {
       slug: 'warung-nusantara', code: 'FO-SEED2', status: OrderStatus.CONFIRMED,
@@ -291,6 +359,13 @@ async function main() {
       subtotal += m.priceCents * quantity;
       return { menuItemId: m.id, name: m.name, unitPriceCents: m.priceCents, quantity };
     });
+    let discountCents = 0;
+    let promoSnapshot: string | null = null;
+    if (spec.promoCode) {
+      const promo = seededPromos.get(spec.promoCode)!;
+      discountCents = promoDiscount(promo, subtotal);
+      promoSnapshot = promo.code;
+    }
     const savedOrder = await orderRepo.save(
       orderRepo.create({
         code: spec.code,
@@ -303,8 +378,10 @@ async function main() {
         status: spec.status,
         ...seedStepStamps(spec.status),
         subtotalCents: subtotal,
+        discountCents,
+        promoCode: promoSnapshot,
         deliveryFeeCents: entry.restaurant.deliveryFeeCents,
-        totalCents: subtotal + entry.restaurant.deliveryFeeCents,
+        totalCents: subtotal - discountCents + entry.restaurant.deliveryFeeCents,
         items: lines,
       }),
     );

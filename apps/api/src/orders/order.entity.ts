@@ -68,6 +68,19 @@ export class Order {
   @Column({ type: 'int', default: 0 })
   subtotalCents: number;
 
+  /**
+   * Promo discount actually applied at order creation, integer cents, always
+   * relative to subtotalCents (never the delivery fee). 0 when no promo was
+   * used. The code itself is stored as a TEXT snapshot, not an FK: promos may
+   * later be renamed/removed, but the receipt must keep what was really applied.
+   */
+  @Column({ type: 'int', default: 0 })
+  discountCents: number;
+
+  /** Normalized (uppercase) promo code snapshot; null when no promo applied. */
+  @Column({ type: 'varchar', length: 24, nullable: true })
+  promoCode: string | null;
+
   @Column({ type: 'int', default: 0 })
   deliveryFeeCents: number;
 

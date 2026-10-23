@@ -48,4 +48,15 @@ export class CreateOrderDto {
   @IsOptional()
   @IsString()
   note?: string;
+
+  /**
+   * Optional promo code. NOT trusted: the server re-evaluates it against the
+   * recomputed subtotal at create time (see PromosService.evaluate) and 400s
+   * the whole order if it does not apply. Snapshot + discount are stored on
+   * the order so receipts show what was actually taken off.
+   */
+  @IsOptional()
+  @IsString()
+  @Matches(/^[A-Za-z0-9_-]{2,24}$/, { message: 'promoCode looks invalid' })
+  promoCode?: string;
 }

@@ -18,6 +18,7 @@ import {
 import { MenuService } from '../menu/menu.service';
 import { RestaurantsService } from '../restaurants/restaurants.service';
 import { OrderEventsService } from './order-events.service';
+import { PromosService, normalizePromoCode } from '../promos/promos.service';
 import { isUuid } from '../common/uuid';
 
 const STATUS_FLOW: Record<OrderStatus, OrderStatus[]> = {
@@ -47,6 +48,7 @@ export class OrdersService {
     private readonly menu: MenuService,
     private readonly restaurants: RestaurantsService,
     private readonly events: OrderEventsService,
+    private readonly promos: PromosService,
   ) {}
 
   /**
@@ -123,6 +125,18 @@ export class OrdersService {
       );
     }
 
+    // Promo evaluation runs AFTER the min-order check (a promo can never
+    // smuggle a below-minimum cart through) and on the SERVER-computed
+    // subtotal — the client's own numbers are not consulted here.
+    let discountCents = 0;
+    let appliedPromoCode: string | null = null;
+    if (dto.promoCode) {
+      const outcome = await this.promos.evaluate(dto.promoCode, dto.restaurantId, subtotal);
+      if (!outcome.ok) throw new BadRequestException(outcome.message);
+      discountCents = outcome.discountCents!;
+      appliedPromoCode = normalizePromoCode(dto.promoCode);
+    }
+
     const order = this.orders.create({
       code: this.generateCode(),
       restaurantId: dto.restaurantId,
@@ -132,8 +146,12 @@ export class OrdersService {
       deliveryAddress: dto.deliveryAddress,
       note: dto.note,
       subtotalCents: subtotal,
+      discountCents,
+      promoCode: appliedPromoCode,
       deliveryFeeCents: restaurant.deliveryFeeCents,
-      totalCents: subtotal + restaurant.deliveryFeeCents,
+      // Discount only ever touches the subtotal (evaluate clamps it there),
+      // so the fee always survives: total = subtotal - discount + fee.
+      totalCents: subtotal - discountCents + restaurant.deliveryFeeCents,
       items,
     });
     const saved = await this.orders.save(order);
