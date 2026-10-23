@@ -1,6 +1,7 @@
 # 🍜 FoodOrder
 
 ![CI](https://github.com/fahrultech/foodorderapp/actions/workflows/ci.yml/badge.svg)
+![CD](https://github.com/fahrultech/foodorderapp/actions/workflows/cd.yml/badge.svg)
 
 A real, functional food-ordering platform built with:
 
