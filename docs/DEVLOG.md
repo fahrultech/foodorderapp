@@ -55,9 +55,24 @@ comparing codepoints (116 114 117 115 116), not by grepping terminal output
 
 **Docs:** README CI badge under the title; ROADMAP Phase 4 item ticked.
 
-**Left for next sessions:** CI has never seen a red run — first real test is
-the NEXT push; CD workflow stub is the next roadmap item; local
+**Left for next sessions:** CD workflow stub is the next roadmap item; local
 `foodorder_ci` scratch DB dropped after this session's checks.
+
+**Follow-up same slot (red → green, the honest arc):** the first CI run
+(39939214332, SHA 7da7d49) failed ALL three jobs at `npm ci` (~70s timeouts).
+Root cause: every `resolved` URL in both lockfiles pointed at
+`http://mirrors.tencentyun.com/npm/` — this host's region mirror, unreachable
+from GitHub runners (my local `npm ci` "verified" it because it ran ON the
+mirror network). Fix 37461f5: 1:1 rewrite of `resolved` host to
+`https://registry.npmjs.org` (paths identical, integrity untouched; npm
+refuses to rewrite existing entries, so sed + verification). Proven with
+`npm ci` in a fresh HOME with EMPTY npm cache — every tarball actually
+downloaded from npmjs.org and integrity-passed (640 api / 108 web packages).
+Run 39939888913 then went **green end-to-end**: api build+jest, web
+next build, and db-bootstrap all 5 steps (migrate→seed→assert→drift) success
+— the CI item's definition of done is real, on the actual platform. CI badge
+in README now renders live.
+
 
 ## 2026-10-23 15:05 — Session 22
 
