@@ -4,6 +4,78 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
+## 2026-10-23 15:05 — Session 22
+
+**Built:** Phase 3 item 6 (closing the phase) — **delivery addresses book**
+(API CRUD + order-create integration + `/addresses` page + checkout picker).
+
+- API: new `DeliveryAddress` entity (`delivery_addresses`: label 40,
+  recipientName 120, phone 32, address text, `isDefault`, user FK cascade,
+  `IDX_delivery_addresses_userId`) + migration `AddDeliveryAddresses`
+  (generated, DDL reviewed, applied to dev DB).
+- API: `AddressesService` + 5 routes on `/users/me/addresses`
+  (GET list default-first, POST create, PATCH text-only edit, DELETE
+  idempotent, POST /:id/default promote). Invariant enforced in the service:
+  non-empty book ⇒ exactly one default (first row forced default, promote
+  clears the previous, delete-default promotes the oldest survivor with
+  `promotedDefaultId` reported). Cap 10 rows → 400. Foreign/unknown ids are
+  one indistinguishable 404; junk uuids short-circuit before Postgres.
+- API: `POST /orders` accepts optional `deliveryAddressId` (IsUUID).
+  `OrdersService.resolveContact` — runs FIRST in create(): guest sender →
+  400 "requires a signed-in customer"; foreign/unknown → 404; valid → the
+  order stores the server's OWN recipient/phone/address text (client echo
+  ignored — verified with deliberately hostile echoes) and the snapshot
+  stays TEXT so later book edits never rewrite delivery history. The three
+  contact fields became DTO-optional; the service now enforces the either/or
+  and 400s listing exactly which fields are missing.
+- Web: `/addresses` page (guest sign-in card w/ ?next back-pointer, skeleton
+  while loading, add/edit inline form with client-side bounds mirroring the
+  DTO, make-default, delete, default badge); `lib/api.ts` typed methods for
+  all 5 routes + `deliveryAddressId` in `CreateOrderPayload`.
+- Web: checkout saved-address radio picker (signed-in, book non-empty) —
+  pre-selects the default and prefills name/phone/address; typing in any
+  prefilled field drops the selection back to "manual" so the UI never lies
+  about what the server will use; link to the management page. Header gains
+  an Addresses link (lg+).
+- Seed: demo customer gets Home (default) + Office; `TRUNCATE` list includes
+  `delivery_addresses`.
+- Tests: 3 new suites, 301 total (was ~268) — `addresses.service.spec`
+  (15: invariant across create/promote/delete paths on a stateful repo
+  double), `delivery-address.dto.spec` (8: real ValidationPipe stripping of
+  isDefault-on-PATCH/userId/id + bounds), `orders-address.spec` (6: echo
+  override, picker-only payload, guest 400, foreign 404, missing-field
+  message, unchanged guest path). Both pre-existing orders specs updated for
+  the new constructor arity.
+
+**Verified:**
+- `nest build` clean; `jest` 301/301 pass (27 suites).
+- `migration:run` applied to dev DB; fresh `npm run seed` rebuilt books
+  (+2 addresses); dist contains the compiled migration for docker bootstrap.
+- `next build` green; `/addresses` prerenders, `/checkout` + home 200 via
+  `next start` SSR probe.
+- Live curl smoke (API on :4000, real Postgres): seeded book lists default
+  first; create 3rd stays non-default; PATCH rename; promote → exactly one
+  default; re-promote idempotent (`alreadyDefault:true`); order with
+  `deliveryAddressId` + hostile echoes stored the ADDRESS's text (FO-V9N9:
+  "Demo Customer/+62 812 000 1111/Jl. Kemang Raya 8"), picker-only payload
+  (no contact fields) 201; guest missing fields → 400 listing all three;
+  guest explicit path still 201; guest+id → 400; foreign/unknown id → 404
+  (also cross-checked: owner token cannot spend the customer's address);
+  junk id → 400 pre-DB; delete default promoted Home with
+  `promotedDefaultId`; double delete `{removed:false}`; empty PATCH 400;
+  book restored to seed shape afterwards.
+- Note: `/addresses` guest card is client-gated by design (status starts
+  'loading' on SSR) — probe asserts h1 + 200, matching the hydration-safe
+  pattern used across the app.
+
+**Docs:** ROADMAP Phase 3 now fully ticked; README 5 endpoint rows + orders
+row updated; ARCHITECTURE address-book block. Phase 4 (Ops & quality) is the
+new head of the backlog — next session takes GitHub Actions CI.
+
+**Left for next sessions:** address quick-add from checkout (edit UX exists
+only on /addresses); usage of `promotedDefaultId` in the web toast; docker
+compose end-to-end still unverified since Phase 1.
+
 ## 2026-10-23 13:17 — Session 21
 
 **Built:** Phase 3 item 5 — **promo codes & discount engine** (API + storefront).

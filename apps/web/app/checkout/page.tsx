@@ -1,9 +1,11 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useCart } from '@/lib/cart';
-import { api, formatPrice, PromoPreview, Restaurant } from '@/lib/api';
+import { useAuth } from '@/lib/auth';
+import { api, formatPrice, DeliveryAddress, PromoPreview, Restaurant } from '@/lib/api';
 
 /** A validated promo from the soft-200 /promos/validate endpoint. */
 type AppliedPromo = Extract<PromoPreview, { valid: true }>;
@@ -18,6 +20,7 @@ type PricingState = 'loading' | 'ready' | 'unavailable';
 
 export default function CheckoutPage() {
   const router = useRouter();
+  const { status, getAccessToken } = useAuth();
   const { lines, subtotalCents, restaurantId, restaurantName, clear } = useCart();
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -33,6 +36,59 @@ export default function CheckoutPage() {
     deliveryAddress: '',
     note: '',
   });
+  // Saved-address picker state (signed-in only). `selectedAddressId` is what
+  // we send as deliveryAddressId — the SERVER then copies its own stored text
+  // onto the order, so the visible fields are a convenience echo. Selecting a
+  // row prefills them; editing any of them falls back to manual ("none").
+  const [addresses, setAddresses] = useState<DeliveryAddress[]>([]);
+  const [selectedAddressId, setSelectedAddressId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (status !== 'signedIn') return;
+    let active = true;
+    (async () => {
+      const tok = await getAccessToken();
+      if (!tok) return;
+      try {
+        const res = await api.listMyAddresses(tok);
+        if (!active) return;
+        setAddresses(res.items);
+        // Pre-select the default row (API keeps exactly one while non-empty)
+        // and prefill the form so the guest-style required fields also match.
+        const def = res.items.find((a) => a.isDefault);
+        if (def) {
+          setSelectedAddressId(def.id);
+          setForm((f) => ({
+            ...f,
+            customerName: def.recipientName,
+            contactPhone: def.phone,
+            deliveryAddress: def.address,
+          }));
+        }
+      } catch {
+        if (active) setAddresses([]);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [status, getAccessToken]);
+
+  /** Any hand-edit of a contact field disclaims the saved-address selection. */
+  function setContactField(key: 'customerName' | 'contactPhone' | 'deliveryAddress', value: string) {
+    setSelectedAddressId(null);
+    setForm((f) => ({ ...f, [key]: value }));
+  }
+
+  function chooseAddress(addr: DeliveryAddress) {
+    setSelectedAddressId(addr.id);
+    setForm((f) => ({
+      ...f,
+      customerName: addr.recipientName,
+      contactPhone: addr.phone,
+      deliveryAddress: addr.address,
+    }));
+  }
 
   useEffect(() => {
     if (!restaurantId) return;
@@ -117,6 +173,9 @@ export default function CheckoutPage() {
         contactPhone: form.contactPhone,
         deliveryAddress: form.deliveryAddress,
         note: form.note || undefined,
+        // When a saved row is selected we send its id: the server ignores the
+        // echoed fields above and copies its own stored text onto the order.
+        ...(selectedAddressId ? { deliveryAddressId: selectedAddressId } : {}),
         // Only codes that PASSED the preview are sent; the server re-evaluates
         // it against its own subtotal either way — this is a claim, not trust.
         ...(appliedPromo ? { promoCode: appliedPromo.code } : {}),
@@ -157,13 +216,69 @@ export default function CheckoutPage() {
               place the order — the fee and minimum will be applied server-side.
             </p>
           )}
+          {status === 'signedIn' && addresses.length > 0 && (
+            <fieldset className="rounded-2xl border border-stone-200 bg-stone-50 p-4">
+              <legend className="px-1 text-sm font-semibold text-stone-700">
+                Deliver to a saved address
+              </legend>
+              <div className="space-y-2" data-testid="checkout-address-picker">
+                {addresses.map((a) => (
+                  <label
+                    key={a.id}
+                    className={`flex cursor-pointer items-start gap-2 rounded-xl border px-3 py-2 text-sm ${
+                      selectedAddressId === a.id
+                        ? 'border-brand-500 bg-white ring-2 ring-brand-100'
+                        : 'border-stone-200 bg-white hover:border-stone-300'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="saved-address"
+                      className="mt-1"
+                      checked={selectedAddressId === a.id}
+                      onChange={() => chooseAddress(a)}
+                      data-testid={`checkout-address-${a.id}`}
+                    />
+                    <span className="min-w-0">
+                      <span className="font-semibold">
+                        {a.label}
+                        {a.isDefault && (
+                          <span className="ml-2 rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-bold text-emerald-700">
+                            Default
+                          </span>
+                        )}
+                      </span>
+                      <span className="block truncate text-stone-500">
+                        {a.recipientName} · {a.address}
+                      </span>
+                    </span>
+                  </label>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => setSelectedAddressId(null)}
+                  className={`text-xs font-medium underline ${
+                    selectedAddressId === null ? 'text-brand-600' : 'text-stone-500'
+                  }`}
+                >
+                  Enter details manually instead
+                </button>
+              </div>
+              <p className="mt-2 text-xs text-stone-500">
+                Managing the book?{' '}
+                <Link href="/addresses" className="font-medium text-brand-600 hover:underline">
+                  Edit saved addresses
+                </Link>
+              </p>
+            </fieldset>
+          )}
           <div>
             <label className="mb-1 block text-sm font-medium">Your name</label>
             <input
               required
               className={field}
               value={form.customerName}
-              onChange={(e) => setForm({ ...form, customerName: e.target.value })}
+              onChange={(e) => setContactField('customerName', e.target.value)}
               placeholder="Jane Doe"
             />
           </div>
@@ -173,7 +288,7 @@ export default function CheckoutPage() {
               required
               className={field}
               value={form.contactPhone}
-              onChange={(e) => setForm({ ...form, contactPhone: e.target.value })}
+              onChange={(e) => setContactField('contactPhone', e.target.value)}
               placeholder="+62 812 3456 7890"
             />
           </div>
@@ -184,7 +299,7 @@ export default function CheckoutPage() {
               rows={3}
               className={field}
               value={form.deliveryAddress}
-              onChange={(e) => setForm({ ...form, deliveryAddress: e.target.value })}
+              onChange={(e) => setContactField('deliveryAddress', e.target.value)}
               placeholder="Street, number, city, landmarks…"
             />
           </div>

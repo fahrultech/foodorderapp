@@ -204,6 +204,27 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   needs a usage-ledger table). Web: promo input in the checkout summary
   (apply/Enter, stale-cart reset, inline reason), discount line on the
   receipt `/orders/[id]`.
+- **Delivery address book (`/api/users/me/addresses`, Bearer + checkout
+  picker)** — `delivery_addresses` rows (label/recipientName/phone/address +
+  `isDefault`), user FK cascade, indexed by `userId`, capped at 10 rows (400).
+  The service maintains **exactly one default while the book is non-empty**:
+  the first row is forced default, `POST /:id/default` promotes (clearing the
+  previous one), and deleting the default promotes the oldest survivor
+  (`promotedDefaultId` reports the handover). PATCH edits text fields only —
+  the flag never moves through PATCH (whitelist strips it), keeping the
+  invariant in one obvious place. Unknown and foreign ids are one
+  indistinguishable 404; DELETE is idempotent `{removed}` like un-hearting.
+  **Order integration:** `POST /orders` accepts optional `deliveryAddressId`;
+  the server resolves it against the JWT subject (guest sender → 400,
+  foreign → 404) and copies its OWN recipient/phone/address text onto the
+  order — the client echo is ignored, and the order keeps a TEXT snapshot (not
+  an FK), so later book edits never rewrite where past food went. Without an
+  address id the three contact fields stay required; `OrdersService` enforces
+  that either/or with a message listing what is missing. Web: `/addresses`
+  management page (add/edit/delete/make-default, client-side bounds mirror
+  the DTO) and a radio picker on `/checkout` that pre-selects the default,
+  prefills the form, and drops back to "manual" the moment a field is typed —
+  honest about what the server will actually use.
 - **No token revocation list for access tokens** — deliberate: short TTL +
   stateless verification. Re-add a deny-list only if TTL ever grows.
 - **Web session client** (`apps/web/lib/auth.tsx`): the storefront keeps the

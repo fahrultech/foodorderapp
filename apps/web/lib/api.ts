@@ -63,6 +63,13 @@ export interface CreateOrderPayload {
   note?: string;
   /** Optional promo code; the server re-validates it at create time. */
   promoCode?: string;
+  /**
+   * Saved-address id from the caller's book. When sent (Bearer required), the
+   * server copies its OWN recipient/phone/address text onto the order and
+   * ignores the three contact fields — checkout sends both so guest and
+   * signed-in paths share one payload shape.
+   */
+  deliveryAddressId?: string;
 }
 
 /** Soft verdict from POST /promos/validate (always HTTP 200 for well-formed input). */
@@ -187,6 +194,33 @@ export interface ReviewRow {
 export interface RestaurantRating {
   rating: number;
   ratingCount: number;
+}
+
+/**
+ * One saved delivery address (`/users/me/addresses`). Rows are owned by the
+ * signed-in customer; the API guarantees at most one `isDefault: true` while
+ * the book is non-empty (checkout pre-selects it).
+ */
+export interface DeliveryAddress {
+  id: string;
+  userId: string;
+  label: string;
+  recipientName: string;
+  phone: string;
+  address: string;
+  isDefault: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Write payload for POST/PATCH /users/me/addresses. */
+export interface DeliveryAddressInput {
+  label: string;
+  recipientName: string;
+  phone: string;
+  address: string;
+  /** Create-only: claim the default slot. PATCH ignores it (use setDefault). */
+  isDefault?: boolean;
 }
 
 /** Envelope of GET /restaurants/:id/reviews — page + rating summary. */
@@ -415,6 +449,39 @@ export const api = {
       method: 'DELETE',
       headers: bearer(accessToken),
     }),
+
+  // --- customer delivery address book ---
+  /** The signed-in customer's saved addresses: default first, oldest added next. */
+  listMyAddresses: (accessToken: string) =>
+    request<{ items: DeliveryAddress[]; total: number }>('/users/me/addresses', {
+      headers: bearer(accessToken),
+    }),
+  /** Save an address. First row is forced default server-side; book capped at 10 (400 when full). */
+  createAddress: (accessToken: string, input: DeliveryAddressInput) =>
+    request<{ item: DeliveryAddress }>('/users/me/addresses', {
+      method: 'POST',
+      headers: bearer(accessToken),
+      body: JSON.stringify(input),
+    }),
+  /** Edit text fields only — the default flag moves via setDefaultAddress. */
+  updateAddress: (accessToken: string, id: string, patch: Partial<DeliveryAddressInput>) =>
+    request<{ item: DeliveryAddress }>(`/users/me/addresses/${id}`, {
+      method: 'PATCH',
+      headers: bearer(accessToken),
+      body: JSON.stringify(patch),
+    }),
+  /** Delete. Idempotent `{removed}`; removing the default auto-promotes the oldest survivor. */
+  deleteAddress: (accessToken: string, id: string) =>
+    request<{ removed: boolean; promotedDefaultId?: string }>(
+      `/users/me/addresses/${id}`,
+      { method: 'DELETE', headers: bearer(accessToken) },
+    ),
+  /** Promote one address to default. Idempotent (`alreadyDefault:true`). */
+  setDefaultAddress: (accessToken: string, id: string) =>
+    request<{ alreadyDefault: boolean; item: DeliveryAddress }>(
+      `/users/me/addresses/${id}/default`,
+      { method: 'POST', headers: bearer(accessToken) },
+    ),
 
   // --- customer reviews (Phase 3) ---
   /**

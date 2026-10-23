@@ -74,6 +74,11 @@ NEXT_PUBLIC_API_URL=http://localhost:4000/api npm run dev
 | GET | `/api/users/me/favorites` | Saved dishes, newest first (Bearer) — `{items,total}` with dish + restaurant fields |
 | POST | `/api/users/me/favorites` | Heart a dish `{menuItemId}` (Bearer) — idempotent: 200 `{created:false}` if already saved; unknown dish 404 |
 | DELETE | `/api/users/me/favorites/:menuItemId` | Un-heart (Bearer) — idempotent `{removed:true/false}` |
+| GET | `/api/users/me/addresses` | Saved delivery addresses (Bearer) — `{items,total}`, default first then oldest added |
+| POST | `/api/users/me/addresses` | Save an address (Bearer) — first row forced default; `isDefault:true` promotes; 400 when book hits 10 |
+| PATCH | `/api/users/me/addresses/:id` | Edit label/recipient/phone/address (Bearer) — text only; default flag moves via the route below; empty patch 400 |
+| DELETE | `/api/users/me/addresses/:id` | Delete (Bearer) — idempotent `{removed}`; deleting the default promotes oldest survivor (`promotedDefaultId`) |
+| POST | `/api/users/me/addresses/:id/default` | Promote to default (Bearer) — idempotent `{alreadyDefault:true}`; exactly one default always |
 | POST | `/api/restaurants` | Create own restaurant (owner) |
 | PATCH | `/api/restaurants/:id` | Edit own restaurant (owner) |
 | GET | `/api/restaurants/mine` | Owner's restaurants |
@@ -84,7 +89,7 @@ NEXT_PUBLIC_API_URL=http://localhost:4000/api npm run dev
 | PATCH | `/api/menu/items/:id` | Edit dish (owner) |
 | PATCH | `/api/menu/items/:id/availability` | Toggle availability (owner) |
 | DELETE | `/api/menu/items/:id` | Delete dish (owner) |
-| POST | `/api/orders` | Place order — guest, or attached to the user when a valid Bearer token is sent. Optional `promoCode` is re-evaluated server-side against the recomputed subtotal (invalid → 400, whole order rejected); applied discount stored as `discountCents` + uppercase code snapshot |
+| POST | `/api/orders` | Place order — guest, or attached to the user when a valid Bearer token is sent. Optional `promoCode` is re-evaluated server-side against the recomputed subtotal (invalid → 400, whole order rejected); applied discount stored as `discountCents` + uppercase code snapshot. Optional `deliveryAddressId` (Bearer only): server copies its own stored recipient/phone/address onto the order and ignores the echoed contact fields; without an id, all three stay required (400 lists what is missing) |
 | POST | `/api/promos/validate` | Promo preview for checkout — `{code, restaurantId, subtotalCents}` → always HTTP 200: `{valid:true, code, description, discountCents, discountedSubtotalCents, …}` or `{valid:false, reason, message}`; codes match case-insensitively |
 | GET | `/api/orders/:id` | Order detail + status + status-step timestamps (`confirmedAt`/`preparingAt`/`deliveringAt`/`completedAt`/`cancelledAt`, null until reached) |
 | GET | `/api/orders/my` | My orders (Bearer) — `?status=&page=&limit=`, returns `{items,total,page,limit}`; rows include restaurant + line items |
