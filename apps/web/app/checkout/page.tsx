@@ -3,7 +3,10 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useCart } from '@/lib/cart';
-import { api, formatPrice, Restaurant } from '@/lib/api';
+import { api, formatPrice, PromoPreview, Restaurant } from '@/lib/api';
+
+/** A validated promo from the soft-200 /promos/validate endpoint. */
+type AppliedPromo = Extract<PromoPreview, { valid: true }>;
 
 /**
  * Live pricing pulled from GET /restaurants/:id — the same source the server
@@ -20,6 +23,10 @@ export default function CheckoutPage() {
   const [error, setError] = useState<string | null>(null);
   const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
   const [pricing, setPricing] = useState<PricingState>('loading');
+  const [promoInput, setPromoInput] = useState('');
+  const [appliedPromo, setAppliedPromo] = useState<AppliedPromo | null>(null);
+  const [promoError, setPromoError] = useState<string | null>(null);
+  const [promoChecking, setPromoChecking] = useState(false);
   const [form, setForm] = useState({
     customerName: '',
     contactPhone: '',
@@ -46,6 +53,13 @@ export default function CheckoutPage() {
     };
   }, [restaurantId]);
 
+  // A promo was previewed against ONE cart at ONE restaurant; if either moves,
+  // the cached verdict is stale — drop it and let the customer re-apply.
+  useEffect(() => {
+    setAppliedPromo(null);
+    setPromoError(null);
+  }, [subtotalCents, restaurantId]);
+
   if (lines.length === 0 || !restaurantId) {
     return (
       <div className="mx-auto max-w-lg rounded-2xl border border-dashed border-stone-300 bg-white p-10 text-center">
@@ -57,13 +71,38 @@ export default function CheckoutPage() {
 
   const deliveryFeeCents = pricing === 'ready' && restaurant ? restaurant.deliveryFeeCents : null;
   const minOrderCents = pricing === 'ready' && restaurant ? restaurant.minOrderCents : null;
-  const totalCents = deliveryFeeCents === null ? null : subtotalCents + deliveryFeeCents;
+  // The server clamps discounts to the subtotal, so mirroring it here only ever
+  // reproduces the same number — this display is a preview, never the authority.
+  const discountCents = appliedPromo ? appliedPromo.discountCents : 0;
+  const totalCents =
+    deliveryFeeCents === null
+      ? null
+      : subtotalCents - discountCents + deliveryFeeCents;
   const belowMinimum = minOrderCents !== null && subtotalCents < minOrderCents;
   const missingCents = minOrderCents === null ? 0 : minOrderCents - subtotalCents;
   const pricingLoading = pricing === 'loading';
   // Gate submit on real pricing: loading blocks, unavailable (fetch failed)
   // falls through to server-side validation, below-minimum always blocks.
   const canSubmit = !pricingLoading && !belowMinimum && !submitting;
+
+  async function applyPromo() {
+    const code = promoInput.trim();
+    if (!code || !restaurantId) return;
+    setPromoChecking(true);
+    setPromoError(null);
+    setAppliedPromo(null);
+    try {
+      const res = await api.validatePromo({ code, restaurantId, subtotalCents });
+      if (res.valid) setAppliedPromo(res);
+      else setPromoError(res.message);
+    } catch {
+      // Endpoint unreachable — the order itself will still server-check the
+      // code on submit, but right now we can only offer the honest message.
+      setPromoError('Could not check the promo code right now.');
+    } finally {
+      setPromoChecking(false);
+    }
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -78,6 +117,9 @@ export default function CheckoutPage() {
         contactPhone: form.contactPhone,
         deliveryAddress: form.deliveryAddress,
         note: form.note || undefined,
+        // Only codes that PASSED the preview are sent; the server re-evaluates
+        // it against its own subtotal either way — this is a claim, not trust.
+        ...(appliedPromo ? { promoCode: appliedPromo.code } : {}),
       });
       clear();
       router.push(`/orders/${order.id}?code=${order.code}`);
@@ -209,6 +251,53 @@ export default function CheckoutPage() {
               <span>{formatPrice(minOrderCents)}</span>
             </div>
           )}
+          {discountCents > 0 && (
+            <div className="mt-1 flex justify-between font-medium text-emerald-600">
+              <span data-testid="checkout-promo-label">Promo ({appliedPromo!.code})</span>
+              <span data-testid="checkout-promo">-{formatPrice(discountCents)}</span>
+            </div>
+          )}
+          <div className="mt-3 space-y-1 border-t border-dashed border-stone-200 pt-3">
+            <label className="block text-xs font-medium uppercase tracking-wide text-stone-500">
+              Promo code
+            </label>
+            <div className="flex gap-2">
+              <input
+                className="w-full rounded-xl border border-stone-300 bg-white px-3 py-2 text-sm uppercase outline-none focus:border-brand-500"
+                value={promoInput}
+                onChange={(e) => {
+                  setPromoInput(e.target.value);
+                  setAppliedPromo(null);
+                  setPromoError(null);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    applyPromo();
+                  }
+                }}
+                placeholder="e.g. WELCOME10"
+                maxLength={24}
+                data-testid="checkout-promo-input"
+              />
+              <button
+                type="button"
+                onClick={applyPromo}
+                disabled={!promoInput.trim() || promoChecking}
+                className="shrink-0 rounded-xl border border-brand-600 px-3 py-2 text-sm font-semibold text-brand-600 hover:bg-brand-50 disabled:border-stone-300 disabled:text-stone-400"
+              >
+                {promoChecking ? 'Checking…' : appliedPromo ? 'Applied' : 'Apply'}
+              </button>
+            </div>
+            {appliedPromo && (
+              <p className="text-xs text-emerald-600">{appliedPromo.description}</p>
+            )}
+            {promoError && (
+              <p role="alert" className="text-xs font-medium text-red-600" data-testid="checkout-promo-error">
+                {promoError}
+              </p>
+            )}
+          </div>
           <div className="mt-2 flex justify-between text-base font-extrabold">
             <span>Total</span>
             <span data-testid="checkout-total">

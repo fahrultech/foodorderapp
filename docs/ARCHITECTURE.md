@@ -187,6 +187,23 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   Restaurant pages render the recomputed badge (`★ 4.3 · 3 reviews`) plus a
   server-fetched "Recent reviews" section; `Stars.tsx` is display-only and
   SSR-safe. Review edit/delete exist on the API but have no UI yet.
+- **Promo codes (`/api/promos` + order-create hook)** — `promo_codes` rows are
+  platform/seed-managed (no owner CRUD yet): `percent` (1..100 of subtotal,
+  optional `maxDiscountCents` cap) or `fixed` cents-off, gated by
+  `minSubtotalCents` (checked against the PRE-discount subtotal, so a promo
+  can't bypass a restaurant minimum either — that check still runs first) and
+  optionally scoped to one restaurant (`restaurantId` null = platform-wide);
+  `isActive=false` is the kill switch. `PromosService.evaluate` is the single
+  decision point, called by `OrdersService.create` with the SERVER-computed
+  subtotal — the client's numbers are never consulted; a rejected code 400s
+  the whole order. The applied code + `discountCents` are denormalized onto
+  the order (text snapshot, not FK — receipts survive promo deletion). The
+  discount is clamped to the subtotal: delivery fees are never discounted.
+  `POST /promos/validate` is a soft-200 preview for the checkout UI; expiry
+  dates + usage caps are deliberately Phase 5 ("Coupons expiry + usage caps"
+  needs a usage-ledger table). Web: promo input in the checkout summary
+  (apply/Enter, stale-cart reset, inline reason), discount line on the
+  receipt `/orders/[id]`.
 - **No token revocation list for access tokens** — deliberate: short TTL +
   stateless verification. Re-add a deny-list only if TTL ever grows.
 - **Web session client** (`apps/web/lib/auth.tsx`): the storefront keeps the
@@ -206,6 +223,7 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
 users(1)──(N)orders(1)──(N)order_items(N)──(1)menu_items(N)──(1)restaurants
 users(1)──(N)restaurants  (restaurants.ownerId → users.id; nullable, FK ON DELETE SET NULL, indexed)
 users(1)──(N)reviews(1)──(1)orders(1)──(1)restaurants  (reviews: unique orderId, all FKs ON DELETE CASCADE; restaurants.rating/ratingCount are recomputed server-side on every review write)
+restaurants(1)──(N)promo_codes  (restaurantId nullable: null = platform-wide, FK ON DELETE CASCADE; code unique uppercase; orders keep promoCode/discountCents text+int snapshots, no FK)
 
 Roles: `customer` (default), `owner`, `admin`. Owner-only routes guarded by `JwtAuthGuard` + `RolesGuard` (`@Roles(UserRole.OWNER)`); ADMIN bypasses `@Roles`. Owners create/update only their own restaurants (`PATCH /restaurants/:id` returns 403 unless caller owns the row). `slug`/`rating`/`ownerId` are not owner-writable — slug auto-derived and de-duplicated (`-2`, `-3`…) at create.
 Dish ownership is **derived through the parent restaurant** (menu_items carries no owner column): owner menu routes `POST /restaurants/:id/menu`, `PATCH /menu/items/:id` (content only), `PATCH /menu/items/:id/availability`, `DELETE /menu/items/:id` all check `MenuService.assertCanManage`; platform restaurants (`ownerId null`) are admin-only. Route params that must be uuids are screened by `common/uuid.ts isUuid` → 404 instead of a raw Postgres 22P02 500.

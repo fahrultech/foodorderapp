@@ -4,6 +4,72 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
+## 2026-10-23 13:17 — Session 21
+
+**Built:** Phase 3 item 5 — **promo codes & discount engine** (API + storefront).
+
+- API: new `PromoCode` entity (`promo_codes`: unique uppercase `code`,
+  `discountType` enum `percent|fixed`, `valueCents`, optional
+  `maxDiscountCents` cap, `minSubtotalCents` gate, nullable `restaurantId`
+  scope (null = platform-wide, FK `ON DELETE CASCADE`), `isActive` kill
+  switch) + generated migration `AddPromoCodes1792732328155` (DDL reviewed;
+  also adds `orders.discountCents int default 0` + `orders.promoCode
+  varchar(24) nullable` snapshot columns — text snapshot on purpose, receipts
+  survive promo deletion).
+- `PromosService.evaluate(code, restaurantId, subtotalCents)` is the single
+  decision point: normalize→lookup→active→restaurant-scope→min-subtotal gates,
+  then integer-cent math (percent floors, cap applies, fixed clamped to the
+  subtotal — fees are never discounted, total never below the fee). Soft
+  outcome object, never throws; `POST /promos/validate` wraps it as a
+  soft-200 preview (`{valid:false, reason, message}` for the 4 rejection
+  kinds), public since checkout is guest-allowed and codes are public by
+  design.
+- Order integration: `CreateOrderDto.promoCode` (optional, `Matches` shape);
+  `OrdersService.create` evaluates AFTER the min-order check (a promo can't
+  smuggle a below-minimum cart) against its OWN recomputed subtotal — client
+  subtotal never consulted — 400s the whole order when rejected, and stores
+  `discountCents` + normalized code snapshot; `total = subtotal − discount +
+  fee`. Wired: PromosModule in AppModule + OrdersModule, entity in the CLI
+  `data-source.ts` list (spec bumped to nine entities), seed adds
+  WELCOME10 (percent 10 capped 2000, min 2000) / WARUNGHEMAT ($5 fixed at
+  Warung Nusantara, min 3000) / LAUNCH99 (inactive demo) and gives FO-SEED1
+  a real WELCOME10 receipt (2800 − 280 + 300 = 2820).
+- New specs: `promos.service.spec.ts` (15: gates, case-insensitivity,
+  percent floor/cap, fixed clamp, zero-subtotal, preview shapes) +
+  `orders-promo.spec.ts` (4: engine untouched without a code, server subtotal
+  passed, snapshot + clamped total on success, 400 rejects the order,
+  min-order beats promo). `OrdersService` ctor gained the 5th dep — all 7
+  spec construction sites updated via a `fakePromos()` helper.
+- Web: checkout summary gets a promo input (Apply button / Enter, disables
+  while checking, applied shows description, rejects show the server's
+  message inline); an applied discount renders a green `−$X` line and folds
+  into the live total; the verdict is dropped whenever cart subtotal or
+  restaurant changes (stale preview guard); submit sends the code ONLY when
+  it passed preview. `Order`/`CreateOrderPayload` types + `api.validatePromo`
+  added. `/orders/[id]` receipt shows `Promo (CODE) −$X` when
+  `discountCents > 0`.
+
+**Verified:**
+- `nest build` clean; `jest` 24 suites / **272 tests pass** (19 new above).
+- `next build` green.
+- Runtime smoke (dev DB migrated + reseeded, API booted on :4000):
+  `/api/promos/validate` matrix — lowercase `welcome10` at 2800 → valid 280;
+  90000 subtotal → capped at 2000; 1000 → `below_min_subtotal`; WARUNGHEMAT
+  at sushi-kan → `restaurant_mismatch`, at warung → valid 500; LAUNCH99 →
+  `inactive`; NOPE → `not_found`; missing-field body → standard 400 envelope.
+  `POST /api/orders` with `promoCode:"welcome10"` → FO-KSXC subtotal 2800,
+  `discountCents 280`, snapshot `WELCOME10`, total 2820 (re-GET identical);
+  inactive/unknown codes → 400 with the exact reason, no order row.
+  SQL cross-check: seeded FO-SEED1 snapshot matches the live-created order
+  column-for-column (2800/280/WELCOME10/2820). Smoke API stopped after.
+
+**Left for next sessions:** promo admin CRUD (owner/platform creation UI —
+currently seed/platform-managed rows only) and the separate "Coupons expiry +
+usage caps" Phase 5 item (needs a usage ledger; deliberately not in this
+engine). Next roadmap item: delivery addresses book.
+
+---
+
 ## 2026-10-23 11:31 — Session 20
 
 **Built:** Phase 3 item 4 — **customer reviews with server-side restaurant

@@ -31,7 +31,7 @@
 - [x] Favorites (heart on dishes, `/users/me/favorites` API)
 - [x] Order tracking timeline UI (status steps with timestamps on order entity)
 - [x] Reviews: customers rate completed orders; restaurant rating recomputed server-side
-- [ ] Promo codes & discount engine (server-side validation, order integration)
+- [x] Promo codes & discount engine (server-side validation, order integration)
 - [ ] Delivery addresses book (multiple saved addresses, pick at checkout)
 
 ## Phase 4 — Ops & quality

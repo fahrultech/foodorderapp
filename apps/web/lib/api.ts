@@ -61,13 +61,33 @@ export interface CreateOrderPayload {
   contactPhone: string;
   deliveryAddress: string;
   note?: string;
+  /** Optional promo code; the server re-validates it at create time. */
+  promoCode?: string;
 }
+
+/** Soft verdict from POST /promos/validate (always HTTP 200 for well-formed input). */
+export type PromoPreview =
+  | {
+      valid: true;
+      code: string;
+      description: string | null;
+      discountType: 'percent' | 'fixed';
+      valueCents: number;
+      discountCents: number;
+      discountedSubtotalCents: number;
+      message: string;
+    }
+  | { valid: false; reason?: string; message: string };
 
 export interface Order {
   id: string;
   code: string;
   status: string;
   subtotalCents: number;
+  /** Promo discount applied at create, integer cents vs. the subtotal. 0 = none. */
+  discountCents: number;
+  /** Normalized promo code snapshot; null when no promo was used. */
+  promoCode: string | null;
   deliveryFeeCents: number;
   totalCents: number;
   customerName: string;
@@ -269,6 +289,9 @@ export const api = {
   getRestaurant: (id: string) => request<Restaurant>(`/restaurants/${id}`),
   createOrder: (payload: CreateOrderPayload) =>
     request<Order>('/orders', { method: 'POST', body: JSON.stringify(payload) }),
+  /** Live promo-code preview for checkout. Soft 200: read `valid`, never throw on a bad code. */
+  validatePromo: (payload: { code: string; restaurantId: string; subtotalCents: number }) =>
+    request<PromoPreview>('/promos/validate', { method: 'POST', body: JSON.stringify(payload) }),
   getOrder: (id: string) => request<Order>(`/orders/${id}`),
   /**
    * Paginated order history for the signed-in customer. Server caps limit at

@@ -84,7 +84,8 @@ NEXT_PUBLIC_API_URL=http://localhost:4000/api npm run dev
 | PATCH | `/api/menu/items/:id` | Edit dish (owner) |
 | PATCH | `/api/menu/items/:id/availability` | Toggle availability (owner) |
 | DELETE | `/api/menu/items/:id` | Delete dish (owner) |
-| POST | `/api/orders` | Place order — guest, or attached to the user when a valid Bearer token is sent |
+| POST | `/api/orders` | Place order — guest, or attached to the user when a valid Bearer token is sent. Optional `promoCode` is re-evaluated server-side against the recomputed subtotal (invalid → 400, whole order rejected); applied discount stored as `discountCents` + uppercase code snapshot |
+| POST | `/api/promos/validate` | Promo preview for checkout — `{code, restaurantId, subtotalCents}` → always HTTP 200: `{valid:true, code, description, discountCents, discountedSubtotalCents, …}` or `{valid:false, reason, message}`; codes match case-insensitively |
 | GET | `/api/orders/:id` | Order detail + status + status-step timestamps (`confirmedAt`/`preparingAt`/`deliveringAt`/`completedAt`/`cancelledAt`, null until reached) |
 | GET | `/api/orders/my` | My orders (Bearer) — `?status=&page=&limit=`, returns `{items,total,page,limit}`; rows include restaurant + line items |
 | POST | `/api/orders/:id/cancel` | Customer cancels own order (Bearer) — allowed through `preparing` |
