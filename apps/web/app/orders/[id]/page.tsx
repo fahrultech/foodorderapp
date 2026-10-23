@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { api, formatPrice } from '@/lib/api';
+import OrderTimeline from '@/components/OrderTimeline';
 
 export const dynamic = 'force-dynamic';
 
@@ -39,8 +40,10 @@ export default async function OrderPage({
   return (
     <div className="mx-auto max-w-2xl">
       <div className="rounded-2xl border border-stone-200 bg-white p-8 text-center">
-        <p className="text-4xl">🎉</p>
-        <h1 className="mt-3 text-2xl font-extrabold">Order {order.code} placed!</h1>
+        <p className="text-4xl">{order.status === 'cancelled' ? '❌' : '🎉'}</p>
+        <h1 className="mt-3 text-2xl font-extrabold">
+          {order.status === 'cancelled' ? `Order ${order.code} cancelled` : `Order ${order.code} placed!`}
+        </h1>
         <p className="mt-1 text-sm text-stone-500">
           {(code || order.code) && `Reference: ${order.code}`} ·{' '}
           {order.restaurant?.name ?? 'Restaurant'}
@@ -48,6 +51,14 @@ export default async function OrderPage({
         <p className="mt-4 inline-block rounded-full bg-stone-100 px-4 py-2 text-sm font-semibold">
           {STATUS_LABEL[order.status] ?? order.status}
         </p>
+      </div>
+
+      <div className="mt-6 rounded-2xl border border-stone-200 bg-white p-5">
+        <div className="flex items-baseline justify-between">
+          <h2 className="font-bold">Order progress</h2>
+          <span className="text-xs text-stone-400">Reload to check for updates</span>
+        </div>
+        <OrderTimeline order={order} />
       </div>
 
       <div className="mt-6 rounded-2xl border border-stone-200 bg-white p-5">

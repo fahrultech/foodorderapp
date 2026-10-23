@@ -4,6 +4,65 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
+## 2026-10-23 09:29 — Session 19
+
+**Built:** Phase 3 item 3 — **order tracking timeline UI (status steps with
+timestamps)**.
+
+- API: five write-once step columns on the order entity
+  (`confirmedAt`/`preparingAt`/`deliveringAt`/`completedAt`/`cancelledAt`,
+  nullable TIMESTAMP) + `OrdersService.applyStatus(order, status)` — sets
+  `status` and stamps the step's column **only if not already set**. All three
+  transition paths (owner `setStatusForRestaurant`, customer `cancel`, admin
+  `updateStatus`) now go through it; rejected transitions never reach it, so
+  they stamp nothing. The `pending` step stays `createdAt` — no column for it.
+- Migration `AddOrderStatusTimestamps1792719166289` (generated, DDL reviewed):
+  adds the 5 columns, then backfills rows already past pending — the step the
+  order currently sits in gets `updatedAt` (that write *is* the transition),
+  earlier steps get `createdAt` (true lower bound), pending untouched.
+  `down()` drops the columns. Seed's 7 demo orders now also get plausible
+  spread-out step times via `seedStepStamps` so a fresh dev DB has a live
+  timeline out of the box.
+- Web: `components/OrderTimeline.tsx` (server-safe, no hooks) — vertical
+  `<ol>` of Placed → Confirmed → Preparing → On the way → Delivered with
+  green check dots + local-time stamps for reached steps, an amber pulse +
+  "waiting…" on the next expected step, grey "—" for future ones, and a red
+  terminal **Cancelled** node after the reached prefix when cancelled;
+  `aria-current="step"` + `sr-only` progress summary. Wired into
+  `/orders/[id]` as an "Order progress" card ("Reload to check for updates"
+  hint — this page has no SSE yet); hero flips to ❌/"cancelled" copy for
+  cancelled orders. `lib/api.ts` `Order` type gained the 5 nullable fields.
+
+**Verified:**
+- `nest build` clean; `jest` **223/223** (6 new specs in a
+  "status-step timestamps" describe: single-step stamping, full
+  pending→completed walk stamps each step once and never re-stamps,
+  write-once vs a backfilled value, customer cancel, admin path, rejected
+  transition stamps nothing — all under fake timers for exact stamps).
+- Migration applied to dev DB; psql shows all 7 seeded orders backfilled
+  correctly per status (pending all-null; completed all four; cancelled
+  `cancelledAt=updatedAt`).
+- Runtime smoke (API on :4000) — **16/16 checks** via python/urllib:
+  guest order pending→all stamps null; owner confirm/prepare stamps +
+  monotonicity; illegal preparing→completed 400 and stamped nothing;
+  failed replay left `confirmedAt` unchanged; full walk to completed;
+  customer cancel stamps `cancelledAt` only; backfilled rows visible
+  through `GET /orders/:id` and the owner inbox (FO-SEED1/4/6). One smoke
+  script bug found mid-run (search `q=warung` returns Ayam Goreng via
+  description match — pinned the owner's restaurant by exact name; the API
+  behaved correctly).
+- Web: `next build` clean; live `next start` :3000 browser test on three
+  seeded orders — completed (5 green checks + times, no pulse), pending
+  (Placed ✓, pulse on Confirmed "waiting…", sr-only "1 of 5 steps
+  reached"), cancelled (❌ hero, red Cancelled node with time, intermediate
+  steps "—").
+
+**Left for next sessions:** the customer order page is still reload-to-update
+(SSE is owner-side only) — a customer-facing live update or auto-poll is
+follow-up polish; next roadmap item — reviews.
+
+---
+
 ## 2026-10-22 19:56 — Session 18
 
 **Built:** Phase 3 item 2 — **Favorites (heart on dishes + `/users/me/favorites` API)**.

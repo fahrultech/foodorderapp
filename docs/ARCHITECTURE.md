@@ -36,6 +36,15 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   leaked); restaurant-side progression goes through the owner-scoped
   `PATCH /restaurants/:id/orders/:orderId/status` route, and the generic
   `PATCH /orders/:id/status` path is admin-only (it used to be open).
+- **Status-step timestamps** — the order entity carries write-once
+  `confirmedAt`/`preparingAt`/`deliveringAt`/`completedAt`/`cancelledAt` columns
+  stamped by `OrdersService.applyStatus` on first entry into each step (every
+  transition path — owner, customer-cancel, admin — goes through it; rejected
+  transitions stamp nothing). The `AddOrderStatusTimestamps` migration backfills
+  pre-existing rows: current step = `updatedAt`, earlier steps = `createdAt`
+  (a true lower bound), pending untouched. The web `/orders/[id]` page renders
+  them as the customer tracking timeline (`OrderTimeline` — done/waiting/future
+  nodes, red terminal node when cancelled; `pending` step is `createdAt`).
 - **Paginated reads** — `GET /orders/my` (`?status&page&limit`, default 20,
   max 50) and `GET /restaurants` share the `{items,total,page,limit}` envelope;
   `/orders/my` rows load `restaurant` + `items` relations so the web history

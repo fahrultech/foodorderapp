@@ -85,7 +85,7 @@ NEXT_PUBLIC_API_URL=http://localhost:4000/api npm run dev
 | PATCH | `/api/menu/items/:id/availability` | Toggle availability (owner) |
 | DELETE | `/api/menu/items/:id` | Delete dish (owner) |
 | POST | `/api/orders` | Place order — guest, or attached to the user when a valid Bearer token is sent |
-| GET | `/api/orders/:id` | Order detail + status |
+| GET | `/api/orders/:id` | Order detail + status + status-step timestamps (`confirmedAt`/`preparingAt`/`deliveringAt`/`completedAt`/`cancelledAt`, null until reached) |
 | GET | `/api/orders/my` | My orders (Bearer) — `?status=&page=&limit=`, returns `{items,total,page,limit}`; rows include restaurant + line items |
 | POST | `/api/orders/:id/cancel` | Customer cancels own order (Bearer) — allowed through `preparing` |
 | PATCH | `/api/orders/:id/status?status=` | Status machine transition — **admin only** (Bearer); owner actions go through the restaurant-scoped route above |

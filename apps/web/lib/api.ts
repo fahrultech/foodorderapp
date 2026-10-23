@@ -75,6 +75,16 @@ export interface Order {
   items: { id: string; name: string; quantity: number; unitPriceCents: number }[];
   restaurant?: Pick<Restaurant, 'id' | 'name' | 'imageUrl' | 'cuisine'>;
   createdAt: string;
+  /**
+   * Status-step timestamps for the tracking timeline (API's orders entity).
+   * Null until the order has entered that step; the API never rewrites one
+   * once set. `pending` is represented by `createdAt`.
+   */
+  confirmedAt?: string | null;
+  preparingAt?: string | null;
+  deliveringAt?: string | null;
+  completedAt?: string | null;
+  cancelledAt?: string | null;
 }
 
 /** Status values the API's OrderStatus enum accepts (see apps/api/src/orders/order.entity.ts). */
