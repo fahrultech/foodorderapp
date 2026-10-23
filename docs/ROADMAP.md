@@ -36,7 +36,7 @@
 
 ## Phase 4 — Ops & quality
 - [x] GitHub Actions CI: build + test both apps per push
-- [ ] GitHub Actions CD workflow stub (build images, push to registry)
+- [x] GitHub Actions CD workflow stub (build images, push to registry)
 - [ ] API: structured logging (pino) + request-id middleware
 - [ ] API: rate limiting on auth + order endpoints
 - [ ] Swagger/OpenAPI docs auto-generated at `/api/docs`

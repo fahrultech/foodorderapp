@@ -4,6 +4,56 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
+## 2026-10-23 19:50 — Session 24
+
+**Built:** Phase 4 item 2 — **GitHub Actions CD workflow**
+(`.github/workflows/cd.yml`): version tags publish both app images to GHCR.
+
+- Triggers: `push` of a `v*` tag → build + push; `workflow_dispatch` →
+  build-only (no push) so the workflow itself is safely re-verifiable.
+- Single matrix job (`api`, `web`) on ubuntu-latest: checkout → Buildx →
+  `docker/metadata-action` → `docker/login-action` (tag events only) →
+  `docker/build-push-action` with `push: ${{ github.event_name == 'push' }}`.
+- Registry auth = the **built-in `GITHUB_TOKEN`** with a scoped
+  `permissions: packages: write` — zero new secrets to configure; the file
+  contains only the template reference, never a token value. Packages
+  published from Actions on a public repo are publicly pullable.
+- Image names `ghcr.io/<repo>/foodorder-{api,web}`; tags per release:
+  semver `0.1.0`, `0.1`, `sha-<commit>`, and `latest` (semver flavor).
+- `NEXT_PUBLIC_API_URL` build-arg comes from repo `vars` with the localhost
+  dev default (baked into the web image at build time; harmless no-op arg
+  for the api image).
+- `v0.1.0` annotated tag cut at the workflow commit and pushed — the first
+  release of this repo. README gained a CD badge next to the CI badge.
+
+**Verified (build half locally first, publish half on-platform after):**
+- **First-ever local builds of both images** (pending since Session 1):
+  `docker build` apps/api (614 MB) and apps/web (352 MB) both succeeded —
+  inside-container `npm ci` now works because Session 23 repointed the
+  lockfiles to npmjs.org.
+- Image runtime smoke (both containers on the host network so the baked-in
+  localhost URLs resolve; Postgres 16 service up): api container
+  `/api/health` → `{"status":"ok","db":"up"}` and `/api/restaurants` served
+  live seeded data; web container returned **HTTP 200** and SSR-rendered
+  the real restaurant list pulled through the api container. Containers
+  and `:cdtest` images removed afterwards; `docker ps` back to empty.
+- cd.yml parses (PyYAML); sanitizer byte-audit: the `password:` line and
+  all `${{ … }}` expressions verified by codepoint readback from disk —
+  no masking artifact, no credential literal in the file anywhere.
+- On-platform (polled anonymously via api.github.com): CD run **39949699099**
+  on ref `v0.1.0` → both matrix jobs green (api 52 s, web 73 s), every step
+  incl. "Log in to GHCR" and "Build + push to GHCR" success. CI run
+  39949693265 on the same commit also stayed green (no regressions).
+- Real side-effect check — images actually exist: `docker manifest inspect`
+  (no auth) returned **OK for all six** tags:
+  `foodorder-{api,web}` × {`0.1.0`, `0.1`, `latest`}.
+
+**Docs:** ROADMAP item ticked; README CD badge.
+
+**Left for next sessions:** actual deploy story for these images (compose on
+a server or cloud run), registry retention, then pino structured logging —
+the next Phase 4 item.
+
 ## 2026-10-23 18:16 — Session 23
 
 **Built:** Phase 4 item 1 — **GitHub Actions CI** (`.github/workflows/ci.yml`,
