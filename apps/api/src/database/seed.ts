@@ -232,6 +232,34 @@ async function main() {
     },
   ];
 
+  // Step timestamps matching each demo order's status, spread over the last
+  // hour so the fresh-seed tracking timeline looks realistic (same policy as
+  // the AddOrderStatusTimestamps migration backfill: past steps filled,
+  // pending orders none).
+  const seedStepStamps = (status: OrderStatus): Partial<Order> => {
+    const now = Date.now();
+    const ago = (min: number) => new Date(now - min * 60_000);
+    switch (status) {
+      case OrderStatus.CONFIRMED:
+        return { confirmedAt: ago(20) };
+      case OrderStatus.PREPARING:
+        return { confirmedAt: ago(40), preparingAt: ago(25) };
+      case OrderStatus.DELIVERING:
+        return { confirmedAt: ago(50), preparingAt: ago(35), deliveringAt: ago(15) };
+      case OrderStatus.COMPLETED:
+        return {
+          confirmedAt: ago(60),
+          preparingAt: ago(45),
+          deliveringAt: ago(25),
+          completedAt: ago(5),
+        };
+      case OrderStatus.CANCELLED:
+        return { cancelledAt: ago(10) };
+      default:
+        return {};
+    }
+  };
+
   for (const spec of orderSpecs) {
     const entry = bySlug.get(spec.slug)!;
     let subtotal = 0;
@@ -250,6 +278,7 @@ async function main() {
         deliveryAddress: spec.deliveryAddress,
         note: spec.note ?? null as any,
         status: spec.status,
+        ...seedStepStamps(spec.status),
         subtotalCents: subtotal,
         deliveryFeeCents: entry.restaurant.deliveryFeeCents,
         totalCents: subtotal + entry.restaurant.deliveryFeeCents,

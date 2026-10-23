@@ -29,6 +29,17 @@ const STATUS_FLOW: Record<OrderStatus, OrderStatus[]> = {
   [OrderStatus.CANCELLED]: [],
 };
 
+/** Which entity column stamps first entry into each status (pending = createdAt). */
+const STATUS_TIMESTAMP_FIELD: Partial<
+  Record<OrderStatus, 'confirmedAt' | 'preparingAt' | 'deliveringAt' | 'completedAt' | 'cancelledAt'>
+> = {
+  [OrderStatus.CONFIRMED]: 'confirmedAt',
+  [OrderStatus.PREPARING]: 'preparingAt',
+  [OrderStatus.DELIVERING]: 'deliveringAt',
+  [OrderStatus.COMPLETED]: 'completedAt',
+  [OrderStatus.CANCELLED]: 'cancelledAt',
+};
+
 @Injectable()
 export class OrdersService {
   constructor(
@@ -63,6 +74,17 @@ export class OrdersService {
     let out = '';
     for (let i = 0; i < 4; i++) out += chars[Math.floor(Math.random() * chars.length)];
     return `FO-${out}`;
+  }
+
+  /**
+   * Move the order to a new status and stamp the tracking timestamp for
+   * first entry into that step. Write-once: an already-set step timestamp is
+   * never overwritten, so the timeline keeps the true first-arrival times.
+   */
+  private applyStatus(order: Order, status: OrderStatus, now: Date = new Date()): void {
+    order.status = status;
+    const field = STATUS_TIMESTAMP_FIELD[status];
+    if (field && !order[field]) order[field] = now;
   }
 
   async create(dto: CreateOrderDto, userId?: string) {
@@ -252,7 +274,7 @@ export class OrdersService {
         `Cannot move order from ${order.status} to ${status}`,
       );
     }
-    order.status = status;
+    this.applyStatus(order, status);
     const saved = await this.orders.save(order);
     this.emit('order.updated', saved);
     return saved;
@@ -280,7 +302,7 @@ export class OrdersService {
         `Order can no longer be cancelled (status: ${order.status})`,
       );
     }
-    order.status = OrderStatus.CANCELLED;
+    this.applyStatus(order, OrderStatus.CANCELLED);
     const saved = await this.orders.save(order);
     this.emit('order.updated', saved);
     return saved;
@@ -293,7 +315,7 @@ export class OrdersService {
         `Cannot move order from ${order.status} to ${status}`,
       );
     }
-    order.status = status;
+    this.applyStatus(order, status);
     const saved = await this.orders.save(order);
     this.emit('order.updated', saved);
     return saved;

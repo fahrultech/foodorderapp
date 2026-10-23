@@ -29,6 +29,11 @@ function fakeOrder(overrides: Partial<Order> = {}): Order {
     items: [],
     createdAt: new Date('2026-10-01T00:00:00Z'),
     updatedAt: new Date('2026-10-01T00:00:00Z'),
+    confirmedAt: null,
+    preparingAt: null,
+    deliveringAt: null,
+    completedAt: null,
+    cancelledAt: null,
     ...overrides,
   } as Order;
 }
@@ -647,5 +652,96 @@ describe('OrdersService.assertStreamAccess — SSE ownership gate', () => {
     await expect(
       foreign.service.assertStreamAccess(REST_ID, ownerActor),
     ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+});
+
+describe('OrdersService — status-step timestamps (tracking timeline)', () => {
+  const REST_ID = '11111111-1111-4111-8111-111111111111';
+  const ownerActor = { sub: OWNER_ID, role: UserRole.OWNER };
+
+  beforeAll(() => jest.useFakeTimers({ now: new Date('2026-10-23T04:00:00Z') }));
+  afterAll(() => jest.useRealTimers());
+
+  function buildOwner(order: Order) {
+    const findOne = jest.fn(async ({ where }: any) =>
+      order && order.id === where.id ? order : null,
+    );
+    const save = jest.fn(async (x: Order) => x);
+    const repo = { findOne, save } as unknown as Repository<Order>;
+    const restaurants = {
+      findOne: jest.fn(async () => ({ id: REST_ID, ownerId: OWNER_ID } as any)),
+    } as unknown as RestaurantsService;
+    return new OrdersService(repo, {} as MenuService, restaurants, fakeEvents());
+  }
+
+  it('pending -> confirmed stamps confirmedAt only', async () => {
+    const service = buildOwner(fakeOrder({ restaurantId: REST_ID }));
+    const out: any = await service.setStatusForRestaurant(
+      REST_ID, ORDER_ID, OrderStatus.CONFIRMED, ownerActor,
+    );
+    expect(out.confirmedAt).toEqual(new Date('2026-10-23T04:00:00Z'));
+    expect(out.preparingAt).toBeNull();
+    expect(out.deliveringAt).toBeNull();
+    expect(out.completedAt).toBeNull();
+    expect(out.cancelledAt).toBeNull();
+  });
+
+  it('stamps each step along a full walk and never re-stamps', async () => {
+    const order = fakeOrder({ restaurantId: REST_ID });
+    const service = buildOwner(order);
+    const walk: Array<[OrderStatus, keyof Order]> = [
+      [OrderStatus.CONFIRMED, 'confirmedAt'],
+      [OrderStatus.PREPARING, 'preparingAt'],
+      [OrderStatus.DELIVERING, 'deliveringAt'],
+      [OrderStatus.COMPLETED, 'completedAt'],
+    ];
+    const seen = new Map<string, Date>();
+    for (const [status, field] of walk) {
+      jest.advanceTimersByTime(60_000); // one minute per step
+      const out: any = await service.setStatusForRestaurant(
+        REST_ID, ORDER_ID, status, ownerActor,
+      );
+      expect(out[field]).toEqual(new Date(Date.now()));
+      seen.set(field as string, out[field]);
+      // every earlier step keeps its original value
+      for (const [prevField, prevVal] of seen) {
+        if (prevField !== field) expect((out as any)[prevField]).toBe(prevVal);
+      }
+    }
+  });
+
+  it('write-once: a backfilled confirmedAt survives the confirmed -> preparing step', async () => {
+    const old = new Date('2026-10-22T09:00:00Z');
+    const order = fakeOrder({ restaurantId: REST_ID, status: OrderStatus.CONFIRMED, confirmedAt: old });
+    const service = buildOwner(order);
+    const out: any = await service.setStatusForRestaurant(
+      REST_ID, ORDER_ID, OrderStatus.PREPARING, ownerActor,
+    );
+    expect(out.confirmedAt).toBe(old);
+    expect(out.preparingAt).toEqual(new Date(Date.now()));
+  });
+
+  it('customer cancel stamps cancelledAt', async () => {
+    const { service } = build([fakeOrder({ status: OrderStatus.PENDING })]);
+    const out: any = await service.cancel(ORDER_ID, OWNER_ID);
+    expect(out.status).toBe(OrderStatus.CANCELLED);
+    expect(out.cancelledAt).toEqual(new Date(Date.now()));
+    expect(out.confirmedAt).toBeNull();
+  });
+
+  it('admin PATCH path stamps too', async () => {
+    const { service } = build([fakeOrder()]);
+    const out: any = await service.updateStatus(ORDER_ID, OrderStatus.CONFIRMED);
+    expect(out.confirmedAt).toEqual(new Date(Date.now()));
+  });
+
+  it('rejected transitions do not stamp anything', async () => {
+    const order = fakeOrder({ restaurantId: REST_ID });
+    const service = buildOwner(order);
+    await expect(
+      service.setStatusForRestaurant(REST_ID, ORDER_ID, OrderStatus.COMPLETED, ownerActor),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(order.confirmedAt).toBeNull();
+    expect(order.completedAt).toBeNull();
   });
 });
