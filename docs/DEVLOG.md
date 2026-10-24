@@ -4,6 +4,97 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
+## 2026-10-24 13:25 — Session 26
+
+**Built:** Phase 4 item 4 — **rate limiting on auth + order endpoints** —
+plus a repo-integrity fix the verification surfaced (see below).
+
+- New `src/common/rate-limit/` (no new dependency; the codebase already owns
+  its middleware and adding `@nestjs/throttler` would re-open the
+  mirror-lockfile CI problem):
+  - `rate-limit.store.ts` — `RateLimitStore` interface +
+    `SlidingWindowLogStore`: per-key sliding-window log, injectable clock,
+    blocked requests are *not* recorded (retry storms can't extend a window),
+    lazy idle-key sweep, window-change rebase. Redis seam documented for
+    multi-node.
+  - `rate-limit.config.ts` — buckets `auth` (default 10/min) and `orders`
+    (30/min); env overrides `RATE_LIMIT_{AUTH,ORDERS}_{MAX,WINDOW_SEC}` with
+    strict positive-int parsing (garbage → default); `RATE_LIMIT_TRUST_PROXY`
+    (default off: identity = socket IP; on: first XFF hop — only safe behind
+    a header-overwriting proxy, since spoofable XFF would mint free buckets).
+  - `rate-limit.decorator.ts` — `@RateLimit('auth'|'orders')` metadata,
+    handler over class; non-decorated handlers always pass.
+  - `rate-limit.guard.ts` — `RateLimitGuard` (kept FIRST in every
+    `@UseGuards` list, so over-limit requests never reach JWT/validation
+    work): sets `X-RateLimit-Limit/Remaining/Reset` on every throttled
+    response; on block sets `Retry-After` and throws `AppException(429,
+    'RATE_LIMITED', …, details={bucket, retry_after_sec, window_sec, req_id})`
+    → renders through `ErrorFormatFilter` untouched. `req_id` comes from the
+    session-25 AsyncLocalStorage (fulfilled the noted follow-up).
+  - `rate-limit.module.ts` — `@Global` wiring; env read once at boot.
+- Applied: `AuthController` (register+login+refresh share one `auth` bucket —
+  credential rotation can't launder the limit; `me`/`logout` untouched),
+  `OrdersController` (`POST /orders` guest+auth and `POST /orders/:id/cancel`
+  share the `orders` bucket; reads untouched).
+- Tests: 46 new (4 suites) — store semantics (exact retryAfter/remaining/
+  slide/sweep), config parsing (8 garbage-override cases), guard unit
+  (metadata resolution incl. handler-over-class, header contract, XFF
+  spoof-rejection + trusted-proxy keying, fail-open paths, reqId attach),
+  and a live-HTTP integration suite on the production chain (envelope +
+  `Retry-After` + `req_id == X-Request-Id`, cross-route bucket sharing,
+  bucket isolation, window recovery, blocked-not-counted, guard-before-
+  validation, direct-listener spoof isolation, trusted-proxy keying).
+- Wiring/docs: `RATE_LIMIT_*` envs + `RATE_LIMIT_TRUST_PROXY` in
+  `.env.example` and docker-compose api env; README error-envelope section
+  documents `RATE_LIMITED`; ARCHITECTURE decision bullet.
+
+**Repo-integrity fix (found while validating compose):** the committed
+`docker-compose.yml` contained literal U+2026 `…` characters in three env
+defaults — `POSTGRES_PASSWORD: ${POST…}`, `DATABASE_URL` inline default,
+`JWT_SECRET: ${JWT_…}` — transcript-sanitizer-corrupted writes baked in by
+earlier sessions: `docker compose config` failed on every key (non-deterministic
+first complaint) ⇒ **compose stack could never boot**, though CI never caught it
+(workflows build images, not compose). Repaired compose lines 7/24/25,
+`.env.example` lines 3/5 (same corruption; line 4 was intact and matched the
+restored defaults), the *untracked* `apps/api/.env` JWT secret (rotated to a
+clean ASCII dev value; all old dev tokens now invalid — dev only), and one
+mangled comment in `users.controller.ts` (`"…/:id"` → `"/users/:id"`).
+Prose/UI ellipses elsewhere (README, DEVLOG, placeholder strings) verified
+intentional and left untouched. Full-tree U+2026 scan: only legitimate prose
+remains. Fixed via runtime-assembled fragments (sanitizer-safe); disk state
+asserted by codepoint readback + structural equality checks, never by display.
+
+**Verified:**
+- `nest build` clean; jest **373/373** (34 suites, was 327/30). No lockfile
+  changes at all (zero new deps) → CI mirror problem cannot recur from here.
+- `docker compose config` exit 0 after repair (was failing before, on master).
+- Runtime smoke (local Postgres service; `node dist/main.js` background on
+  :4000 booted with `RATE_LIMIT_AUTH_MAX=5 RATE_LIMIT_AUTH_WINDOW_SEC=5
+  RATE_LIMIT_ORDERS_MAX=4 RATE_LIMIT_ORDERS_WINDOW_SEC=5` to prove env
+  overrides live and keep the dev DB tidy) — scripted 24/24 assertions:
+  health unthrottled + no rate headers; register 201 with Limit=5/
+  Remaining=4 (override applied); 4 failed logins counted in the shared
+  bucket (409s, pre-existing code); 6th hit 429 with `RATE_LIMITED`
+  envelope, `Retry-After: 5`, `details {bucket:auth, retry_after_sec:5,
+  window_sec:5, req_id}` with `req_id == X-Request-Id` echo; after a 6.2 s
+  slide the same caller gets 201 + fresh token (rotated `.env` secret works
+  end-to-end); `/auth/me` 200 without rate headers; guest `POST /orders`
+  201×4 then 429 (bucket=orders) while `GET /orders/:id` stays unthrottled;
+  authenticated create 201 + cancel 201 (guard-before-JWT) sharing the
+  orders bucket; pino access log recorded every 429 as `warn` with the same
+  `reqId` (5/5). Re-ran smoke after `.env` repair: 24/24 again.
+- `apps/web` untouched this session (API-only change) — `next build` skipped
+  per WORKFLOW.
+
+**Docs:** ROADMAP Phase 4 item ticked; DEVLOG entry.
+
+**Left for next sessions:** Swagger/OpenAPI at `/api/docs` (next Phase 4
+item); web client should surface `X-Request-Id`/429 retry hints (`lib/api.ts`
+ApiError); Redis store when a second API replica ever exists; consider
+throttling portal `PATCH status` + review writes in a future ops pass.
+
+---
+
 ## 2026-10-24 12:48 — Session 25
 
 **Built:** Phase 4 item 3 — **structured logging (pino) + request-id
