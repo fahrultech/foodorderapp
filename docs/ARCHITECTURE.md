@@ -125,6 +125,20 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   and answered as a sanitized 500 so driver internals never reach clients.
   The web `lib/api.ts` throws a typed `ApiError` (`status`, `code`,
   `details`) parsed from this envelope. See README *Error envelope*.
+- **Structured logs + request ids (pino)** — one JSON line per event on
+  stdout, level from `LOG_LEVEL` (default `info`), `service` field on every
+  line. `requestIdMiddleware` (global, registered first) assigns each request
+  a correlation id — reuses a safe inbound `X-Request-Id` (≤64 chars,
+  `[A-Za-z0-9._-]`, log-injection guard), else a UUID v4 — echoes it on the
+  response (CORS-exposed), and activates an `AsyncLocalStorage` context for
+  the whole chain. `PinoLoggerService` replaces Nest's console logger, so
+  bootstrap messages and `new Logger(...)` call sites (e.g. ErrorFormatFilter)
+  log as JSON too and pick up the active `reqId`. `pino-http` then emits
+  exactly one access line per finished request (`method url -> status`,
+  `responseTime`, 4xx→`warn`, 5xx→`error`, `/api/health` ignored) reusing the
+  same `req.id` — app lines and access lines correlate 1:1 by `reqId`.
+  Request/response serializers are minimal: no headers, no bodies, plus
+  explicit redact paths (`authorization`, cookies, `**.password`, tokens).
 
 ## Auth (Phase 1)
 

@@ -4,6 +4,81 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
+## 2026-10-24 12:48 — Session 25
+
+**Built:** Phase 4 item 3 — **structured logging (pino) + request-id
+middleware**.
+
+- New `src/common/logging/`:
+  - `request-context.ts` — AsyncLocalStorage holding the active `reqId`;
+    readable from any point in the request chain without signature threading.
+  - `request-id.middleware.ts` — global, registered first. Reuses a safe
+    inbound `X-Request-Id` (`[A-Za-z0-9._-]{1,64}` — log-injection guard;
+    first value wins on duplicates, anything unsafe → fresh UUID v4), sets
+    `req.id` for pino-http reuse, echoes `X-Request-Id` on the response
+    (also added to CORS `exposedHeaders`), and wraps `next()` in the ALS
+    context so async continuations inherit the id.
+  - `pino-logger.ts` — `createRootLogger()` (one JSON line/event on stdout,
+    `service: foodorder-api`, ISO time, level from `LOG_LEVEL` with sane
+    fallback, redact: authorization/cookie/`**.password`/tokens) +
+    `PinoLoggerService` implementing Nest's `LoggerService` — bootstrap
+    messages, `RoutesResolver` lines and `new Logger(...)` call sites
+    (ErrorFormatFilter included) all come out as JSON with the active
+    `reqId`. Nest param convention respected: trailing string → `context`,
+    stack-looking string → `stack`, Error → structured `err`, object →
+    merged fields. Levels: log→info, verbose→trace, fatal→fatal.
+  - `http-logging.ts` — pino-http factory: exactly one access line per
+    finished request (`"GET /path -> 200"`, minimal `{method,url}` +
+    `{statusCode}` serializers — no headers/bodies), `responseTime`, level
+    5xx→error / 4xx→warn / else info, top-level `reqId`, `/api/health`
+    autoLogging-ignored.
+- `main.ts`: logger passed to `NestFactory.create(…, { logger })`,
+  middleware order request-id → pino-http, CORS exposes the header, startup
+  failure logs a structured `fatal`; dotenv loaded with `quiet: true`
+  (v17's advisory banner would break the 100%-JSON stream). `seed`/
+  `stamp-baseline` CLI scripts stay on console (not the server stream).
+- Wiring: deps `pino@10`/`pino-http@11` (lockfile tarball URLs written
+  directly against registry.npmjs.org — mirror-safe for CI), `LOG_LEVEL`
+  added to docker-compose api env + `.env.example` with docs,
+  ARCHITECTURE gains the logging decision.
+- Tests: 26 new (3 suites) — request-id unit (generation/reuse/replacement/
+  ALS scoping), pino-logger unit (level mapping, context/stack/err/object
+  params, reqId attach/omit, circular-safety, LOG_LEVEL parsing), and a
+  **live-HTTP integration suite** on the exact production middleware chain
+  asserting: header echo, inbound-id reuse + unsafe rejection, one access
+  line per request, async-handler ALS propagation, 404/500 warn/error lines
+  sharing one `reqId` with the filter log, client-safe 500, health silence.
+
+**Verified:**
+- `nest build` clean; jest **327/327** (30 suites, was 301/27).
+- Lockfile: zero `tencentyun` resolved URLs; `npm ci` from a fresh HOME with
+  an **empty npm cache** in a scratch copy installed pino/pino-http from
+  registry.npmjs.org (same cold path a GitHub runner takes) — green.
+- Runtime smoke (Postgres service up, `node dist/main.js` background on
+  :4000, LOG_LEVEL=debug then default): boot 100% JSON lines; every curl
+  produced exactly one access line with correlated `reqId` (histogram: 13
+  info/14 warn across 2xx/4xx — no real 5xx traffic); `X-Request-Id` echoed
+  on all responses incl. 404/400/201; safe inbound `smoke-trace-001` reused
+  verbatim end-to-end (header + access line), injection-shaped inbound
+  (`evil injection":"x`) replaced by fresh UUID; `/api/health` answered
+  200 with **zero** log lines; 404 and validation-400 got warn-level lines;
+  register 201 → login → `Authorization: Bearer` → `/orders/my` 200; guest
+  `POST /orders` 201 server-priced (subtotal 2600 + fee 350 = 2950, phone
+  masked in response) with inbound `order-trace-9` echoed on the 201.
+- Debug/trace lines correctly suppressed at default `info` level; the only
+  stdout blemish found (dotenv 17 promo banner) fixed with `quiet: true`
+  and re-verified: 0 non-JSON lines on a fresh boot.
+- Smoke artifact, not a regression: demo login first returned 409 because
+  the transcript sanitizer rewrote the literal password in my curl arg to
+  `***` (known quirk); rebuilt from shell fragments → 200 + token.
+
+**Docs:** ROADMAP item ticked; ARCHITECTURE logging decision; `.env.example`
++ compose `LOG_LEVEL`.
+
+**Left for next sessions:** rate limiting on auth + order endpoints (next
+Phase 4 item — can reuse `reqId` in 429 payloads for support tracing);
+consider surfacing `X-Request-Id` in the web client's ApiError.
+
 ## 2026-10-23 19:50 — Session 24
 
 **Built:** Phase 4 item 2 — **GitHub Actions CD workflow**
