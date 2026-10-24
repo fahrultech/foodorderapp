@@ -38,6 +38,18 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
   an ephemeral port.
 
 **Verified:** ✅ built ✅ runtime-verified
+- **CI caught a real regression on this session's own commit:** the fresh
+  `npm install @nestjs/swagger` baked 6 mirror-locked `resolved` URLs
+  (http://mirrors.tencentyun.com) into apps/api/package-lock.json — the
+  exact recurring pitfall from the foodorder-github-ci skill (which this
+  session failed to load before committing). First CI run on this commit:
+  api + db-bootstrap jobs failed at "Install (clean, from lockfile)", web
+  green. Fixed by the proven 1:1 host rewrite to registry.npmjs.org
+  (integrity hashes untouched), then proved runner-style: `npm ci` in a
+  fresh HOME without ~/.npmrc — green, `@nestjs/swagger` resolves. Full
+  audit: both lockfiles 100% registry.npmjs.org (660 api + 137 web
+  entries). Follow-up commit + green re-run recorded below.
+
 - `nest build` clean; `jest` 35 suites / 379 tests pass (was 34/373).
 - Live API on local Postgres: `GET /api/docs` → 200 Swagger UI (embeds the
   doc inline, so Try-it-out works without a spec fetch), `GET /api/docs-json`
