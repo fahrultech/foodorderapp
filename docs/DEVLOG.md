@@ -4,6 +4,82 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
+## 2026-10-24 19:05 — Session 28 — Typed OpenAPI response schemas (all 41 operations)
+
+**Built:** Roadmap Phase 4 "Swagger response schemas: typed
+`@ApiOkResponse`/`@ApiError` models for core endpoints".
+
+- `src/common/swagger-response-models.ts` (new): 33 response model classes
+  mirroring the ACTUAL service wire output (read from every service first,
+  not guessed) + the shared `ErrorResponse` envelope + an `ApiError(status,
+  description)` helper (`ApiResponse({status, type: ErrorResponse})` —
+  @nestjs/swagger 11 exports `ApiResponse`, no `ApiErrorResponse`).
+  Covers the full surface: session/safe-user, restaurant (+`menuItems`
+  detail), menu item, order (+snapshot items, optional embedded restaurant),
+  paginated envelopes, owner inbox `{...,counts}`, favorites, addresses
+  (`{item}` wrappers, `promotedDefaultId?`), reviews (rows + recomputed
+  `{rating,ratingCount}` echoes, feed adds the aggregate), promo preview as
+  `oneOf` valid/invalid verdicts, health, `NextStatusesResponse`.
+- All 10 controllers decorated: success model per operation (with the REAL
+  status code — Nest POST default is 201, verified live) and per-op error
+  responses ONLY where the code actually throws them (400/401/403/404/409/429
+  mapped from the service/guard throw sites).
+- `swagger.spec.ts` +3 tests (379 → 382): a 41-row SUCCESS table asserting
+  code + schema shape per op (ref / array-of-model / string[] / SSE
+  `text/event-stream` / promo oneOf); an ERRORS table asserting the envelope
+  `$ref` per documented failure + a global sweep that EVERY 4xx anywhere uses
+  `ErrorResponse` (89/89 live); component-contract checks — integer cents on
+  all money fields, nullable timestamps, `SafeUserResponse` exact field set
+  (no-leak allowlist guard), optional `restaurant`/`promotedDefaultId`/
+  `restaurant?` flags, counts map keys, inline status enum values match the
+  shared `OrderStatus` component.
+- Two generated-quirk calibrations found by running the spec, not from docs:
+  `@ApiProperty`/`Optional` with `type: () => Model` emits an `allOf`-wrapped
+  `$ref` (assertion helper `refOf` accepts both); `enum + isArray` success
+  emits an inline enum, not the component `$ref`.
+
+**Doc bugs vs code found and fixed (documentation-side only):**
+- `POST /auth/login` bad credentials: controller description (written in
+  session 27) claimed 401, but `AuthService.login` throws
+  `ConflictException` (409) — and `auth.service.spec.ts` PINS that (2 tests).
+  Docs now state the truth (409 CONFLICT); behavior change 409→401 is added
+  as a new ROADMAP item so code+tests+clients move together.
+- SSE stream: `@ApiProduces('text/event-stream')` forced the content type
+  onto the op's 401/403/404 too — but guard failures answer plain JSON.
+  Removed it; the 200 frames declare `text/event-stream` via
+  `@ApiOkResponse({content})` instead, errors keep `application/json`
+  (asserted live).
+- `POST /promos/validate`: comment claimed "always 200", actual POST default
+  is 201 (verified live) — comment + description corrected. The roadmap's
+  Phase-3 promo item predates this session, untouched.
+
+**Verified:** ✅ built ✅ runtime-verified
+- `nest build` clean; `jest` 35 suites / 382 tests pass (was 35/379 — +3
+  response-schema tests inside swagger.spec).
+- Live smoke vs local Postgres API (port 4000, seeded DB; credentials read
+  from disk inside the script, never inlined): ~60 checks covering EVERY
+  operation's documented status + shape — register-path skipped (rate limit
+  budget), all others exercised: login 201/session keys, bad login 409
+  envelope, refresh 200 rotation, me safe-user key-set, restaurants
+  envelope/detail+menuItems/mine/cuisines, guest+authed order 201 with
+  server-priced integer cents (`total = subtotal - discount + fee` checked),
+  order receipt + next-statuses, cancel 201 cancelledAt set, /orders/my rows
+  embed restaurant, owner inbox counts = 6 keys, favorites add/list/remove,
+  addresses 201 `{item}` + idempotent delete (`removed:false` retry), menu
+  create 201/delete 200 snapshot, review feed shape, guard 401/403 paths,
+  bad-uuid 404.
+- `GET /api/docs-json`: 41 ops, 33 `*Response` components, 89/89 documented
+  4xx reference the envelope; `GET /api/docs` UI 200. (Test scripts left a
+  couple of pending/cancelled smoke orders + one deleted dish row in the dev
+  DB — normal seeded-DB scratch state.)
+
+**Docs:** ROADMAP item ticked; new Phase 4 follow-up (login 409→401).
+
+**Left for next sessions:** E2E Playwright smoke suite (next Phase 4 item);
+login-credentials status-code fix item added.
+
+---
+
 ## 2026-10-24 17:11 — Session 27 — OpenAPI/Swagger docs at `/api/docs`
 
 **Built:** Roadmap Phase 4 "Swagger/OpenAPI docs auto-generated at
