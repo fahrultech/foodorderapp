@@ -10,6 +10,12 @@ import {
   Post,
   UseGuards,
 } from '@nestjs/common';
+import {
+  ApiBearerAuth,
+  ApiOperation,
+  ApiParam,
+  ApiTags,
+} from '@nestjs/swagger';
 import { UsersService } from './users.service';
 import { FavoritesService } from './favorites.service';
 import { AddressesService } from './addresses.service';
@@ -29,6 +35,8 @@ import { isUuid } from '../common/uuid';
  * never from the URL or body, so there is no "/users/:id" variant to leak.
  */
 @Controller('users')
+@ApiTags('users')
+@ApiBearerAuth()
 export class UsersController {
   constructor(
     private readonly users: UsersService,
@@ -38,6 +46,7 @@ export class UsersController {
 
   @Patch('me')
   @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Update my profile (name/phone/address)', description: 'Allowlisted fields only: email/role/password are NOT settable here. A patch carrying no field answers 400; `""` clears phone/address.' })
   updateMe(@CurrentUser() user: any, @Body() dto: UpdateProfileDto) {
     return this.users.updateProfile(user.sub, dto);
   }
@@ -45,6 +54,7 @@ export class UsersController {
   /** All dishes the caller hearted, newest first. */
   @Get('me/favorites')
   @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'My favorite dishes, newest first' })
   listFavorites(@CurrentUser() user: any) {
     return this.favorites.list(user.sub);
   }
@@ -57,6 +67,7 @@ export class UsersController {
   @Post('me/favorites')
   @HttpCode(200)
   @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Heart a dish (idempotent)', description: 'Answers 200 for both outcomes; `created: false` means it was already there.' })
   addFavorite(@CurrentUser() user: any, @Body() dto: AddFavoriteDto) {
     return this.favorites.add(user.sub, dto.menuItemId);
   }
@@ -67,6 +78,8 @@ export class UsersController {
    */
   @Delete('me/favorites/:menuItemId')
   @UseGuards(JwtAuthGuard)
+  @ApiParam({ name: 'menuItemId', schema: { type: 'string', format: 'uuid' } })
+  @ApiOperation({ summary: 'Un-heart a dish (idempotent)' })
   removeFavorite(@CurrentUser() user: any, @Param('menuItemId') menuItemId: string) {
     if (!isUuid(menuItemId)) throw new NotFoundException('Favorite not found');
     return this.favorites.remove(user.sub, menuItemId);
@@ -77,6 +90,7 @@ export class UsersController {
   /** The caller's saved addresses: default first, then oldest added first. */
   @Get('me/addresses')
   @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'My address book (default first)' })
   listAddresses(@CurrentUser() user: any) {
     return this.addresses.list(user.sub);
   }
@@ -88,6 +102,7 @@ export class UsersController {
    */
   @Post('me/addresses')
   @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Add an address to my book', description: 'First address becomes the default automatically. Book capped at 10 — 400 when full.' })
   createAddress(@CurrentUser() user: any, @Body() dto: CreateDeliveryAddressDto) {
     return this.addresses.create(user.sub, dto);
   }
@@ -95,6 +110,8 @@ export class UsersController {
   /** Edit text fields of one own address. Foreign/unknown id -> 404. */
   @Patch('me/addresses/:id')
   @UseGuards(JwtAuthGuard)
+  @ApiParam({ name: 'id', schema: { type: 'string', format: 'uuid' } })
+  @ApiOperation({ summary: 'Edit one of my addresses', description: 'Text fields only; `isDefault` is not settable here — use POST …/default. Empty patch → 400, foreign/unknown → 404.' })
   updateAddress(
     @CurrentUser() user: any,
     @Param('id') id: string,
@@ -111,6 +128,8 @@ export class UsersController {
    */
   @Delete('me/addresses/:id')
   @UseGuards(JwtAuthGuard)
+  @ApiParam({ name: 'id', schema: { type: 'string', format: 'uuid' } })
+  @ApiOperation({ summary: 'Delete one of my addresses (idempotent)', description: 'Removing the default promotes the oldest survivor — `promotedDefaultId` names it when that happens.' })
   deleteAddress(@CurrentUser() user: any, @Param('id') id: string) {
     if (!isUuid(id)) return { removed: false };
     return this.addresses.remove(user.sub, id);
@@ -120,6 +139,8 @@ export class UsersController {
   @Post('me/addresses/:id/default')
   @HttpCode(200)
   @UseGuards(JwtAuthGuard)
+  @ApiParam({ name: 'id', schema: { type: 'string', format: 'uuid' } })
+  @ApiOperation({ summary: 'Promote an address to default (idempotent)', description: 'Re-promoting the current default answers 200 with `alreadyDefault: true`.' })
   setDefaultAddress(@CurrentUser() user: any, @Param('id') id: string) {
     if (!isUuid(id)) throw new NotFoundException('Delivery address not found');
     return this.addresses.setDefault(user.sub, id);

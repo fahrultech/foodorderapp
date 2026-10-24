@@ -9,6 +9,13 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
+import {
+  ApiBearerAuth,
+  ApiOperation,
+  ApiParam,
+  ApiQuery,
+  ApiTags,
+} from '@nestjs/swagger';
 import { RestaurantsService } from './restaurants.service';
 import { CreateRestaurantDto, UpdateRestaurantDto } from './dto/restaurant.dto';
 import { JwtAuthGuard } from '../common/jwt-auth.guard';
@@ -18,10 +25,18 @@ import { CurrentUser } from '../common/current-user.decorator';
 import { UserRole } from '../users/user.entity';
 
 @Controller('restaurants')
+@ApiTags('restaurants')
 export class RestaurantsController {
   constructor(private readonly service: RestaurantsService) {}
 
   @Get()
+  @ApiQuery({ name: 'search', required: false, description: 'Case-insensitive substring over name and cuisine' })
+  @ApiQuery({ name: 'cuisine', required: false, description: 'Exact match, case-insensitive' })
+  @ApiQuery({ name: 'city', required: false, description: 'Exact match, case-insensitive' })
+  @ApiQuery({ name: 'sort', required: false, enum: ['rating', 'deliveryFee', 'newest'], description: 'Default: rating (highest first)' })
+  @ApiQuery({ name: 'page', required: false, schema: { type: 'integer', minimum: 1, default: 1 } })
+  @ApiQuery({ name: 'limit', required: false, schema: { type: 'integer', minimum: 1, maximum: 50, default: 20 } })
+  @ApiOperation({ summary: 'Browse restaurants (public storefront search)', description: 'Returns `{ items, total, page, limit }`. `search` is a case-insensitive substring over name and cuisine.' })
   list(
     @Query('search') search?: string,
     @Query('cuisine') cuisine?: string,
@@ -34,6 +49,7 @@ export class RestaurantsController {
   }
 
   @Get('meta/cuisines')
+  @ApiOperation({ summary: 'Distinct cuisine list for the storefront filter chips', description: 'Declared before /:id on purpose — do not reorder.' })
   async cuisines() {
     const all = await this.service.findRestaurants();
     return [...new Set(all.map((r) => r.cuisine).filter(Boolean))].sort();
@@ -43,6 +59,8 @@ export class RestaurantsController {
   @Get('mine')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.OWNER)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Owner: list the restaurants I own' })
   mine(@CurrentUser() user: any) {
     return this.service.findOwned(user.sub);
   }
@@ -51,6 +69,8 @@ export class RestaurantsController {
   @Post()
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.OWNER)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Owner: create a restaurant', description: 'The new restaurant is owned by the caller. `slug` auto-derives from the name when omitted; a taken slug gets an `-N` suffix instead of failing.' })
   create(@CurrentUser() user: any, @Body() dto: CreateRestaurantDto) {
     return this.service.createForOwner(user.sub, dto);
   }
@@ -58,6 +78,9 @@ export class RestaurantsController {
   @Patch(':id')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.OWNER)
+  @ApiBearerAuth()
+  @ApiParam({ name: 'id', schema: { type: 'string', format: 'uuid' } })
+  @ApiOperation({ summary: 'Owner: edit own restaurant', description: '`ownerId`, `slug` and `rating` are intentionally not editable here.' })
   update(
     @Param('id') id: string,
     @CurrentUser() user: any,
@@ -67,6 +90,8 @@ export class RestaurantsController {
   }
 
   @Get(':id')
+  @ApiParam({ name: 'id', schema: { type: 'string', format: 'uuid' } })
+  @ApiOperation({ summary: 'One restaurant incl. its menu items', description: 'Public. Unknown or non-UUID ids answer 404.' })
   async one(@Param('id') id: string) {
     const restaurant = await this.service.findOne(id);
     if (!restaurant) throw new NotFoundException('Restaurant not found');

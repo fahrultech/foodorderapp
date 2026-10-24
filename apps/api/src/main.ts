@@ -7,6 +7,11 @@ import { createGlobalValidationPipe } from './common/app-config';
 import { REQUEST_ID_HEADER, requestIdMiddleware } from './common/logging/request-id.middleware';
 import { createRootLogger, PinoLoggerService } from './common/logging/pino-logger';
 import { createHttpLoggingMiddleware } from './common/logging/http-logging';
+import { SwaggerModule } from '@nestjs/swagger';
+import {
+  SWAGGER_UI_PATH,
+  buildSwaggerDocumentConfig,
+} from './common/swagger';
 
 // LOG_LEVEL from apps/api/.env must be readable before the logger is built
 // (no-op when the environment already carries it, e.g. in containers).
@@ -24,6 +29,16 @@ async function bootstrap() {
   app.use(requestIdMiddleware);
   app.use(createHttpLoggingMiddleware(rootLogger));
   app.enableCors({ origin: true, credentials: true, exposedHeaders: [REQUEST_ID_HEADER] });
+  // OpenAPI docs. Document is generated from controller/DTO metadata at boot.
+  // SWAGGER_UI_PATH already carries the "api/" segment because @nestjs/swagger
+  // 11 does not prepend the global prefix to the mount path (see common/swagger.ts).
+  // UI: /api/docs · raw JSON: /api/docs-json. Deliberately public for now —
+  // it exposes request shapes only; every endpoint keeps its own guards.
+  SwaggerModule.setup(
+    SWAGGER_UI_PATH,
+    app,
+    SwaggerModule.createDocument(app, buildSwaggerDocumentConfig()),
+  );
   const port = process.env.PORT ? parseInt(process.env.PORT, 10) : 4000;
   await app.listen(port);
   rootLogger.info(`API listening on http://localhost:${port}/api`);

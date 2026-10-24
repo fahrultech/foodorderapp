@@ -1,4 +1,5 @@
 import { Body, Controller, Post } from '@nestjs/common';
+import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { PromosService } from './promos.service';
 import { ValidatePromoDto } from './dto/validate-promo.dto';
 
@@ -10,10 +11,12 @@ import { ValidatePromoDto } from './dto/validate-promo.dto';
  * so the UI can show the reason inline without exception plumbing.
  */
 @Controller('promos')
+@ApiTags('promos')
 export class PromosController {
   constructor(private readonly service: PromosService) {}
 
   @Post('validate')
+  @ApiOperation({ summary: 'Preview a promo code against a cart', description: 'Public: checkout is guest-allowed. Answers 200 even for invalid codes — the `{ valid, reason?, ... }` body carries the verdict so the UI can show it inline. Order creation re-evaluates server-side regardless.' })
   validate(@Body() dto: ValidatePromoDto) {
     return this.service.preview(dto.code, dto.restaurantId, dto.subtotalCents);
   }

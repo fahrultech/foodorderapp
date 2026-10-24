@@ -1,4 +1,5 @@
 import { IsEnum } from 'class-validator';
+import { ApiProperty } from '@nestjs/swagger';
 import { OrderStatus } from '../order.entity';
 
 /**
@@ -9,6 +10,7 @@ import { OrderStatus } from '../order.entity';
  * needs a validator decorator or whitelist:true strips it.
  */
 export class SetOrderStatusDto {
+  @ApiProperty({ enum: OrderStatus, enumName: 'OrderStatus', description: 'Target status (query param, not body). Illegal transitions answer 400.' })
   @IsEnum(OrderStatus, {
     message: 'status must be one of: pending, confirmed, preparing, delivering, completed, cancelled',
   })

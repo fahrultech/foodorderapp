@@ -8,6 +8,14 @@ import {
   Sse,
   UseGuards,
 } from '@nestjs/common';
+import {
+  ApiBearerAuth,
+  ApiOperation,
+  ApiParam,
+  ApiProduces,
+  ApiQuery,
+  ApiTags,
+} from '@nestjs/swagger';
 import { Observable, filter, map, merge, of, timer } from 'rxjs';
 import { OrdersService } from './orders.service';
 import {
@@ -33,6 +41,7 @@ import { UserRole } from '../users/user.entity';
  * the order must belong to the restaurant in the path.
  */
 @Controller('restaurants/:id/orders')
+@ApiTags('orders')
 export class RestaurantOrdersController {
   constructor(
     private readonly service: OrdersService,
@@ -42,6 +51,9 @@ export class RestaurantOrdersController {
   @Get()
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.OWNER)
+  @ApiBearerAuth()
+  @ApiParam({ name: 'id', schema: { type: 'string', format: 'uuid' } })
+  @ApiOperation({ summary: 'Owner inbox: orders of my restaurant (status filter + paging)', description: 'OWNER required (admins bypass). Unknown restaurant or one not owned by the caller answers 404/403. Same ListMyOrdersDto query contract as /orders/my.' })
   list(
     @Param('id') id: string,
     @CurrentUser() user: any,
@@ -60,6 +72,10 @@ export class RestaurantOrdersController {
   @Patch(':orderId/status')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.OWNER)
+  @ApiBearerAuth()
+  @ApiParam({ name: 'id', schema: { type: 'string', format: 'uuid' } })
+  @ApiParam({ name: 'orderId', schema: { type: 'string', format: 'uuid' } })
+  @ApiOperation({ summary: 'Owner: move one of my restaurant\u2019s orders (accept/start/deliver/complete/cancel)', description: '`status` is a QUERY param validated against the OrderStatus enum (junk → 400 before touching the DB); illegal transitions of a valid status also answer 400. Customer tokens get 403 from RolesGuard; admins pass and rely on the service-side ownership bypass.' })
   setStatus(
     @Param('id') id: string,
     @Param('orderId') orderId: string,
@@ -100,6 +116,11 @@ export class RestaurantOrdersController {
   @Sse('stream')
   @UseGuards(SseJwtAuthGuard, RolesGuard)
   @Roles(UserRole.OWNER)
+  @ApiBearerAuth()
+  @ApiParam({ name: 'id', schema: { type: 'string', format: 'uuid' } })
+  @ApiQuery({ name: 'access_token', required: false, description: 'EventSource cannot send an Authorization header — pass the JWT here instead (SseJwtAuthGuard accepts either).' })
+  @ApiProduces('text/event-stream')
+  @ApiOperation({ summary: 'Owner: live order stream (SSE)', description: 'Server-sent events for one restaurant: `hello` on connect, then `order.created` / `order.updated` (id-only payloads — the client refetches the inbox on each event), `ping` every 15s. Live-only, no replay. Ownership is checked before the stream starts, so a caller who could not list the inbox gets an ordinary JSON 403/404 here.' })
   async stream(
     @Param('id') id: string,
     @CurrentUser() user: any,

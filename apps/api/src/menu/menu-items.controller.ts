@@ -6,6 +6,12 @@ import {
   Patch,
   UseGuards,
 } from '@nestjs/common';
+import {
+  ApiBearerAuth,
+  ApiOperation,
+  ApiParam,
+  ApiTags,
+} from '@nestjs/swagger';
 import { MenuService } from './menu.service';
 import {
   UpdateAvailabilityDto,
@@ -25,6 +31,8 @@ import { UserRole } from '../users/user.entity';
 @Controller('menu/items')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(UserRole.OWNER)
+@ApiTags('menu')
+@ApiBearerAuth()
 export class MenuItemsController {
   constructor(private readonly service: MenuService) {}
 
@@ -33,6 +41,8 @@ export class MenuItemsController {
   }
 
   @Patch(':id')
+  @ApiParam({ name: 'id', schema: { type: 'string', format: 'uuid' } })
+  @ApiOperation({ summary: 'Owner: edit dish content', description: 'Partial update; availability lives on its own route and `restaurantId` is not editable — a dish never moves between restaurants.' })
   update(
     @Param('id') id: string,
     @CurrentUser() user: any,
@@ -43,6 +53,8 @@ export class MenuItemsController {
 
   /** Availability toggle. Distinct segment count from PATCH :id — no shadowing. */
   @Patch(':id/availability')
+  @ApiParam({ name: 'id', schema: { type: 'string', format: 'uuid' } })
+  @ApiOperation({ summary: 'Owner: toggle availability (sold out / back in stock)' })
   setAvailability(
     @Param('id') id: string,
     @CurrentUser() user: any,
@@ -52,6 +64,8 @@ export class MenuItemsController {
   }
 
   @Delete(':id')
+  @ApiParam({ name: 'id', schema: { type: 'string', format: 'uuid' } })
+  @ApiOperation({ summary: 'Owner: delete a dish', description: 'Ownership is resolved through the dish\u2019s parent restaurant; foreign/unknown ids answer 404.' })
   remove(@Param('id') id: string, @CurrentUser() user: any) {
     return this.service.remove(id, this.actor(user));
   }

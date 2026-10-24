@@ -6,6 +6,7 @@ import {
   Matches,
   MaxLength,
 } from 'class-validator';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 /**
  * Phone pattern shared with CreateOrderDto.contactPhone — one definition of
@@ -21,25 +22,30 @@ export const ADDRESS_PHONE_PATTERN = /^\+?[0-9 ()-]{7,20}$/;
  * the exactly-one-default invariant in one obvious place.
  */
 export class CreateDeliveryAddressDto {
+  @ApiProperty({ maxLength: 40, example: 'Home' })
   @IsString()
   @IsNotEmpty()
   @MaxLength(40)
   label: string;
 
+  @ApiProperty({ maxLength: 120 })
   @IsString()
   @IsNotEmpty()
   @MaxLength(120)
   recipientName: string;
 
+  @ApiProperty({ pattern: '\\+?[0-9 ()-]{7,20}' })
   @IsString()
   @Matches(ADDRESS_PHONE_PATTERN, { message: 'phone looks invalid' })
   phone: string;
 
+  @ApiProperty({ maxLength: 500 })
   @IsString()
   @IsNotEmpty()
   @MaxLength(500)
   address: string;
 
+  @ApiPropertyOptional({ description: 'Create-only; promote afterwards via POST /users/me/addresses/{id}/default' })
   @IsOptional()
   @IsBoolean()
   isDefault?: boolean;
@@ -52,23 +58,27 @@ export class CreateDeliveryAddressDto {
  * them, the default route owns the flag.
  */
 export class UpdateDeliveryAddressDto {
+  @ApiPropertyOptional({ maxLength: 40 })
   @IsOptional()
   @IsString()
   @IsNotEmpty()
   @MaxLength(40)
   label?: string;
 
+  @ApiPropertyOptional({ maxLength: 120 })
   @IsOptional()
   @IsString()
   @IsNotEmpty()
   @MaxLength(120)
   recipientName?: string;
 
+  @ApiPropertyOptional({ pattern: '\\+?[0-9 ()-]{7,20}' })
   @IsOptional()
   @IsString()
   @Matches(ADDRESS_PHONE_PATTERN, { message: 'phone looks invalid' })
   phone?: string;
 
+  @ApiPropertyOptional({ maxLength: 500 })
   @IsOptional()
   @IsString()
   @IsNotEmpty()
