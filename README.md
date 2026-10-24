@@ -117,6 +117,12 @@ Every non-2xx API response has exactly one shape (global `ErrorFormatFilter`):
   `message` is `"Validation failed"`, or a structured object for codes that
   ship facts (e.g. `{minimumCents, subtotalCents}`).
 - Unexpected errors return a sanitized 500 — internals are logged server-side only.
+- **Rate limiting** — `/auth` credential routes (register/login/refresh share one
+  per-IP bucket, default 10/min) and order create/cancel (default 30/min) answer
+  `429` with `code: "RATE_LIMITED"` and `details: {bucket, retry_after_sec,
+  window_sec, req_id}`. Throttled responses always carry `X-RateLimit-Limit/
+  Remaining/Reset`; blocks add `Retry-After`. Tunable via `RATE_LIMIT_*` env
+  vars (see `.env.example`); other routes are not rate-limited.
 
 ## Repo layout
 

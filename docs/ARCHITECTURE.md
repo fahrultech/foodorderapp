@@ -139,6 +139,27 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   same `req.id` — app lines and access lines correlate 1:1 by `reqId`.
   Request/response serializers are minimal: no headers, no bodies, plus
   explicit redact paths (`authorization`, cookies, `**.password`, tokens).
+- **Rate limiting (in-house guard, no dependency)** — sliding-window log per
+  client IP over an in-memory store (`src/common/rate-limit/`). Opt-in per
+  route via `@RateLimit('auth'|'orders')` + `RateLimitGuard` (guarded as the
+  FIRST guard, so throttled requests never reach JWT/validation work): the
+  whole `/auth` credential trio (`register`, `login`, `refresh`) shares one
+  `auth` bucket (default 10/min), guest `POST /orders` and
+  `POST /orders/:id/cancel` share `orders` (default 30/min); everything else
+  is untouched. Every throttled response carries `X-RateLimit-Limit/
+  Remaining/Reset`; blocks get `Retry-After` plus the standard error envelope
+  `{code: "RATE_LIMITED", details: {bucket, retry_after_sec, window_sec,
+  req_id}}` — the `req_id` matches the logged `X-Request-Id` (session 25
+  hook-up) so a 429 is traceable. Blocked requests are *not* counted (retry
+  storms can't extend a window). Identity is the socket IP by default;
+  `RATE_LIMIT_TRUST_PROXY=1` switches to the first XFF hop — only safe behind
+  a proxy that overwrites the header, otherwise spoofed XFF would mint free
+  buckets. Limits/window per bucket are env-tunable
+  (`RATE_LIMIT_AUTH_MAX`, `RATE_LIMIT_AUTH_WINDOW_SEC`,
+  `RATE_LIMIT_ORDERS_MAX`, `RATE_LIMIT_ORDERS_WINDOW_SEC`). The store is
+  process-local — correct for the current single API instance; multi-node
+  deploys swap in a Redis-backed `RateLimitStore` behind the same interface
+  (guard/decorators/response contract unchanged).
 
 ## Auth (Phase 1)
 

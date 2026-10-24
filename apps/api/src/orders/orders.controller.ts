@@ -18,6 +18,8 @@ import { RolesGuard } from '../common/roles.guard';
 import { Roles } from '../common/roles.decorator';
 import { CurrentUser } from '../common/current-user.decorator';
 import { UserRole } from '../users/user.entity';
+import { RateLimitGuard } from '../common/rate-limit/rate-limit.guard';
+import { RateLimit } from '../common/rate-limit/rate-limit.decorator';
 
 @Controller('orders')
 export class OrdersController {
@@ -28,9 +30,11 @@ export class OrdersController {
    * attached to that user (enables /orders/my + self-cancellation); invalid or
    * expired tokens silently fall back to guest — checkout must never break on
    * a stale session.
+   * Rate limit runs FIRST: spam order creation must be shed before pricing.
    */
   @Post()
-  @UseGuards(OptionalJwtAuthGuard)
+  @RateLimit('orders')
+  @UseGuards(RateLimitGuard, OptionalJwtAuthGuard)
   create(@Body() dto: CreateOrderDto, @CurrentUser() user?: any) {
     return this.service.create(dto, user?.sub);
   }
@@ -43,7 +47,8 @@ export class OrdersController {
 
   /** Customer cancels their own order while the status machine still permits it. */
   @Post(':id/cancel')
-  @UseGuards(JwtAuthGuard)
+  @RateLimit('orders')
+  @UseGuards(RateLimitGuard, JwtAuthGuard)
   cancel(@Param('id') id: string, @CurrentUser() user: any) {
     return this.service.cancel(id, user.sub);
   }

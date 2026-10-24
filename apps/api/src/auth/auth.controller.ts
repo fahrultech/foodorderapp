@@ -3,17 +3,22 @@ import { AuthService } from './auth.service';
 import { LoginDto, LogoutDto, RefreshDto, RegisterDto } from './dto/auth.dto';
 import { JwtAuthGuard } from '../common/jwt-auth.guard';
 import { CurrentUser } from '../common/current-user.decorator';
+import { RateLimitGuard } from '../common/rate-limit/rate-limit.guard';
+import { RateLimit } from '../common/rate-limit/rate-limit.decorator';
 
 @Controller('auth')
+@UseGuards(RateLimitGuard)
 export class AuthController {
   constructor(private readonly auth: AuthService) {}
 
   @Post('register')
+  @RateLimit('auth')
   register(@Body() dto: RegisterDto) {
     return this.auth.register(dto);
   }
 
   @Post('login')
+  @RateLimit('auth')
   login(@Body() dto: LoginDto) {
     return this.auth.login(dto);
   }
@@ -25,6 +30,7 @@ export class AuthController {
    */
   @HttpCode(200)
   @Post('refresh')
+  @RateLimit('auth')
   refresh(@Body() dto: RefreshDto) {
     return this.auth.refresh(dto.refresh_token);
   }
