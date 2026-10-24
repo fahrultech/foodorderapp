@@ -25,6 +25,7 @@ services:
       JWT_SECRET: ${JWT_…-dev}
       JWT_ACCESS_TTL: ${JWT_ACCESS_TTL:-30m}
       JWT_REFRESH_TTL: ${JWT_REFRESH_TTL:-30d}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
       PORT: 4000
     ports:
       - "4000:4000"
