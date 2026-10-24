@@ -12,11 +12,20 @@ import {
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
+  ApiCreatedResponse,
+  ApiOkResponse,
   ApiOperation,
   ApiParam,
   ApiQuery,
   ApiTags,
 } from '@nestjs/swagger';
+import {
+  ApiError,
+  ReviewFeedResponse,
+  ReviewListResponse,
+  ReviewRemoveResponse,
+  ReviewWriteResponse,
+} from '../common/swagger-response-models';
 import { ReviewsService } from './reviews.service';
 import { CreateReviewDto } from './dto/create-review.dto';
 import { UpdateReviewDto } from './dto/update-review.dto';
@@ -39,6 +48,11 @@ export class ReviewsController {
   /** Review one of the caller's COMPLETED orders. Duplicate -> 409. */
   @Post()
   @ApiOperation({ summary: 'Review a completed order of mine', description: 'The order must belong to the caller AND be completed (otherwise 404/400); one review per order — duplicates answer 409. Restaurant rating is recomputed server-side.' })
+  @ApiCreatedResponse({ type: ReviewWriteResponse })
+  @ApiError(400, 'Order is not completed yet.')
+  @ApiError(401, 'Missing/invalid/expired access token.')
+  @ApiError(404, 'Unknown order or one that is not yours (no existence leak).')
+  @ApiError(409, 'This order has already been reviewed (unique per order, races included).')
   create(@CurrentUser() user: any, @Body() dto: CreateReviewDto) {
     return this.service.create(user.sub, dto);
   }
@@ -46,6 +60,9 @@ export class ReviewsController {
   /** Every review the caller wrote, newest first. */
   @Get('my')
   @ApiOperation({ summary: 'My reviews, newest first' })
+  @ApiOkResponse({ type: ReviewListResponse })
+  @ApiError(401, 'Missing/invalid/expired access token.')
+
   mine(@CurrentUser() user: any) {
     return this.service.listMine(user.sub);
   }
@@ -54,6 +71,10 @@ export class ReviewsController {
   @Patch(':id')
   @ApiParam({ name: 'id', schema: { type: 'string', format: 'uuid' } })
   @ApiOperation({ summary: 'Edit my review', description: 'At least one of rating/comment required; `comment: null` clears the text. Foreign/unknown ids answer 404.' })
+  @ApiOkResponse({ type: ReviewWriteResponse })
+  @ApiError(400, 'Patch carries neither rating nor comment.')
+  @ApiError(401, 'Missing/invalid/expired access token.')
+  @ApiError(404, 'Unknown or foreign review id.')
   update(
     @CurrentUser() user: any,
     @Param('id') id: string,
@@ -66,6 +87,9 @@ export class ReviewsController {
   @Delete(':id')
   @ApiParam({ name: 'id', schema: { type: 'string', format: 'uuid' } })
   @ApiOperation({ summary: 'Delete my review (idempotent)', description: 'Retried deletes of unknown/foreign ids answer `{ removed: false }`, never 404. Rating recomputed when a review disappears.' })
+  @ApiOkResponse({ type: ReviewRemoveResponse })
+  @ApiError(401, 'Missing/invalid/expired access token.')
+
   remove(@CurrentUser() user: any, @Param('id') id: string) {
     return this.service.remove(user.sub, id);
   }
@@ -87,6 +111,8 @@ export class RestaurantReviewsController {
   @ApiQuery({ name: 'page', required: false, schema: { type: 'integer', minimum: 1 } })
   @ApiQuery({ name: 'limit', required: false, schema: { type: 'integer', minimum: 1 } })
   @ApiOperation({ summary: 'Public review feed of one restaurant (paginated)', description: 'No auth: restaurant pages are public; each row exposes only the reviewer\u2019s display name. Unknown/non-UUID restaurant → 404.' })
+  @ApiOkResponse({ type: ReviewFeedResponse })
+  @ApiError(404, 'Unknown or malformed restaurant id.')
   list(
     @Param('id') id: string,
     @Query('page') page?: number,

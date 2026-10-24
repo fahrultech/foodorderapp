@@ -8,10 +8,12 @@ import {
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
+  ApiOkResponse,
   ApiOperation,
   ApiParam,
   ApiTags,
 } from '@nestjs/swagger';
+import { ApiError, MenuItemResponse } from '../common/swagger-response-models';
 import { MenuService } from './menu.service';
 import {
   UpdateAvailabilityDto,
@@ -43,6 +45,11 @@ export class MenuItemsController {
   @Patch(':id')
   @ApiParam({ name: 'id', schema: { type: 'string', format: 'uuid' } })
   @ApiOperation({ summary: 'Owner: edit dish content', description: 'Partial update; availability lives on its own route and `restaurantId` is not editable — a dish never moves between restaurants.' })
+  @ApiOkResponse({ type: MenuItemResponse })
+  @ApiError(400, 'Body failed validation.')
+  @ApiError(401, 'Missing/invalid/expired access token.')
+  @ApiError(403, 'Valid token but role is not OWNER (admins bypass).')
+  @ApiError(404, 'Unknown or malformed dish id.')
   update(
     @Param('id') id: string,
     @CurrentUser() user: any,
@@ -55,6 +62,11 @@ export class MenuItemsController {
   @Patch(':id/availability')
   @ApiParam({ name: 'id', schema: { type: 'string', format: 'uuid' } })
   @ApiOperation({ summary: 'Owner: toggle availability (sold out / back in stock)' })
+  @ApiOkResponse({ type: MenuItemResponse })
+  @ApiError(400, 'Body failed validation (isAvailable must be boolean).')
+  @ApiError(401, 'Missing/invalid/expired access token.')
+  @ApiError(403, 'Valid token but role is not OWNER (admins bypass).')
+  @ApiError(404, 'Unknown or malformed dish id.')
   setAvailability(
     @Param('id') id: string,
     @CurrentUser() user: any,
@@ -66,6 +78,10 @@ export class MenuItemsController {
   @Delete(':id')
   @ApiParam({ name: 'id', schema: { type: 'string', format: 'uuid' } })
   @ApiOperation({ summary: 'Owner: delete a dish', description: 'Ownership is resolved through the dish\u2019s parent restaurant; foreign/unknown ids answer 404.' })
+  @ApiOkResponse({ type: MenuItemResponse, description: 'Pre-delete snapshot of the dish (order history keeps its own name/price snapshots).' })
+  @ApiError(401, 'Missing/invalid/expired access token.')
+  @ApiError(403, 'Valid token but role is not OWNER (admins bypass).')
+  @ApiError(404, 'Unknown or malformed dish id.')
   remove(@Param('id') id: string, @CurrentUser() user: any) {
     return this.service.remove(id, this.actor(user));
   }

@@ -12,10 +12,23 @@ import {
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
+  ApiCreatedResponse,
+  ApiOkResponse,
   ApiOperation,
   ApiParam,
   ApiTags,
 } from '@nestjs/swagger';
+import {
+  AddressDefaultResponse,
+  AddressItemResponse,
+  AddressListResponse,
+  AddressRemoveResponse,
+  ApiError,
+  FavoriteAddResponse,
+  FavoriteListResponse,
+  RemovedResponse,
+  SafeUserResponse,
+} from '../common/swagger-response-models';
 import { UsersService } from './users.service';
 import { FavoritesService } from './favorites.service';
 import { AddressesService } from './addresses.service';
@@ -47,6 +60,10 @@ export class UsersController {
   @Patch('me')
   @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Update my profile (name/phone/address)', description: 'Allowlisted fields only: email/role/password are NOT settable here. A patch carrying no field answers 400; `""` clears phone/address.' })
+  @ApiOkResponse({ type: SafeUserResponse })
+  @ApiError(400, 'Validation failed or the patch set no field at all.')
+  @ApiError(401, 'Missing/invalid/expired access token.')
+  @ApiError(404, 'The account row vanished mid-request.')
   updateMe(@CurrentUser() user: any, @Body() dto: UpdateProfileDto) {
     return this.users.updateProfile(user.sub, dto);
   }
@@ -55,6 +72,9 @@ export class UsersController {
   @Get('me/favorites')
   @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'My favorite dishes, newest first' })
+  @ApiOkResponse({ type: FavoriteListResponse })
+  @ApiError(401, 'Missing/invalid/expired access token.')
+
   listFavorites(@CurrentUser() user: any) {
     return this.favorites.list(user.sub);
   }
@@ -68,6 +88,10 @@ export class UsersController {
   @HttpCode(200)
   @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Heart a dish (idempotent)', description: 'Answers 200 for both outcomes; `created: false` means it was already there.' })
+  @ApiOkResponse({ type: FavoriteAddResponse })
+  @ApiError(400, 'Body failed validation (menuItemId must be a UUID).')
+  @ApiError(401, 'Missing/invalid/expired access token.')
+  @ApiError(404, 'Dish id unknown.')
   addFavorite(@CurrentUser() user: any, @Body() dto: AddFavoriteDto) {
     return this.favorites.add(user.sub, dto.menuItemId);
   }
@@ -80,6 +104,9 @@ export class UsersController {
   @UseGuards(JwtAuthGuard)
   @ApiParam({ name: 'menuItemId', schema: { type: 'string', format: 'uuid' } })
   @ApiOperation({ summary: 'Un-heart a dish (idempotent)' })
+  @ApiOkResponse({ type: RemovedResponse })
+  @ApiError(401, 'Missing/invalid/expired access token.')
+  @ApiError(404, 'Only for a malformed (non-UUID) id — unknown hearts answer removed:false, never 404.')
   removeFavorite(@CurrentUser() user: any, @Param('menuItemId') menuItemId: string) {
     if (!isUuid(menuItemId)) throw new NotFoundException('Favorite not found');
     return this.favorites.remove(user.sub, menuItemId);
@@ -91,6 +118,9 @@ export class UsersController {
   @Get('me/addresses')
   @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'My address book (default first)' })
+  @ApiOkResponse({ type: AddressListResponse })
+  @ApiError(401, 'Missing/invalid/expired access token.')
+
   listAddresses(@CurrentUser() user: any) {
     return this.addresses.list(user.sub);
   }
@@ -103,6 +133,10 @@ export class UsersController {
   @Post('me/addresses')
   @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Add an address to my book', description: 'First address becomes the default automatically. Book capped at 10 — 400 when full.' })
+  @ApiCreatedResponse({ type: AddressItemResponse })
+  @ApiError(400, 'Validation failed or the book already holds 10 addresses.')
+  @ApiError(401, 'Missing/invalid/expired access token.')
+
   createAddress(@CurrentUser() user: any, @Body() dto: CreateDeliveryAddressDto) {
     return this.addresses.create(user.sub, dto);
   }
@@ -112,6 +146,10 @@ export class UsersController {
   @UseGuards(JwtAuthGuard)
   @ApiParam({ name: 'id', schema: { type: 'string', format: 'uuid' } })
   @ApiOperation({ summary: 'Edit one of my addresses', description: 'Text fields only; `isDefault` is not settable here — use POST …/default. Empty patch → 400, foreign/unknown → 404.' })
+  @ApiOkResponse({ type: AddressItemResponse })
+  @ApiError(400, 'Validation failed or the patch set no field.')
+  @ApiError(401, 'Missing/invalid/expired access token.')
+  @ApiError(404, 'Unknown or foreign address id.')
   updateAddress(
     @CurrentUser() user: any,
     @Param('id') id: string,
@@ -130,6 +168,9 @@ export class UsersController {
   @UseGuards(JwtAuthGuard)
   @ApiParam({ name: 'id', schema: { type: 'string', format: 'uuid' } })
   @ApiOperation({ summary: 'Delete one of my addresses (idempotent)', description: 'Removing the default promotes the oldest survivor — `promotedDefaultId` names it when that happens.' })
+  @ApiOkResponse({ type: AddressRemoveResponse })
+  @ApiError(401, 'Missing/invalid/expired access token.')
+
   deleteAddress(@CurrentUser() user: any, @Param('id') id: string) {
     if (!isUuid(id)) return { removed: false };
     return this.addresses.remove(user.sub, id);
@@ -141,6 +182,9 @@ export class UsersController {
   @UseGuards(JwtAuthGuard)
   @ApiParam({ name: 'id', schema: { type: 'string', format: 'uuid' } })
   @ApiOperation({ summary: 'Promote an address to default (idempotent)', description: 'Re-promoting the current default answers 200 with `alreadyDefault: true`.' })
+  @ApiOkResponse({ type: AddressDefaultResponse })
+  @ApiError(401, 'Missing/invalid/expired access token.')
+  @ApiError(404, 'Unknown or foreign address id.')
   setDefaultAddress(@CurrentUser() user: any, @Param('id') id: string) {
     if (!isUuid(id)) throw new NotFoundException('Delivery address not found');
     return this.addresses.setDefault(user.sub, id);

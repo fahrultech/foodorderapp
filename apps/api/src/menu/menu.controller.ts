@@ -8,10 +8,13 @@ import {
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
+  ApiCreatedResponse,
+  ApiOkResponse,
   ApiOperation,
   ApiParam,
   ApiTags,
 } from '@nestjs/swagger';
+import { ApiError, MenuItemResponse } from '../common/swagger-response-models';
 import { MenuService } from './menu.service';
 import { CreateMenuItemDto } from './dto/menu-item.dto';
 import { JwtAuthGuard } from '../common/jwt-auth.guard';
@@ -28,6 +31,7 @@ export class MenuController {
   @Get()
   @ApiParam({ name: 'restaurantId', schema: { type: 'string', format: 'uuid' } })
   @ApiOperation({ summary: 'Public menu of one restaurant (categories grouped client-side)' })
+  @ApiOkResponse({ type: [MenuItemResponse], description: 'Ordered by category then name.' })
   list(@Param('restaurantId') restaurantId: string) {
     return this.service.findByRestaurant(restaurantId);
   }
@@ -39,6 +43,11 @@ export class MenuController {
   @ApiBearerAuth()
   @ApiParam({ name: 'restaurantId', schema: { type: 'string', format: 'uuid' } })
   @ApiOperation({ summary: 'Owner: add a dish', description: 'OWNER role required (admins bypass); the restaurant in the path must belong to the caller, otherwise 404/403. `restaurantId` is taken from the URL, never the body.' })
+  @ApiCreatedResponse({ type: MenuItemResponse })
+  @ApiError(400, 'Body failed validation.')
+  @ApiError(401, 'Missing/invalid/expired access token.')
+  @ApiError(403, 'Valid token but role is not OWNER (admins bypass).')
+  @ApiError(404, 'Unknown or malformed restaurant id.')
   create(
     @Param('restaurantId') restaurantId: string,
     @CurrentUser() user: any,

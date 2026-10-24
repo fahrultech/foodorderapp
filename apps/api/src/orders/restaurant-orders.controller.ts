@@ -10,12 +10,13 @@ import {
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
+  ApiOkResponse,
   ApiOperation,
   ApiParam,
-  ApiProduces,
   ApiQuery,
   ApiTags,
 } from '@nestjs/swagger';
+import { ApiError, OrderResponse, OwnerInboxResponse } from '../common/swagger-response-models';
 import { Observable, filter, map, merge, of, timer } from 'rxjs';
 import { OrdersService } from './orders.service';
 import {
@@ -54,6 +55,10 @@ export class RestaurantOrdersController {
   @ApiBearerAuth()
   @ApiParam({ name: 'id', schema: { type: 'string', format: 'uuid' } })
   @ApiOperation({ summary: 'Owner inbox: orders of my restaurant (status filter + paging)', description: 'OWNER required (admins bypass). Unknown restaurant or one not owned by the caller answers 404/403. Same ListMyOrdersDto query contract as /orders/my.' })
+  @ApiOkResponse({ type: OwnerInboxResponse })
+  @ApiError(401, 'Missing/invalid/expired access token.')
+  @ApiError(403, 'Valid token but role is not OWNER (admins bypass).')
+  @ApiError(404, 'Unknown or malformed restaurant id.')
   list(
     @Param('id') id: string,
     @CurrentUser() user: any,
@@ -76,6 +81,11 @@ export class RestaurantOrdersController {
   @ApiParam({ name: 'id', schema: { type: 'string', format: 'uuid' } })
   @ApiParam({ name: 'orderId', schema: { type: 'string', format: 'uuid' } })
   @ApiOperation({ summary: 'Owner: move one of my restaurant\u2019s orders (accept/start/deliver/complete/cancel)', description: '`status` is a QUERY param validated against the OrderStatus enum (junk → 400 before touching the DB); illegal transitions of a valid status also answer 400. Customer tokens get 403 from RolesGuard; admins pass and rely on the service-side ownership bypass.' })
+  @ApiOkResponse({ type: OrderResponse })
+  @ApiError(400, 'Junk status value (enum validation) or illegal transition.')
+  @ApiError(401, 'Missing/invalid/expired access token.')
+  @ApiError(403, 'Valid token but role is not OWNER (admins bypass).')
+  @ApiError(404, 'Unknown restaurant/order, or an order that does not belong to this restaurant.')
   setStatus(
     @Param('id') id: string,
     @Param('orderId') orderId: string,
@@ -119,8 +129,18 @@ export class RestaurantOrdersController {
   @ApiBearerAuth()
   @ApiParam({ name: 'id', schema: { type: 'string', format: 'uuid' } })
   @ApiQuery({ name: 'access_token', required: false, description: 'EventSource cannot send an Authorization header — pass the JWT here instead (SseJwtAuthGuard accepts either).' })
-  @ApiProduces('text/event-stream')
+  // NOTE: no @ApiProduces here on purpose — it would force text/event-stream
+  // onto EVERY response of this op, but guard failures answer plain JSON.
+  // The 200 frame stream is declared via @ApiOkResponse content instead.
   @ApiOperation({ summary: 'Owner: live order stream (SSE)', description: 'Server-sent events for one restaurant: `hello` on connect, then `order.created` / `order.updated` (id-only payloads — the client refetches the inbox on each event), `ping` every 15s. Live-only, no replay. Ownership is checked before the stream starts, so a caller who could not list the inbox gets an ordinary JSON 403/404 here.' })
+  @ApiOkResponse({
+    description:
+      'Server-sent events, not JSON: `event: hello` on connect, then `order.created` / `order.updated` (trigger-only id payloads) and `ping` every 15s.',
+    content: { 'text/event-stream': { schema: { type: 'string' } } },
+  })
+  @ApiError(401, 'No/bad bearer token or bad ?access_token= query (EventSource cannot send headers).')
+  @ApiError(403, 'Valid token but role is not OWNER (admins bypass).')
+  @ApiError(404, 'Unknown or malformed restaurant id.')
   async stream(
     @Param('id') id: string,
     @CurrentUser() user: any,

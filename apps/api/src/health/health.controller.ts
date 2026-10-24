@@ -1,5 +1,6 @@
 import { Controller, Get } from '@nestjs/common';
-import { ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { HealthResponse } from '../common/swagger-response-models';
 import { DataSource } from 'typeorm';
 
 @Controller('health')
@@ -9,6 +10,7 @@ export class HealthController {
 
   @Get()
   @ApiOperation({ summary: 'Liveness + DB probe', description: 'Always answers 200; `status: "ok" | "degraded"` reports whether `SELECT 1` succeeded. Intended for orchestrators and smoke tests.' })
+  @ApiOkResponse({ type: HealthResponse })
   async check() {
     let db = 'down';
     try {

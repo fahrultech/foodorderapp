@@ -88,7 +88,7 @@ export class PromosService {
   }
 
   /**
-   * Soft preview for the checkout UI: always HTTP 200, the `valid` flag says
+   * Soft preview for the checkout UI: always 2xx (POST default is 201), the `valid` flag says
    * the rest. Invalid-code spamming is harmless — the code is public info by
    * design — and the authoritative re-check happens at order creation.
    */
