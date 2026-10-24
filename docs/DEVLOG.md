@@ -4,6 +4,60 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
+## 2026-10-24 17:11 — Session 27 — OpenAPI/Swagger docs at `/api/docs`
+
+**Built:** Roadmap Phase 4 "Swagger/OpenAPI docs auto-generated at
+`/api/docs`":
+- `@nestjs/swagger@11.4.7` added (v12 requires Nest 12; this app is Nest 11 —
+  pinned `^11` after an ERESOLVE failure, not `--legacy-peer-deps`).
+- `src/common/swagger.ts`: single source of truth for the document
+  (title/version/markdown description incl. auth, roles, cents, error
+  envelope, rate limits, x-request-id) + tag registry + path constants,
+  shared by `main.ts` and the new spec.
+- `main.ts`: `SwaggerModule.setup` after CORS/middleware, before listen.
+- All 10 controllers annotated: `@ApiTags`, `@ApiOperation` (summary +
+  contract description), `@ApiBearerAuth` on exactly the JWT-guarded routes,
+  uuid `@ApiParam` schemas, `@ApiQuery` for restaurants search/sort/page/limit,
+  `status` as QUERY enum on both transition routes, `@ApiProduces('text/event-stream')`
+  + `access_token` query documented on the SSE stream.
+- All 12 request DTO files decorated with `@ApiProperty`/`@ApiPropertyOptional`:
+  explicit `type: 'integer'` for every cents/quantity/star field (plain
+  `type: Number` emitted `number` — spec now asserts `integer`), shared
+  `OrderStatus` enum component, `nullable: true` strings (union type would
+  infer `Object`), patterns/lengths mirroring the class-validator rules,
+  real seed examples (`WELCOME10`).
+- Two doc claims fixed mid-session by checking the services first: slug
+  collision auto-suffixes (`-2/-3…`) instead of 409; self-cancel is allowed
+  through `preparing`, not just pending/confirmed.
+- `src/common/swagger.spec.ts` (new, 6 tests): spins up a throwaway app with
+  all REAL controllers (services/guards mocked) and asserts the generated
+  document — all 41 operations present (and exactly 41), bearer scheme
+  applied on the 28 protected ops and absent on the 13 deliberate public
+  ones (incl. guest checkout), DTO required-flags/enum/nullable/integer
+  bounds, query params, tag coverage, and live fetch of the UI + raw JSON on
+  an ephemeral port.
+
+**Verified:** ✅ built ✅ runtime-verified
+- `nest build` clean; `jest` 35 suites / 379 tests pass (was 34/373).
+- Live API on local Postgres: `GET /api/docs` → 200 Swagger UI (embeds the
+  doc inline, so Try-it-out works without a spec fetch), `GET /api/docs-json`
+  → 200 with 41 operations · 8 tags · bearer scheme · paths under `/api`,
+  `GET /docs` (wrong URL) → 404 — the mount matches the roadmap contract
+  exactly.
+- Contract smoke via documented shapes: seed login → `GET /api/orders/my
+  ?status=confirmed&limit=3` 200; `GET /api/restaurants?search=&sort=rating`
+  200; `POST /api/promos/validate` 201; `X-Request-Id` header present.
+- `@nestjs/swagger` 11 quirk captured in code comments: `createDocument`
+  INCLUDES the global prefix in paths while `setup` does NOT prepend it to
+  its mount path — hence `SWAGGER_UI_PATH='api/docs'` and no `addServer()`
+  (a `/api` server entry would double the prefix in Try-it-out).
+- No web changes (docs-only API increment) — `next build` not run.
+
+**Left for next sessions:** response models (`@ApiOkResponse`/`@ApiError` +
+typed response DTOs) are intentionally not in this pass — added as the next
+Phase 4 item; UI polish/authorizing from the header needs nothing extra since
+the JSON ships the bearer scheme.
+
 ## 2026-10-24 13:25 — Session 26
 
 **Built:** Phase 4 item 4 — **rate limiting on auth + order endpoints** —

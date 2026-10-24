@@ -39,7 +39,8 @@
 - [x] GitHub Actions CD workflow stub (build images, push to registry)
 - [x] API: structured logging (pino) + request-id middleware
 - [x] API: rate limiting on auth + order endpoints
-- [ ] Swagger/OpenAPI docs auto-generated at `/api/docs`
+- [x] Swagger/OpenAPI docs auto-generated at `/api/docs`
+- [ ] Swagger response schemas: typed `@ApiOkResponse`/`@ApiError` models for core endpoints (request side done 2026-10-24)
 - [ ] E2E smoke suite (Playwright: browse → cart → checkout → order page)
 - [ ] DB indexes migration (slug, restaurantId, status, createdAt) + EXPLAIN check
 - [ ] Backups: pg_dump scheduled script + restore doc
