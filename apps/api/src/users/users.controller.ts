@@ -26,7 +26,7 @@ import { isUuid } from '../common/uuid';
 /**
  * Routes a user has about their own account. Everything here is scoped to the
  * authenticated caller by construction — the id comes from the JWT subject,
- * never from the URL or body, so there is no "…/:id" variant to leak.
+ * never from the URL or body, so there is no "/users/:id" variant to leak.
  */
 @Controller('users')
 export class UsersController {

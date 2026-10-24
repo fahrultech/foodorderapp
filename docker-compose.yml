@@ -4,7 +4,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-foodorder}
-      POSTGRES_PASSWORD: ${POST…rder}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-foodorder}
       POSTGRES_DB: ${POSTGRES_DB:-foodorder}
     volumes:
       - pgdata:/var/lib/postgresql/data
@@ -21,11 +21,15 @@ services:
       context: ./apps/api
     restart: unless-stopped
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-foodorder}:${POSTGRES_PASSWORD:-foo…rder}
-      JWT_SECRET: ${JWT_…-dev}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-foodorder}:${POSTGRES_PASSWORD:-foodorder}@localhost:5432/foodorder
+      JWT_SECRET: ${JWT_SECRET:-change-me-dev}
       JWT_ACCESS_TTL: ${JWT_ACCESS_TTL:-30m}
       JWT_REFRESH_TTL: ${JWT_REFRESH_TTL:-30d}
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      RATE_LIMIT_AUTH_MAX: ${RATE_LIMIT_AUTH_MAX:-10}
+      RATE_LIMIT_AUTH_WINDOW_SEC: ${RATE_LIMIT_AUTH_WINDOW_SEC:-60}
+      RATE_LIMIT_ORDERS_MAX: ${RATE_LIMIT_ORDERS_MAX:-30}
+      RATE_LIMIT_ORDERS_WINDOW_SEC: ${RATE_LIMIT_ORDERS_WINDOW_SEC:-60}
       PORT: 4000
     ports:
       - "4000:4000"
