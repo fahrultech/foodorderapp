@@ -39,8 +39,10 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
   sanitizer corruption, steps = 8.
 - Dev DB re-seeded to canonical state after the local run (the guest test
   adds one pending FO- order by design).
-- Runner proof pending: the pushed workflow run itself (reported when green
-  — the anonymous API poll of actions/runs is the check).
+- Runner proof: pushed CI run 40262042142 — E2E job **success on GitHub
+  Actions** (every step green incl. seed-on-empty-DB, Chromium download and
+  the 4-test suite; job wall time 1m58s; api/web/db-bootstrap jobs green
+  too, polled anonymously from the public Actions API).
 
 **Docs:** ROADMAP item ticked; DEVLOG entry.
 
