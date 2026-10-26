@@ -114,7 +114,7 @@ describe('AuthService — login', () => {
     const h = build();
     await expect(
       h.service.login({ email: 'nobody@b.com', password: PASSWORD } as any),
-    ).rejects.toBeInstanceOf(ConflictException);
+    ).rejects.toBeInstanceOf(UnauthorizedException);
   });
 
   it('rejects a wrong password with the same message as an unknown account', async () => {
@@ -122,7 +122,7 @@ describe('AuthService — login', () => {
     const err: any = await h.service
       .login({ email: 'a@b.com', password: 'wrong-one' } as any)
       .catch((e) => e);
-    expect(err).toBeInstanceOf(ConflictException);
+    expect(err).toBeInstanceOf(UnauthorizedException);
     expect(err.message).toBe('Invalid email or password');
     expect(h.jwt.signAsync).not.toHaveBeenCalled();
   });

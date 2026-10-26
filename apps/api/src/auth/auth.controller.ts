@@ -40,9 +40,9 @@ export class AuthController {
   @RateLimit('auth')
   @ApiCreatedResponse({ type: SessionResponse, description: 'Nest default POST status. Token pair + the user.' })
   @ApiError(400, 'Body failed validation — details carries the per-field messages.')
-  @ApiError(409, 'Invalid email or password (same answer for unknown email and wrong password — no existence leak).')
+  @ApiError(401, 'Invalid email or password (same answer for unknown email and wrong password — no existence leak).')
   @ApiError(429, 'Auth rate limit exceeded; Retry-After header says when to retry.')
-  @ApiOperation({ summary: 'Exchange credentials for a token pair', description: 'Rate-limited per IP; wrong credentials answer 409 CONFLICT (current wire contract) without saying which field was wrong.' })
+  @ApiOperation({ summary: 'Exchange credentials for a token pair', description: 'Rate-limited per IP; wrong credentials answer 401 UNAUTHORIZED without saying which field was wrong.' })
   login(@Body() dto: LoginDto) {
     return this.auth.login(dto);
   }

@@ -316,7 +316,7 @@ describe('OpenAPI document (generated from the real controllers)', () => {
     // Codes mirror the service/guard code paths (see DEVLOG session 28 notes).
     const ERRORS: Array<[string, string, number[]]> = [
       ['/auth/register', 'post', [400, 409, 429]],
-      ['/auth/login', 'post', [400, 409, 429]],
+      ['/auth/login', 'post', [400, 401, 429]],
       ['/auth/refresh', 'post', [400, 401, 429]],
       ['/auth/logout', 'post', [401]],
       ['/auth/me', 'get', [401]],

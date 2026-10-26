@@ -56,7 +56,10 @@ export class AuthService {
   async login(dto: LoginDto) {
     const user = await this.users.findOne({ where: { email: dto.email } });
     if (!user || !(await bcrypt.compare(dto.password, user.passwordHash))) {
-      throw new ConflictException('Invalid email or password');
+      // 401 UNAUTHORIZED per standard semantics: presenting bad credentials is
+      // an authentication failure, not a resource-state conflict. Same opaque
+      // message for unknown email and wrong password — no existence leak.
+      throw new UnauthorizedException('Invalid email or password');
     }
     return this.issueSession(user);
   }
