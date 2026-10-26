@@ -4,6 +4,64 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
+## 2026-10-26 15:02 — Session 32 — DB query-index migration + EXPLAIN check
+
+**Built:** Roadmap Phase 4 "DB indexes migration (slug, restaurantId,
+status, createdAt) + EXPLAIN check". Indexes match the real query shapes in
+the services (not just single columns), so each one covers an actual path:
+
+- `menu_items(restaurantId)` — `MenuService.findByRestaurant` (every menu
+  page load).
+- `orders(userId, createdAt)` — `/orders/my`: WHERE userId [AND status]
+  ORDER BY createdAt DESC with pagination.
+- `orders(restaurantId, createdAt)` — portal inbox list: WHERE restaurantId
+  ORDER BY createdAt DESC with pagination.
+- `orders(restaurantId, status)` — the six per-status tab counts in
+  `findForRestaurant` (gets an Index Only Scan).
+- `order_items(orderId)` — eager `items` relation loads on every order list
+  and detail read (`IN (…)`).
+- **slug: no new index.** `restaurants.slug` already has a btree via its
+  UNIQUE constraint (`UQ_afb6330c…`, confirmed against `pg_constraint`).
+  A second plain index would only add write cost; EXPLAIN confirms the
+  lookup already uses the unique index *with default planner settings*.
+- Entity `@Index` decorators added to `MenuItem`, `Order`, `OrderItem`
+  mirroring the migration (decorator+DDL convention from Phase 2/3; schema
+  stays owned by migrations, `synchronize` off).
+- Migration `AddQueryIndexes1792997950541` generated with
+  `migration:generate` (diff contained exactly the 5 `CREATE INDEX`
+  statements — reviewed before committing).
+
+**Verified:**
+- `nest build` clean; jest **382/382 pass** (35 suites).
+- Migration forward applied on dev DB `foodorder`; round-trip proven:
+  `migration:revert` → all 5 `IDX_orders*`/menu/order-item indexes gone
+  (`pg_indexes` count 0) → `migration:run` → all 5 back.
+- EXPLAIN battery against the live dev DB (`enable_seqscan=off` to force
+  index choice at this tiny table size — 10 orders/27 items; the plans show
+  the indexes are usable for each query shape): Index Scan Backward ×
+  `IDX_orders_userId_createdAt` and `IDX_orders_restaurantId_createdAt`
+  (DESC sort served by the composite, no Sort node), **Index Only Scan** ×
+  `IDX_orders_restaurantId_status` (count query), Index Scan ×
+  `IDX_menu_items_restaurantId` and `IDX_order_items_orderId`, Index Scan ×
+  slug unique index (default settings, no forcing).
+- Runtime smoke on `node dist/main.js` + Postgres: `/api/health` db up,
+  demo login → `/orders/my` (2/4), menu list (5 items), owner login →
+  portal inbox (6 orders + per-status counts), `?status=pending` filter,
+  guest order create server-priced (3×500 → 1500 + 300 fee = 1800, code
+  FO-KFB2), owner PATCH `/restaurants/:id/orders/:id/status` → confirmed
+  with `confirmedAt`. The admin-only `PATCH /orders/:id/status` correctly
+  answered 403 for the owner token (guard intact — not a regression).
+- Web untouched → `next build` skipped per WORKFLOW. Dev DB keeps two extra
+  smoke orders (normal for this cadence).
+
+**Docs:** ROADMAP item ticked.
+
+**Left for next sessions:** pg_dump backup script (next Phase 4 item);
+e2e CI job will pick the indexes up automatically via `migrationsRun` on
+the fresh service DB.
+
+---
+
 ## 2026-10-26 12:40 — Session 31 — login bad credentials → 401 UNAUTHORIZED
 
 **Built:** Roadmap Phase 4 "Auth: login bad credentials should answer 401

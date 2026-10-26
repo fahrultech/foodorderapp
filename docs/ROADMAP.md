@@ -44,7 +44,7 @@
 - [x] E2E smoke suite (Playwright: browse → cart → checkout → order page) (2026-10-26, `e2e/`, 4 tests, green x2 cold)
 - [x] CI: run the e2e suite in GitHub Actions (registry-rewrite e2e lockfile first, then Playwright job with browser download + services) (2026-10-26, `e2e` job; local cold-path 4/4 green)
 - [x] Auth: login bad credentials should answer 401 UNAUTHORIZED (today `AuthService.login` throws 409 CONFLICT and its jest tests pin it — change code+tests+docs in one go; web client is status-agnostic except reviews' 409) (2026-10-26, session 31)
-- [ ] DB indexes migration (slug, restaurantId, status, createdAt) + EXPLAIN check
+- [x] DB indexes migration (slug, restaurantId, status, createdAt) + EXPLAIN check (2026-10-26, session 32; slug already covered by its UNIQUE index)
 - [ ] Backups: pg_dump scheduled script + restore doc
 
 ## Phase 5 — Scale-out ideas (seed list, expand freely)
