@@ -4,6 +4,71 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
+## 2026-10-26 09:41 — Session 29 — Playwright E2E smoke suite
+
+**Built:** Roadmap Phase 4 "E2E smoke suite (Playwright: browse → cart →
+checkout → order page)".
+
+- New standalone `e2e/` project (own package.json + lockfile; apps/api and
+  apps/web dependency trees untouched, so their CI lockfiles and the
+  registry-rewrite guarantee from session 26 are unaffected).
+- `@playwright/test` pinned **1.63.0** — that release bundles Chromium build
+  1243, exactly the browser cached on this dev host (`~/.cache/ms-playwright`);
+  no browser download needed. A bump must re-check the build pair.
+- `playwright.config.ts`: serial (`workers: 1`) because the suite shares the
+  single seeded dev DB and one rate-limit identity per IP (orders 30/min,
+  auth 10/min); `webServer` entries boot the API (`node dist/main.js`) and
+  the web app (`npm run build && npm run start`) when not already running and
+  reuse them otherwise; `baseURL` overridable via `E2E_WEB_URL`.
+- 4 tests, all asserting seed-fixed values as the contract
+  (documented in each spec header):
+  - `guest-order-smoke.spec.ts` — the roadmap flow end to end: home SSR,
+    global search (?q=seoul hides Warung), restaurant detail (fee $3.00,
+    min $10.00, rating **★ 4.0 · 2 reviews** — seed recomputes the 4.8
+    column default from the two seeded Warung reviews), client menu search
+    (1 of 5 match "rendang"), add 2 dishes, header badge units, cart stepper
+    (subtotal $41.00), checkout live fee $3.00 → WARUNGHEMAT via UI −$5.00 →
+    Place order $39.00 (2×1800+500−500+300 = 3900 integer cents), redirect to
+    `/orders/<uuid>?code=FO-…`, confirmation page (pending pill, timeline
+    "Placed" step, item/promo/delivery/total rows, contact echo), cart cleared.
+  - `checkout-guards.spec.ts` — Seoul Street Bungeoppang $6.00 vs $10.00 min:
+    alert "Add $4.00 more", submit button disabled "Below minimum order";
+    plus empty-cart / empty-checkout guard states.
+  - `account.spec.ts` — demo login → authenticated header nav → /orders/my
+    lists the seeded `FO-SEED*` order cards.
+- `e2e/README.md` documents prerequisites (started+seeded Postgres,
+  apps/api/.env, builds) and the pin rationale. `.gitignore` += Playwright
+  artifact dirs.
+
+**Doc/fixture truths found by running, not reading:** restaurant ratings shown
+in the UI are the REVIEW-RECOMPUTED values (4.0/5.0 for Warung/Seoul on the
+canonical seed), not the seed's `rating:` column defaults — an e2e assertion
+on 4.8 was wrong from day one.
+
+**Verified:** ✅ built ✅ runtime-verified
+- API unchanged: `nest build` clean, jest 35 suites / **382** tests pass.
+  Web unchanged: `next build` clean.
+- Full suite **4/4 pass, twice consecutively from a fully cold start** (each
+  run: both ports free → Playwright booted API+web itself, ~48s incl. the
+  Next build), after an earlier warm-reuse pass. The guest test's confirmation
+  page is server-rendered from `GET /orders/:id`, so the green run also proves
+  the order really persisted with server-side pricing.
+- Iteration: first cold pass surfaced two test-authoring bugs (rating
+  expectation above; strict-mode collisions on `role=alert` with Next's route
+  announcer and an ambiguous `$6.00` text match) — fixed in the specs, no app
+  code changes were needed.
+- Dev DB re-seeded to canonical state after the runs (each suite pass adds one
+  pending FO- order by design — documented in e2e/README.md).
+
+**Docs:** ROADMAP item ticked; new Phase 4 follow-up: run the e2e suite in CI
+(needs the session-26 resolved-URL rewrite for e2e's lockfile + browser
+download on the runner).
+
+**Left for next sessions:** CI wiring of e2e (logged above); then the login
+409→401 item.
+
+---
+
 ## 2026-10-24 19:05 — Session 28 — Typed OpenAPI response schemas (all 41 operations)
 
 **Built:** Roadmap Phase 4 "Swagger response schemas: typed
