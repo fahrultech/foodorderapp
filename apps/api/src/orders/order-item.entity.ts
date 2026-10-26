@@ -1,12 +1,14 @@
 import {
   Column,
   Entity,
+  Index,
   ManyToOne,
   PrimaryGeneratedColumn,
 } from 'typeorm';
 import { Order } from './order.entity';
 import { MenuItem } from '../menu/menu-item.entity';
 
+@Index('IDX_order_items_orderId', ['orderId'])
 @Entity('order_items')
 export class OrderItem {
   @PrimaryGeneratedColumn('uuid')

@@ -2,12 +2,14 @@ import {
   Column,
   CreateDateColumn,
   Entity,
+  Index,
   ManyToOne,
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
 import { Restaurant } from '../restaurants/restaurant.entity';
 
+@Index('IDX_menu_items_restaurantId', ['restaurantId'])
 @Entity('menu_items')
 export class MenuItem {
   @PrimaryGeneratedColumn('uuid')

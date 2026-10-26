@@ -2,6 +2,7 @@ import {
   Column,
   CreateDateColumn,
   Entity,
+  Index,
   ManyToOne,
   OneToMany,
   PrimaryGeneratedColumn,
@@ -20,6 +21,17 @@ export enum OrderStatus {
   CANCELLED = 'cancelled',
 }
 
+/**
+ * Query-shape indexes (roadmap Phase 4, session 32):
+ * - (userId, createdAt)         — /orders/my: WHERE userId ORDER BY createdAt DESC
+ * - (restaurantId, createdAt)   — portal inbox: WHERE restaurantId ORDER BY createdAt DESC
+ * - (restaurantId, status)      — portal inbox per-status tab counts
+ * restaurants.slug needs no new index: its UNIQUE constraint already ships a
+ * btree index (verified via pg_constraint, DEVLOG session 32).
+ */
+@Index('IDX_orders_userId_createdAt', ['userId', 'createdAt'])
+@Index('IDX_orders_restaurantId_createdAt', ['restaurantId', 'createdAt'])
+@Index('IDX_orders_restaurantId_status', ['restaurantId', 'status'])
 @Entity('orders')
 export class Order {
   @PrimaryGeneratedColumn('uuid')
