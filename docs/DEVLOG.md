@@ -4,6 +4,59 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
+## 2026-10-26 17:52 — Session 33 — pg_dump backup/restore scripts + BACKUP.md runbook
+
+**Built:** Roadmap Phase 4 "Backups: pg_dump scheduled script + restore doc" —
+first real `ops/` tooling for the repo.
+
+- `ops/backup-db.sh`: `pg_dump --format=custom --compress=9 --no-owner
+  --no-privileges` → timestamped `foodorder-<stamp>.dump` in `ops/backups/`
+  (git-ignored). Reads `$DATABASE_URL` from env, falls back to the untracked
+  `apps/api/.env` — credentials never on a command line. Every dump is
+  **verified by `pg_restore --list` before it is kept** (unreadable archive →
+  deleted, exit 3); writes a sha256 sidecar; rotates to `$BACKUP_KEEP`
+  (default 14) newest dumps.
+- `ops/restore-db.sh`: refuses to guess a target (`--target-url` required,
+  explicit `--yes`), checks the sha256 sidecar if present, then
+  `pg_restore --clean --if-exists --single-transaction --exit-on-error` so a
+  mid-restore failure leaves the target untouched.
+- `ops/systemd/foodorder-backup.{service,timer}`: scheduling example (daily
+  03:15 + 10 min jitter, EnvironmentFile from api .env); cron one-liner also
+  documented. Units are repo examples — intentionally not installed on this
+  host.
+- `docs/BACKUP.md`: full runbook — backing up, scheduling (systemd/cron),
+  restoring (script + manual `pg_restore` + compose `docker exec` variants),
+  retention/off-host rsync note, and the restore drill record.
+- New roadmap item logged honestly: `GET /restaurants/:restaurantId/menu`
+  answers 500 (TypeORM QueryFailedError) for non-uuid params — pre-existing
+  gap surfaced while smoke-testing, not a backup regression.
+
+**Verified:**
+- `bash -n` both scripts; `systemd-analyze verify` clean (only a pre-existing
+  unrelated host unit warned).
+- Live drill: backup of dev DB `foodorder` (37 KB, 76 entries) → created
+  throwaway `foodorder_restore` → `restore-db.sh` → **count(\*) compared
+  table-by-table across all 11 tables: 0 mismatches** (users 2 … orders 12,
+  migrations 9); indexes 29/29, constraints 140/140, enums 3/3.
+- Serve proof: booted `node dist/main.js` against the restored DB —
+  `/health` db up, demo customer + owner login 201, `/orders/my` (4),
+  restaurant list (6). Throwaway DB and smoke API torn down after.
+- Rotation: `BACKUP_KEEP=1` with two dumps left only the newest + sidecar.
+- Failure paths: truncated dump + stale sidecar → abort before touching
+  target (exit 2); truncated dump without sidecar → abort at archive-listing
+  check (exit 2).
+- No API/web source touched → build/jest/next-build skipped per WORKFLOW.
+  Sanitizer audit: new files read back via Python — zero U+2026, the single
+  `***` is the intended URI-mask in backup-db's echo.
+
+**Docs:** `docs/BACKUP.md` added; ROADMAP item ticked + new uuid-validation
+item; `.gitignore` += `ops/backups/`.
+
+**Left for next sessions:** ParseUUIDPipe sweep (new Phase 4 item); optionally
+wire the backup into the compose deployment docs when the api/web images get
+their first compose end-to-end run.
+
+
 ## 2026-10-26 15:02 — Session 32 — DB query-index migration + EXPLAIN check
 
 **Built:** Roadmap Phase 4 "DB indexes migration (slug, restaurantId,
