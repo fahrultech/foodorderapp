@@ -12,3 +12,6 @@ pgdata/
 *.tsbuildinfo
 test-results/
 playwright-report/
+
+# database backups (pg_dump archives + checksums)
+ops/backups/

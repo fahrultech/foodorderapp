@@ -1,0 +1,22 @@
+# systemd unit EXAMPLES for scheduled FoodOrder DB backups (not installed —
+# copy to /etc/systemd/system/ and adjust paths for your host).
+#
+#   sudo cp ops/systemd/foodorder-backup.{service,timer} /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now foodorder-backup.timer
+#
+# Timer fires daily at 03:15; BACKUP_KEEP=14 dumps retained in ops/backups/.
+
+[Unit]
+Description=FoodOrder PostgreSQL backup (pg_dump)
+Wants=postgresql.service
+After=postgresql.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/ubuntu/foodorderapp
+# DATABASE_URL is read from the untracked api env file at runtime.
+EnvironmentFile=/home/ubuntu/foodorderapp/apps/api/.env
+ExecStart=/home/ubuntu/foodorderapp/ops/backup-db.sh
+NoNewPrivileges=true
+PrivateTmp=true
