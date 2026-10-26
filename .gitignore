@@ -10,3 +10,5 @@ coverage/
 .DS_Store
 pgdata/
 *.tsbuildinfo
+test-results/
+playwright-report/
