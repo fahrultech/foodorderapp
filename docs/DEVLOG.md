@@ -4,6 +4,45 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
+## 2026-10-26 12:40 — Session 31 — login bad credentials → 401 UNAUTHORIZED
+
+**Built:** Roadmap Phase 4 "Auth: login bad credentials should answer 401
+UNAUTHORIZED" (the follow-up left open since session 28). Code + tests +
+Swagger docs changed in one go.
+
+- `auth.service.ts`: `login()` now throws `UnauthorizedException` instead of
+  `ConflictException` for wrong credentials — presenting bad credentials is an
+  authentication failure, not a resource-state conflict. Message stays the same
+  opaque `Invalid email or password` for unknown email AND wrong password
+  (no existence leak). `register` duplicate-email keeps its 409 CONFLICT, and
+  the refresh-token collision retry path in `issueSession` keeps 409 — those
+  are true conflicts.
+- `auth.service.spec.ts`: the two login tests (unknown email, wrong password)
+  re-pinned to `UnauthorizedException`.
+- `auth.controller.ts`: login `@ApiError(409)` → `@ApiError(401)`; operation
+  description now states the real wire contract.
+- `swagger.spec.ts`: `/auth/login` expected error codes `[400, 409, 429]` →
+  `[400, 401, 429]` (register line untouched).
+- Wire-contract note: external clients keying on 409 for login failure must
+  switch to 401. In-repo consumers unaffected — the web client shows the
+  envelope message for login and is status-agnostic; its only status-specific
+  check is the reviews 409 resync path (different endpoint, untouched).
+
+**Verified:**
+- `nest build` clean; jest **382/382 pass** (35 suites).
+- Live smoke against `node dist/main.js` + local Postgres (13-check scripted
+  battery, all green): wrong password → 401 `{error.code: "UNAUTHORIZED"}`,
+  message unchanged; unknown email → 401 same message; good credentials → 201
+  with access+refresh, no hash leak; `/auth/me` 200 with that token; register
+  duplicate → still 409; junk refresh → still 401; `docs-json`: login
+  responses `[201,400,401,429]`, register still carries 409.
+- Web unchanged → `next build` skipped per WORKFLOW (API-only diff).
+
+**Docs:** ROADMAP item ticked; DEVLOG entry. Server stopped and port 4000
+released after smoke.
+
+---
+
 ## 2026-10-26 11:00 — Session 30 — e2e suite in GitHub Actions
 
 **Built:** Roadmap Phase 4 "CI: run the e2e suite in GitHub Actions".
