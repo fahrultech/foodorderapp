@@ -44,3 +44,15 @@ browser download.
 Tests share the single dev database and one rate-limit identity per IP, so the
 suite runs serially (`workers: 1`). Guest smoke runs add real `pending` orders
 to the dev DB — that is expected scratch state for a seeded disposable database.
+
+## In CI
+
+`.github/workflows/ci.yml` runs this suite on every push/PR in the `e2e` job:
+an empty Postgres 16 service container, API + web installed and built, then
+`npm run seed` (which applies the whole migration chain first), then Playwright
+with `npx playwright install --with-deps chromium` — the runner downloads the
+Chromium build pinned by `@playwright/test@1.63.0` (this host's cached build
+1243 is the same pair). On failure the HTML report is uploaded as an artifact.
+The lockfile's `resolved` URLs point at `registry.npmjs.org` (the dev host's
+`~/.npmrc` mirror is unreachable from runners — keep them that way, see
+DEVLOG 2026-10-24 session 26).

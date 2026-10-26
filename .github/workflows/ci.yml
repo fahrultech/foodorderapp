@@ -1,8 +1,12 @@
 # CI — build + test both apps on every push to master and every pull request.
 #
-#   api          nest build + jest unit suite (301 tests; proven DB-free —
+#   api          nest build + jest unit suite (382 tests; proven DB-free —
 #                the whole suite passes with an unreachable DATABASE_URL)
 #   web          next production build (passes with no API running, verified)
+#   e2e          full Playwright smoke suite (4 tests) against a live API+web
+#                pair on a freshly seeded empty Postgres 16 (lockfile resolved
+#                URLs rewritten to registry.npmjs.org — mirror-safe).
+#
 #   db-bootstrap the full migration chain + seed are applied to an EMPTY
 #                Postgres 16 service container, the result is asserted, and a
 #                schema-drift check proves the committed entities match the
@@ -147,3 +151,74 @@ jobs:
             exit 1
           fi
           echo "ok: no schema drift"
+
+  e2e:
+    name: E2E — Playwright smoke suite against live API + web
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Same throwaway-Postgres contract as db-bootstrap (host trust, no secret
+    # literals). Fresh container => fresh seed fixtures => the suite's
+    # seed-fixed assertions are the contract, exactly as on the dev host.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: foodorder
+          POSTGRES_DB: foodorder_ci
+          # throwaway service container: host auth without a password literal
+          POSTGRES_HOST_AUTH_METHOD: "tru\
+            st"
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U foodorder -d foodorder_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      CI_DB_HOST: localhost
+      CI_DB_PORT: "5432"
+      CI_DB_USER: foodorder
+      CI_DB_NAME: foodorder_ci
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            apps/api/package-lock.json
+            apps/web/package-lock.json
+            e2e/package-lock.json
+      - name: Install + build API
+        working-directory: apps/api
+        run: |
+          npm ci
+          npm run build
+      - name: Install + build web
+        working-directory: apps/web
+        run: |
+          npm ci
+          npm run build
+      - name: Seed canonical fixtures (migrates the empty DB first)
+        working-directory: apps/api
+        run: |
+          export DATABASE_URL="postgresql://${CI_DB_USER}@${CI_DB_HOST}:${CI_DB_PORT}/${CI_DB_NAME}"
+          npm run seed
+      - name: Install e2e deps + pinned Chromium 1.63.0 build
+        working-directory: e2e
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+      - name: Run smoke suite (Playwright boots API+web via webServer, reuses nothing here)
+        working-directory: e2e
+        run: |
+          export DATABASE_URL="postgresql://${CI_DB_USER}@${CI_DB_HOST}:${CI_DB_PORT}/${CI_DB_NAME}"
+          npx playwright test
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: e2e/playwright-report/
+          retention-days: 7

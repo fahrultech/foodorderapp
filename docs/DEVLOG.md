@@ -4,6 +4,50 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
+## 2026-10-26 11:00 — Session 30 — e2e suite in GitHub Actions
+
+**Built:** Roadmap Phase 4 "CI: run the e2e suite in GitHub Actions".
+
+- `e2e/package-lock.json`: all 3 `resolved` URLs rewritten 1:1 from the
+  dev host's unreachable `mirrors.tencentyun.com` mirror to
+  `https://registry.npmjs.org/` (paths identical, `integrity` untouched —
+  the session-26 guarantee extended to the e2e project).
+- `ci.yml`: new `e2e` job. Postgres 16 service container reusing the
+  db-bootstrap job's exact trust-auth block (copied programmatically from
+  disk), API + web installed/built, `npm run seed` on the empty DB
+  (applies the full migration chain first), `npx playwright install
+  --with-deps chromium`, then `npx playwright test` with the same
+  `DATABASE_URL`-from-parts pattern as db-bootstrap; HTML report uploaded
+  as an artifact on failure; 30-min timeout. `setup-node` caches all three
+  lockfiles. CI header comment updated (301 → 382 tests, job list + e2e).
+- `e2e/README.md`: new "In CI" section (runner behavior, pin rationale,
+  registry-rewrite standing rule).
+
+**Verified:**
+- Rewritten lockfile cold-installed in a fresh HOME + empty npm cache
+  (`HOME=… npm ci`): 3/3 tarballs served from `registry.npmjs.org`, zero
+  mirror refs in the npm cache index, `playwright-core` resolves 1.63.0.
+- Repo's `e2e/node_modules` reinstalled from the rewritten lockfile
+  (`rm -rf node_modules && npm ci`), then the **full suite ran 4/4 green
+  (49s) with both servers cold** — nothing listened on 3000/4000 first, so
+  Playwright booted the API (`node dist/main.js`) and web
+  (`next build && next start`) itself, exactly the runner path.
+- API unchanged: `nest build` clean this run (jest untouched — no api/web
+  source changes; 382-test suite was green in session 29 on identical code).
+- ci.yml validated by reading disk back in Python: YAML parses (4 jobs),
+  `POSTGRES_HOST_AUTH_METHOD` decodes to `trust` (2×), no U+2026/`***`
+  sanitizer corruption, steps = 8.
+- Dev DB re-seeded to canonical state after the local run (the guest test
+  adds one pending FO- order by design).
+- Runner proof pending: the pushed workflow run itself (reported when green
+  — the anonymous API poll of actions/runs is the check).
+
+**Docs:** ROADMAP item ticked; DEVLOG entry.
+
+**Left for next sessions:** the login 409→401 item (roadmap line below).
+
+---
+
 ## 2026-10-26 09:41 — Session 29 — Playwright E2E smoke suite
 
 **Built:** Roadmap Phase 4 "E2E smoke suite (Playwright: browse → cart →

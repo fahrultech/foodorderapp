@@ -42,7 +42,7 @@
 - [x] Swagger/OpenAPI docs auto-generated at `/api/docs`
 - [x] Swagger response schemas: typed `@ApiOkResponse`/`@ApiError` models for all 41 operations (2026-10-24, both sides done)
 - [x] E2E smoke suite (Playwright: browse → cart → checkout → order page) (2026-10-26, `e2e/`, 4 tests, green x2 cold)
-- [ ] CI: run the e2e suite in GitHub Actions (registry-rewrite e2e lockfile first, then Playwright job with browser download + services)
+- [x] CI: run the e2e suite in GitHub Actions (registry-rewrite e2e lockfile first, then Playwright job with browser download + services) (2026-10-26, `e2e` job; local cold-path 4/4 green)
 - [ ] Auth: login bad credentials should answer 401 UNAUTHORIZED (today `AuthService.login` throws 409 CONFLICT and its jest tests pin it — change code+tests+docs in one go; web client is status-agnostic except reviews' 409)
 - [ ] DB indexes migration (slug, restaurantId, status, createdAt) + EXPLAIN check
 - [ ] Backups: pg_dump scheduled script + restore doc
