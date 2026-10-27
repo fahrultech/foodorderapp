@@ -4,6 +4,69 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
+## 2026-10-27 09:43 — Session 34 — ParseUUIDPipe sweep: malformed uuid route params answer 400
+
+**Built:** Roadmap Phase 4 "API: reject malformed uuid route params with 400"
+(the 500-gap session 33 surfaced while smoke-testing backups).
+
+- New `UuidParam(name)` decorator in `common/uuid.ts` = `@Param(name,
+  ParseUUIDPipe)` (Nest built-in, default `all` version — exact same regex as
+  the existing `isUuid` service guard, so shape semantics don't drift).
+- Swept **all 22 uuid route params across all 8 controllers**: restaurants
+  (:id GET/PATCH), menu (:restaurantId GET/POST, :id x3), orders (:id GET /
+  next-statuses / cancel / status), restaurant-orders (:id inbox / stream,
+  :orderId portal status), reviews (:id PATCH/DELETE, :id feed), users
+  (:menuItemId favorite DELETE, :id address PATCH/DELETE/default). No uuid
+  route param is left un-piped — the new integration spec walks every one.
+- 400 `BAD_REQUEST` lands in the standard error envelope; guards still run
+  BEFORE pipes (Nest ordering), so protected routes answer 401/403 first —
+  smoke-confirmed and noted in UuidParam's docblock.
+- users.controller: removed the three inline `isUuid` handlers they replaced
+  (favorites DELETE 404-on-junk, addresses PATCH/DELETE/default guards);
+  equivalent guards moved DOWN into the services for direct-call safety
+  (favorites.add/remove, addresses.update/remove/getOwned) — the pattern
+  menu/orders/reviews/restaurants already used. `menu.service
+  .findByRestaurant` gets the guard that was missing — the actual 500 path.
+- Swagger truth pass: every affected `@ApiError(404, 'Unknown or malformed…')`
+  split into 400 (malformed) + 404 (unknown); routes that were idempotent for
+  junk (DELETE address/favorite `removed:false`, DELETE favorite 404) now
+  document the 400; swagger.spec ERRORS table updated to match.
+
+**Verified:**
+- `nest build` clean; `jest` **36 suites / 431 tests all green** (was 390
+  pre-session; +42 uuid-route HTTP cases, +8 new guard units, fakes made
+  uuid-shaped to match the real column).
+- New `uuid-route-params.integration.spec.ts`: boots the REAL controller
+  surface with the PRODUCTION ValidationPipe + ErrorFormatFilter (services
+  mocked, guards stub-open) and proves over HTTP for every uuid route that a
+  malformed param answers 400 envelope + the service handler is NEVER called,
+  and a valid uuid passes through untouched. 42 cases green.
+- Live runtime smoke (API :4000 on local Postgres 16, seeded DB): the exact
+  roadmap bug `GET /restaurants/not-a-uuid/menu` now **400** (was 500); 20
+  malformed-route probes all 400-BAD_REQUEST; valid real ids still 200
+  (menu, order receipt, owner inbox, availability toggle); valid-unknown
+  still 404 (orders, restaurants) / `removed:false` 200 (address DELETE);
+  no-token guarded route still 401; SSE stream junk closes instantly 400;
+  envelope carries X-Request-Id. No QueryFailedError appeared in logs.
+- Sanitizer audit: all 16 touched files read back — zero U+2026 introduced
+  (one pre-existing swagger-shorthand "…/default" from session 10d1924
+  untouched); repo still builds.
+
+**Found en route:** jest `it.each` arity trap — a 3-slot row + a 4-param
+callback injects `done` as the 4th arg and every such test times out at the
+hook default. Fixed by giving the body param a default (`body = undefined`)
+so it never counts toward `fn.length`. SSE pass-through case excluded
+deliberately (successful @Sse responses stay open).
+
+**Docs:** ROADMAP item ticked. Web app untouched (it only ever sends ids
+that came from the API) → no `next build` needed per WORKFLOW.
+
+**Left for next sessions:** nothing blocking; if we ever mint non-v4 uuids
+server-side, consider pinning the pipe version (DTOs use IsUUID('4'), the
+pipe/regex accept v1-v8 like the old guards — unchanged semantics).
+
+---
+
 ## 2026-10-26 17:52 — Session 33 — pg_dump backup/restore scripts + BACKUP.md runbook
 
 **Built:** Roadmap Phase 4 "Backups: pg_dump scheduled script + restore doc" —

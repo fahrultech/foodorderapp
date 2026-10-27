@@ -46,7 +46,7 @@
 - [x] Auth: login bad credentials should answer 401 UNAUTHORIZED (today `AuthService.login` throws 409 CONFLICT and its jest tests pin it — change code+tests+docs in one go; web client is status-agnostic except reviews' 409) (2026-10-26, session 31)
 - [x] DB indexes migration (slug, restaurantId, status, createdAt) + EXPLAIN check (2026-10-26, session 32; slug already covered by its UNIQUE index)
 - [x] Backups: pg_dump scheduled script + restore doc (2026-10-26, session 33; `ops/backup-db.sh` + `ops/restore-db.sh` + `ops/systemd/` timer + `docs/BACKUP.md`, full restore drill green)
-- [ ] API: reject malformed uuid route params with 400 (today `GET /restaurants/<non-uuid>/menu` crashes QueryFailedError → 500; use ParseUUIDPipe consistently)
+- [x] API: reject malformed uuid route params with 400 via `UuidParam` (ParseUUIDPipe) on all 22 uuid params; service-layer guards kept for direct calls (2026-10-27, session 34; 42-case HTTP spec + live smoke, menu 500→400)
 
 ## Phase 5 — Scale-out ideas (seed list, expand freely)
 - [ ] Realtime order feed with WebSocket gateway (Socket.IO)
