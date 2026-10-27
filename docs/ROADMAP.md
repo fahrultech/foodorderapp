@@ -60,7 +60,7 @@
 - [ ] Image upload for menu items (S3-compatible, presigned PUT)
 - [ ] Kitchen display system view (tablet-friendly prep board)
 - [ ] Driver/courier role + assignment flow
-- [ ] Scheduled cron: auto-cancel stale pending orders
+- [x] Scheduled cron: auto-cancel stale pending orders (2026-10-27, session 35; shared `stale-order-sweep` + ADMIN HTTP route + `ops/cancel-stale.sh` systemd/cron runner, STALE_ORDER_MINUTES/BATCH env, DRY_RUN; 469 tests green + live smoke)
 - [ ] PWA: installable storefront + offline cart
 - [ ] A/B-friendly feature flags table + helper
 - [ ] Load testing script (k6) + tuning report in docs/

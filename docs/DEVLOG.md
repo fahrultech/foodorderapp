@@ -4,7 +4,88 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
-## 2026-10-27 09:43 — Session 34 — ParseUUIDPipe sweep: malformed uuid route params answer 400
+## 2026-10-27 12:38 — Session 35 — Scheduled cron: auto-cancel stale pending orders
+
+**Built:** Roadmap Phase 5 "Scheduled cron: auto-cancel stale pending orders".
+Guest checkout is open by design, so a `pending` order can be placed and simply
+abandoned — no prep, no stock, phantom demand in the owner inbox. This adds the
+machine path that drains that backlog. Dependency-free (no `@nestjs/schedule`;
+the scheduler is systemd/cron at the OS level, like the backups).
+
+- One shared implementation, `orders/stale-order-sweep.ts`:
+  `runStaleOrderSweep(repo, opts)` + `resolveStaleSweepConfig(env)`. It selects
+  `status='pending' AND createdAt < (now - staleMinutes)` oldest-first, capped at
+  `limit`, flips each to `cancelled` with a **write-once** `cancelledAt` (same
+  policy as `applyStatus`), and returns a `{ cutoff, scanned, cancelled, capped,
+  orders }` report. `capped=true` means the batch filled up → more stale rows
+  remain, re-run to drain. Only `pending` is eligible — once an owner confirms
+  an order, cancelling is a human decision; the customer already has self-cancel.
+  Knobs via env `STALE_ORDER_MINUTES` (default 45) / `STALE_ORDER_BATCH`
+  (default 500), parsed like the rate-limit config (junk/zero/negative → default).
+- Two schedulable entrypoints, both on that one function (no drift):
+  1. **Admin HTTP** `POST /api/orders/ops/cancel-stale` (`orders.controller`),
+     ADMIN-gated (`JwtAuthGuard`+`RolesGuard`), command-style `@HttpCode(200)`
+     (matches refresh/logout). Wraps the sweep via `OrdersService.cancelStalePending`
+     which additionally **emits `order.updated`** per cancel so live owner-inbox
+     SSE updates. Optional `CancelStaleDto` body `{staleMinutes,limit}` to
+     override per run.
+  2. **Standalone cron** `apps/api/src/scripts/cancel-stale.ts` (npm
+     `cancel-stale`), wrapped by `ops/cancel-stale.sh` for systemd/cron. Boots
+     the DataSource directly (no Nest/SSE — different process), reads config from
+     env, prints a one-line JSON summary to stdout + per-order lines to stderr,
+     supports `DRY_RUN=1` (no-op save, mutate nothing). `ops/systemd/
+     foodorder-cancel-stale.{service,timer}` example: every 15 min, catch-up on
+     boot. Money untouched (status machine only).
+- `@IsOptional()` on both DTO fields is load-bearing: without it class-validator
+  still applies `@IsInt/@Min/@Max` to an *absent* value, so an admin running with
+  no overrides (`{}`) got a spurious 400. Pinned by a dedicated DTO spec.
+- Swagger: new `CancelStaleResponse` model (integer counters, ISO `cutoff`,
+  boolean `capped`); `swagger.spec` updated to 42 operations with the route in
+  the covered/protected/success/error tables + honest-shape assertions.
+
+**Verified:**
+- `nest build` clean; `jest` **40 suites / 469 tests all green** (was 36/431 at
+  session 34; +4 suites: sweep unit, service-wrapper emit, admin HTTP, DTO).
+- New `stale-order-sweep.spec.ts` (15 cases): only-pending selection, strict
+  `LessThan` cutoff boundary (order at the cutoff is NOT stale), oldest-first,
+  batch cap + `capped` flag, write-once `cancelledAt`, hook ordering + async-await,
+  dry-run save-less repo, env parsing + override precedence.
+- `cancel-stale.admin.spec.ts` (11 cases, real HTTP): 401 no token / non-access
+  `typ`, 403 OWNER, 200 admin passthrough, override forwarding + string→number
+  coercion, 400 on `staleMinutes=0`/`limit>500`/non-integer, whitelist behaviour.
+- `cancel-stale.service.spec.ts` (4): `order.updated` emitted per cancel + caller
+  hook composed (not clobbered), overrides forwarded past env default.
+- **Live runtime smoke** (API :4000 on local Postgres 16, seeded DB; stale rows
+  staged via direct SQL — no credentials on any command line):
+  - Standalone `DRY_RUN` → `wouldCancel:6` with FRESH + CONFIRMED correctly
+    excluded; DB unchanged after the dry run.
+  - Real `ops/cancel-stale.sh` → `cancelled:6`, exit 0; re-run → `cancelled:0`
+    (idempotent); `STALE_ORDER_MINUTES=1` dry run then picked up the one 2-min
+    fresh order → window honoured dynamically, and `confirmed` never eligible
+    regardless of age.
+  - ADMIN `POST .../ops/cancel-stale` over HTTP: `{}` → **200, scanned=2,
+    cancelled=2** with the DB flipping those two to `cancelled` (cancelledAt set)
+    while a 2-min-old pending and a 3-h-old confirmed stayed put; 401 (no token),
+    403 (owner token), 400 (`staleMinutes=0`, standard envelope). JWTs signed in
+    the helper, never echoed.
+  - `DATABASE_URL`/`JWT_SECRET` read from the untracked `apps/api/.env` by the
+    helper + script (dotenv); demo data re-seeded afterwards to leave the DB
+    pristine for the next session.
+- Sanitizer audit: all 15 changed/created files read back — **zero U+2026**;
+  `apps/api/package.json` re-parsed as valid JSON with the `cancel-stale` script
+  present.
+
+**Docs:** ROADMAP Phase 5 item ticked. Web app untouched → no `next build` per
+WORKFLOW. Env knobs are documented in the sweep header + `ops/cancel-stale.sh`
+usage block; no new `.env` keys are required (defaults apply when unset).
+
+**Left for next sessions:** nothing blocking. The standalone runner is a separate
+process so it can't push SSE to in-memory dashboards (documented); the ADMIN HTTP
+route is the SSE-aware path for a live API. A real deployment installs the systemd
+timer OR schedules the endpoint call — both examples are ready under `ops/`.
+
+---
+
 
 **Built:** Roadmap Phase 4 "API: reject malformed uuid route params with 400"
 (the 500-gap session 33 surfaced while smoke-testing backups).
