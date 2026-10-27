@@ -66,11 +66,13 @@ export class OrdersService {
    */
   private emit(
     type: 'order.created' | 'order.updated',
-    order: Pick<Order, 'id' | 'code' | 'status' | 'restaurantId'>,
+    order: Pick<Order, 'id' | 'code' | 'status' | 'restaurantId' | 'userId'>,
   ): void {
     this.events.publish({
       type,
       restaurantId: order.restaurantId,
+      // Drives the WS customer-side room fan-out; null for guest orders.
+      userId: order.userId ?? null,
       payload: {
         orderId: order.id,
         code: order.code,

@@ -559,6 +559,7 @@ describe('OrdersService — live event emission (SSE bus)', () => {
     expect(events.publish.mock.calls[0][0]).toEqual({
       type: 'order.updated',
       restaurantId: REST_ID,
+      userId: OWNER_ID,
       payload: { orderId: ORDER_ID, code: 'FO-TEST', status: 'confirmed' },
     });
   });
@@ -570,6 +571,7 @@ describe('OrdersService — live event emission (SSE bus)', () => {
     expect(events.publish).toHaveBeenCalledWith({
       type: 'order.updated',
       restaurantId: REST_ID,
+      userId: OWNER_ID,
       payload: { orderId: ORDER_ID, code: 'FO-TEST', status: 'cancelled' },
     });
   });

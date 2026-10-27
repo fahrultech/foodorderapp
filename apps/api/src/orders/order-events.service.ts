@@ -3,15 +3,16 @@ import { Observable, Subject } from 'rxjs';
 
 /**
  * Lifecycle events published by OrdersService after a state-changing write.
- * Consumed today by the owner inbox SSE stream (Phase 2 "live order updates
- * via SSE").
+ * Two consumers: the owner inbox SSE stream (Phase 2 "live order updates via
+ * SSE") and the Socket.IO realtime gateway (Phase 5, `realtime.gateway.ts`) —
+ * both subscribe to the same bus, so the REST write paths never know or care
+ * which transports exist.
  *
  * Scope note: the bus is INTENTIONALLY process-local (a plain rxjs Subject).
  * Single-container deployments get correct fan-out for free; a multi-container
- * one would need a shared broker (or the Socket.IO gateway on every node) —
- * that is the Phase 5 realtime item, not this one. The dashboard stays safe
- * either way: the SSE stream only tells it "something changed", the inbox
- * truth always comes from `GET /restaurants/:id/orders`.
+ * one would need a shared broker (or the Socket.IO gateway on every node).
+ * Consumers stay safe either way: the streams only say "something changed",
+ * the truth always comes from the normal GET endpoints.
  */
 export type OrderEventType = 'order.created' | 'order.updated';
 
@@ -24,6 +25,13 @@ export interface OrderEventPayload {
 export interface OrderEvent {
   type: OrderEventType;
   restaurantId: string;
+  /**
+   * Owner of the order, `null` for guest orders. SSE consumers never needed it
+   * (the stream is restaurant-scoped), but the WS gateway routes each event to
+   * the customer's own room too — added as OPTIONAL so every existing event
+   * literal and spec keeps compiling untouched.
+   */
+  userId?: string | null;
   payload: OrderEventPayload;
 }
 

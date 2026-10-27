@@ -4,6 +4,7 @@ import { Order } from './order.entity';
 import { OrderItem } from './order-item.entity';
 import { OrdersService } from './orders.service';
 import { OrderEventsService } from './order-events.service';
+import { RealtimeGateway } from './realtime.gateway';
 import { OrdersController } from './orders.controller';
 import { RestaurantOrdersController } from './restaurant-orders.controller';
 import { MenuModule } from '../menu/menu.module';
@@ -21,7 +22,7 @@ import { UsersModule } from '../users/users.module';
     PromosModule,
     UsersModule,
   ],
-  providers: [OrdersService, OrderEventsService],
+  providers: [OrdersService, OrderEventsService, RealtimeGateway],
   controllers: [OrdersController, RestaurantOrdersController],
   exports: [OrdersService],
 })

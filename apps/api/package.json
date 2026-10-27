@@ -21,8 +21,10 @@
     "@nestjs/core": "^11.0.0",
     "@nestjs/jwt": "^11.0.0",
     "@nestjs/platform-express": "^11.0.0",
+    "@nestjs/platform-socket.io": "^11.2.8",
     "@nestjs/swagger": "^11.4.7",
     "@nestjs/typeorm": "^11.0.0",
+    "@nestjs/websockets": "^11.2.8",
     "bcryptjs": "^3.0.2",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.1",
@@ -32,6 +34,7 @@
     "pino-http": "^11.0.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
+    "socket.io": "^4.8.4",
     "typeorm": "^0.3.20"
   },
   "devDependencies": {
@@ -43,6 +46,7 @@
     "@types/jest": "^29.5.14",
     "@types/node": "^22.10.0",
     "jest": "^29.7.0",
+    "socket.io-client": "^4.8.4",
     "ts-jest": "^29.2.5",
     "ts-node": "^10.9.2",
     "tsconfig-paths": "^4.2.0",
