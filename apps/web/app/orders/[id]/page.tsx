@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { api, formatPrice } from '@/lib/api';
 import OrderTimeline from '@/components/OrderTimeline';
+import OrderLiveFeed from '@/components/OrderLiveFeed';
 import RateOrderCard from '@/components/RateOrderCard';
 
 export const dynamic = 'force-dynamic';
@@ -57,7 +58,7 @@ export default async function OrderPage({
       <div className="mt-6 rounded-2xl border border-stone-200 bg-white p-5">
         <div className="flex items-baseline justify-between">
           <h2 className="font-bold">Order progress</h2>
-          <span className="text-xs text-stone-400">Reload to check for updates</span>
+          <OrderLiveFeed orderId={order.id} orderStatus={order.status} />
         </div>
         <OrderTimeline order={order} />
       </div>

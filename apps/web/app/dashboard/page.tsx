@@ -20,6 +20,8 @@ import {
   pollIsStaleVsAction,
   shouldPoll,
 } from '@/lib/live-sync';
+import { feedTransport, shouldOpenSse } from '@/lib/ws-feed';
+import { useOrderFeed } from '@/lib/use-order-feed';
 
 /**
  * Owner portal (Phase 2): orders inbox for the signed-in owner's restaurants,
@@ -27,19 +29,24 @@ import {
  * / cancel) wired to PATCH /restaurants/:id/orders/:orderId/status — the API
  * scopes every call to the caller (JWT + owner role + ownership + flow check).
  *
- * Live updates (roadmap Phase 2, SSE item): the inbox keeps itself fresh with
- * TWO cooperating transports:
+ * Live updates (Phase 2 SSE + Phase 5 WS feed): the inbox keeps itself fresh
+ * with THREE cooperating transports, in a strict ladder:
  *
- *  1. PUSH (primary): an EventSource on GET /restaurants/:id/orders/stream.
- *     `order.created` / `order.updated` events are trigger-only — each one
- *     fires a debounced SILENT refetch of the inbox (truth always comes from
- *     the normal GET, so events can never corrupt data, only accelerate it).
- *     A `ping` heartbeat every 15s proves the stream is alive; two misses
- *     (STREAM_STALL_MS) declare it a zombie, drop back to polling and rebuild
- *     the connection.
- *  2. POLL (fallback): the session-15 10s silent poll. Every tick checks
- *     `shouldPoll`, which goes idle while the push channel is up — so the
- *     cadence is a pure safety net, never a second opinion fighting the push.
+ *  1. WS PUSH (primary): the Socket.IO `/orders` feed (useOrderFeed) joined
+ *     to room `r:<restaurantId>` — trigger-only `order.created`/`order.updated`
+ *     events fire a debounced SILENT refetch of the inbox (truth always comes
+ *     from the normal GET, so events can never corrupt data, only accelerate
+ *     it). The hook owns reconnect (backoff, fresh token) and rebuilds the
+ *     handshake before the access TTL dies.
+ *  2. SSE PUSH (fallback): an EventSource on GET /restaurants/:id/orders/stream
+ *     — opened only while the WS feed is DOWN (shouldOpenSse), closed the
+ *     moment WS recovers. Its `ping` heartbeat + stall watchdog work as before.
+ *  3. POLL (last resort): the session-15 10s silent poll. Every tick checks
+ *     `shouldPoll`, which goes idle while EITHER push transport is up — so the
+ *     cadence is a pure safety net, never a second opinion fighting a push.
+ *
+ * `data-feed-transport` on the Live pill exposes which rung is live (ws/sse/
+ * poll/paused) for humans, tests and future e2e assertions.
  *
  * A silent sync swaps the whole page (items + per-status tab counts) in
  * place, badges rows that newly appeared with NEW, and is skipped while the
@@ -132,8 +139,8 @@ export default function DashboardPage() {
   // would regress the card the owner just acted on).
   const lastActionAtRef = useRef(0);
 
-  // --- SSE push state (see file header) ---
-  const [pushUp, setPushUp] = useState(false);
+  // --- SSE fallback push state (see file header) ---
+  const [sseUp, setSseUp] = useState(false);
   // Coalescing timer for push-triggered syncs (PUSH_SYNC_DEBOUNCE_MS window).
   const syncTimerRef = useRef<number | null>(null);
   // A push wake-up arrived while the gate was closed (busy/hidden); flush it
@@ -247,18 +254,18 @@ export default function DashboardPage() {
     void fetchInbox('full');
   }, [fetchInbox, reloadKey]);
 
-  // --- push-triggered sync (SSE wakes the inbox) ---
-  /**
-   * Schedule one silent sync, coalescing bursts: any number of stream events
-   * inside PUSH_SYNC_DEBOUNCE_MS costs a single inbox GET. Unlike the interval
-   * tick this is NOT gated on `pushUp` — it *is* the push transport's data
-   * path. When the gate is closed (hidden tab / action in flight) the
-   * wake-up is remembered and flushed by the effects below once it opens.
-   */
-  const requestSync = useCallback(() => {
-    if (syncTimerRef.current != null) return;
-    syncTimerRef.current = window.setTimeout(() => {
-      syncTimerRef.current = null;
+  // --- push-triggered sync (either feed wakes the inbox) ---
+  // The wake-up EXECUTION always goes through syncFireRef, which the effect
+  // below keeps pinned to the latest render's closures. Without this the
+  // debounce timer would capture the closure of whichever render scheduled it
+  // (e.g. the mount render, where selectedId is still null): a stale fire
+  // guard-ours into nothing AND swallows every wake-up that arrives while the
+  // zombie timer is still pending. WS makes that window easy to hit — the
+  // mount catch-up and the first subscribe-ack wake-ups cluster inside one
+  // 400ms debounce window (found by the live-feed e2e).
+  const syncFireRef = useRef<() => void>(() => {});
+  useEffect(() => {
+    syncFireRef.current = () => {
       if (
         !shouldPoll({
           live,
@@ -270,8 +277,23 @@ export default function DashboardPage() {
         return;
       }
       void fetchInbox('silent');
-    }, PUSH_SYNC_DEBOUNCE_MS);
+    };
   }, [live, busyOrderId, fetchInbox]);
+
+  /**
+   * Schedule one silent sync, coalescing bursts: any number of feed events
+   * inside PUSH_SYNC_DEBOUNCE_MS costs a single inbox GET. Unlike the interval
+   * tick this is NOT gated on `pushUp` — it *is* the push transports' data
+   * path. When the gate is closed (hidden tab / action in flight) the
+   * wake-up is remembered and flushed by the effects below once it opens.
+   */
+  const requestSync = useCallback(() => {
+    if (syncTimerRef.current != null) return;
+    syncTimerRef.current = window.setTimeout(() => {
+      syncTimerRef.current = null;
+      syncFireRef.current();
+    }, PUSH_SYNC_DEBOUNCE_MS);
+  }, []);
 
   // The EventSource handlers are bound once per connection; call through this
   // ref so they always see the current (filter/page/busy-aware) sync logic.
@@ -279,6 +301,22 @@ export default function DashboardPage() {
   useEffect(() => {
     requestSyncRef.current = requestSync;
   }, [requestSync]);
+
+  // --- WS feed: the PRIMARY push transport (Phase 5) ---
+  // Both feed callbacks are the same wake-up: a verified subscribe flushes
+  // anything that changed while we were down, an order event requests a
+  // debounced silent sync. Data truth stays exclusively in fetchInbox/GETs.
+  const feedWake = useCallback(() => requestSyncRef.current(), []);
+  const feedHandlers = useMemo(() => ({ onReady: feedWake, onEvent: feedWake }), [feedWake]);
+  const { wsUp } = useOrderFeed({
+    enabled: status === 'signedIn' && !!isOwnerish && !!selectedId && live,
+    restaurantId: selectedId,
+    getAccessToken,
+    handlers: feedHandlers,
+  });
+  // "Push channel up" for the polling gate + the Live pill: WS first, SSE as
+  // its fallback — while either is connected the 10s interval idles.
+  const pushUp = wsUp || sseUp;
 
   // Flush a wake-up dropped while an action was in flight.
   useEffect(() => {
@@ -288,17 +326,19 @@ export default function DashboardPage() {
     }
   }, [busyOrderId, requestSync]);
 
-  // --- the SSE stream (primary live transport) ---
-  // One EventSource per (restaurant, live toggle). The access token cannot go
-  // in an EventSource header, so it rides the query string (server-side
+  // --- the SSE stream (FALLBACK push transport — see file header) ---
+  // One EventSource per (restaurant, live toggle, WS up/down): it opens only
+  // while the WS feed is down and is closed the moment WS recovers, so exactly
+  // one push transport ever runs. The access token cannot go in an
+  // EventSource header, so it rides the query string (server-side
   // SseJwtAuthGuard) and the connection is REBUILT with a fresh token before
   // the access TTL can expire — a stale-token reconnect loop is exactly what
   // the rebuild avoids. Liveness: any event (incl. the 15s `ping`) resets the
   // stall watchdog; two missed heartbeats = zombie stream → close, rebuild,
   // and the interval polling resumes in the meantime.
   useEffect(() => {
-    if (status !== 'signedIn' || !isOwnerish || !selectedId || !live) {
-      setPushUp(false);
+    if (status !== 'signedIn' || !isOwnerish || !selectedId || !shouldOpenSse({ live, wsUp })) {
+      setSseUp(false);
       return;
     }
     let disposed = false;
@@ -317,7 +357,7 @@ export default function DashboardPage() {
       stallTimer = window.setTimeout(() => {
         // No event (not even a ping) for 2 heartbeat cycles: the connection
         // is a zombie. Fall back to polling and try a fresh connection.
-        setPushUp(false);
+        setSseUp(false);
         errors = 0;
         if (es) es.close();
         retryTimer = window.setTimeout(() => void connect(), POLL_INTERVAL_MS);
@@ -341,7 +381,7 @@ export default function DashboardPage() {
       };
       source.onerror = () => {
         if (!mine()) return;
-        setPushUp(false);
+        setSseUp(false);
         // readyState CLOSED = the browser gave up (4xx auth/ownership);
         // otherwise it retries internally with the SAME url token.
         if (source.readyState === EventSource.CLOSED || ++errors >= STREAM_MAX_CONSECUTIVE_ERRORS) {
@@ -358,7 +398,7 @@ export default function DashboardPage() {
       source.addEventListener('hello', () => {
         if (!mine()) return;
         errors = 0;
-        setPushUp(true);
+        setSseUp(true);
         touch();
         // Catch up anything missed between the last sync and this connect.
         requestSyncRef.current();
@@ -382,10 +422,10 @@ export default function DashboardPage() {
       clearTimers();
       window.clearInterval(rebuild);
       if (es) es.close();
-      setPushUp(false);
+      setSseUp(false);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status, isOwnerish, selectedId, live]);
+  }, [status, isOwnerish, selectedId, live, wsUp]);
 
   // --- the 10s polling tick (fallback transport) ---
   // One interval per (restaurant, live toggle); the callback it fires is
@@ -489,6 +529,7 @@ export default function DashboardPage() {
     : null;
 
   const mode = liveMode({ live, pushUp, syncIssue });
+  const transport = feedTransport({ live, wsUp, sseUp });
 
   // Hydration-safe: 'loading' renders identically on server and first client paint.
   if (status === 'loading') {
@@ -575,12 +616,15 @@ export default function DashboardPage() {
           <button
             onClick={() => setLive((v) => !v)}
             aria-pressed={live}
+            data-feed-transport={transport}
             title={
               live
-                ? pushUp
-                  ? 'Live updates on — the server pushes order changes over SSE. Click to pause.'
-                  : 'Live updates on — SSE is not connected, so the inbox re-polls every 10s. Click to pause.'
-                : 'Live updates paused — click to resume the SSE stream (with 10s polling fallback).'
+                ? wsUp
+                  ? 'Live updates on — the inbox follows the WebSocket feed (SSE/polling on standby). Click to pause.'
+                  : sseUp
+                    ? 'Live updates on — the WebSocket feed is down, so the SSE stream is the push transport. Click to pause.'
+                    : 'Live updates on — no push transport is connected, so the inbox re-polls every 10s. Click to pause.'
+                : 'Live updates paused — click to resume the WebSocket feed (SSE and 10s polling as fallbacks).'
             }
             className={`flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-xs font-bold transition-colors ${
               mode === 'paused'
