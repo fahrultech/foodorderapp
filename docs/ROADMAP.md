@@ -52,6 +52,12 @@
 - [x] Realtime order feed with WebSocket gateway (Socket.IO) (2026-10-27, session 36; `RealtimeGateway` on /orders namespace, JWT handshake auth, restaurant+user rooms off the shared SSE bus; 9-case socket integration spec + live smoke. Follow-up below: web-side consumer)
 - [x] Web: dashboard/order-tracking consume the WS feed (SSE stays the fallback) (2026-10-27, session 37; `useOrderFeed` hook + transport ladder WS→SSE→poll, tracking page got its first live path; stale-debounce-closure bug found+fixed; 3 new e2e specs incl. WS-sabotage SSE-fallback test, suite 7/7 green x2)
 - [ ] Payment abstraction (mock gateway → Stripe/Xendit adapters behind one interface)
+  - [x] API core: `PaymentGateway` interface + `MockPaymentGateway` behind DI (PAYMENT_PROVIDER, boot fail-fast) + `payments` entity/migration + `POST /payments`, `POST /payments/:id/capture`, `GET /orders/:orderId/payments` + `payments` rate bucket + 46 new specs; live smokes incl. fail-mode and cancelled-order branches (2026-10-27, session 38)
+  - [ ] Stripe adapter implementing `PaymentGateway` (+ webhook verification endpoint, clientSecret-driven confirm) — needs API keys; keep mock as CI/dev default
+  - [ ] Xendit adapter (same interface + registry entry)
+  - [ ] Refund flow: `refunded` status + gateway `refundIntent` + ADMIN route + partial amounts
+  - [ ] Order-machine gate: owner confirm requires a succeeded payment (behind a feature flag; e2e fixtures need paying steps first)
+  - [ ] Web: pay button on `/checkout` + `/orders/[id]` (consume intent/capture endpoints; receipt shows payment status)
 - [ ] Notifications: email confirmations (nodemailer) then push (web-push)
 - [ ] Multi-city rollout config (cities as entities, restaurant scoping by city)
 - [ ] i18n: English + Indonesian locale on storefront (next-intl)

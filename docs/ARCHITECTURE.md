@@ -294,6 +294,33 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   the DTO) and a radio picker on `/checkout` that pre-selects the default,
   prefills the form, and drops back to "manual" the moment a field is typed —
   honest about what the server will actually use.
+- **Payment abstraction (`/api/payments`, Bearer)** — Phase 5 core: one
+  `PaymentGateway` interface (`createIntent` + `capture`, integer cents in,
+  provider refs out) hides whichever adapter is mounted. `PAYMENT_PROVIDER`
+  picks it at BOOT via a DI factory that fails fast on an unknown id — today
+  the only adapter is `MockPaymentGateway` (deterministic `mock_pi_<paymentId>`
+  refs, no network, `MOCK_PAY_GATEWAY_MODE=fail` forces declines so the
+  failed-payment path is live-exercisable). Adding Stripe/Xendit = implement
+  the interface + register it in `PaymentsModule`; `PaymentsService` never
+  touches provider code. **Amounts are never client input:** `POST /payments`
+  takes an order id and snapshots `order.totalCents` (integer cents) onto the
+  `payments` row; capture settles the SNAPSHOT. One row per ATTEMPT with a
+  unique `providerRef` and its own audit trail (`provider`, `failureReason`,
+  write-once `succeededAt`); pay() is idempotent while an attempt is pending
+  (the live row replays — a second intent per order is impossible), a
+  succeeded row 409s `ORDER_ALREADY_PAID`, a failed row is terminal and
+  retrying means a NEW row. `POST /payments/:id/capture` resolves the state
+  table: pending→gateway verdict, succeeded replays (200, gateway untouched),
+  failed 409s. Orders gate: only pending/confirmed accept NEW intents;
+  capture additionally refuses when the order has since been cancelled
+  (409 `ORDER_CANCELLED`). Access: owner pays their order, ADMIN pays any,
+  GUEST orders are payable by any authenticated payer (the receipt-link path
+  — payer is recorded on the row); foreign owned orders 404 (no existence
+  leak, same stance as cancel). Rows persist BEFORE the intent call, so a
+  gateway explosion is recorded as a FAILED row + surfaced as 502
+  `PAYMENT_GATEWAY_ERROR`, never lost. `payments` bucket throttles pay+capture
+  together (default 10/min/IP). NOT yet wired: order confirmation does not
+  require payment, refunds, web checkout UI — see ROADMAP follow-ups.
 - **No token revocation list for access tokens** — deliberate: short TTL +
   stateless verification. Re-add a deny-list only if TTL ever grows.
 - **Web session client** (`apps/web/lib/auth.tsx`): the storefront keeps the
@@ -314,6 +341,7 @@ users(1)──(N)orders(1)──(N)order_items(N)──(1)menu_items(N)──(1)
 users(1)──(N)restaurants  (restaurants.ownerId → users.id; nullable, FK ON DELETE SET NULL, indexed)
 users(1)──(N)reviews(1)──(1)orders(1)──(1)restaurants  (reviews: unique orderId, all FKs ON DELETE CASCADE; restaurants.rating/ratingCount are recomputed server-side on every review write)
 restaurants(1)──(N)promo_codes  (restaurantId nullable: null = platform-wide, FK ON DELETE CASCADE; code unique uppercase; orders keep promoCode/discountCents text+int snapshots, no FK)
+orders(1)──(N)payments  (payments.orderId FK ON DELETE CASCADE; payer payments.userId FK ON DELETE SET NULL — audit row survives user deletion; providerRef UNIQUE nullable (null only when intent creation itself failed); amountCents = server snapshot of orders.totalCents at intent time; status enum pending|succeeded|failed; indexed (orderId, createdAt) for the per-order history list)
 
 Roles: `customer` (default), `owner`, `admin`. Owner-only routes guarded by `JwtAuthGuard` + `RolesGuard` (`@Roles(UserRole.OWNER)`); ADMIN bypasses `@Roles`. Owners create/update only their own restaurants (`PATCH /restaurants/:id` returns 403 unless caller owns the row). `slug`/`rating`/`ownerId` are not owner-writable — slug auto-derived and de-duplicated (`-2`, `-3`…) at create.
 Dish ownership is **derived through the parent restaurant** (menu_items carries no owner column): owner menu routes `POST /restaurants/:id/menu`, `PATCH /menu/items/:id` (content only), `PATCH /menu/items/:id/availability`, `DELETE /menu/items/:id` all check `MenuService.assertCanManage`; platform restaurants (`ownerId null`) are admin-only. Route params that must be uuids are screened by `common/uuid.ts isUuid` → 404 instead of a raw Postgres 22P02 500.

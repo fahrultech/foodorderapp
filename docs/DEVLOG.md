@@ -4,6 +4,101 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
+## 2026-10-27 19:37 — Session 38 — Payment abstraction: gateway interface + mock adapter + payments API
+
+**Built:** Roadmap Phase 5 "Payment abstraction (mock gateway → Stripe/Xendit
+adapters behind one interface)" — the API core, scoped to one session: the
+abstraction, the mock, the money-shaped plumbing. Real adapters/refunds/web UI
+are now explicit sub-items (ROADMAP).
+
+- `payments/payment-gateway.interface.ts` — the one contract: `createIntent` +
+  `capture` (integer cents in, provider refs out) under DI token
+  `PAYMENT_GATEWAY`. Deliberately two verbs mirroring every real provider
+  (intent → capture); adapters may later ADD optional interfaces (webhook
+  verification, refunds) without widening this one. `PaymentsService` talks
+  only to the interface — proven by unit specs that inject fakes.
+- `mock-payment-gateway.ts` — deterministic `mock_pi_<paymentId>` refs and
+  clientSecret stand-ins; refuses non-positive/float amounts with a hard
+  TypeError on BOTH verbs (money contract = reject, not normalize);
+  `MOCK_PAY_GATEWAY_MODE=fail` forces declines so the failed-payment path is
+  exercisable against a live server (documented dev-only knob).
+- `payments.module.ts` — `selectPaymentGateway` factory behind
+  `PAYMENT_PROVIDER`: blank→mock, case/space tolerant, **unknown id fails the
+  API at boot** instead of silently charging through the wrong adapter.
+- `payments/payment.entity.ts` + migration `1793100690706-AddPayments` —
+  one row per ATTEMPT: `orderId` FK CASCADE (indexed `(orderId, createdAt)`),
+  payer `userId` FK SET NULL (audit survives user deletion), `provider`
+  snapshot, status enum `pending|succeeded|failed`, `amountCents` = server
+  snapshot of `orders.totalCents`, UNIQUE nullable `providerRef` (null only
+  when intent creation itself died), `failureReason`, write-once
+  `succeededAt`. DDL reviewed line-by-line before applying.
+- Endpoints (all Bearer, all on the new `payments` rate-limit bucket —
+  pay+capture share one counter, default 10/min/IP):
+  `POST /payments` {orderId} → 201 intent (fresh: clientSecret; live pending:
+  same row replayed, no second intent ever possible);
+  `POST /payments/:id/capture` → 200 state-table resolution (pending→gateway
+  verdict; succeeded replays without calling the gateway; failed 409
+  PAYMENT_ALREADY_FAILED; a since-cancelled order 409 ORDER_CANCELLED even
+  with a live row); `GET /orders/:orderId/payments` → newest-first attempt
+  history. Semantics that matter: row-state gates BEFORE the order-status
+  gate (a paid-and-cooked order reads ORDER_ALREADY_PAID, not a misleading
+  ORDER_NOT_PAYABLE); only NEW intents need pending/confirmed; the row is
+  PERSISTED before the gateway call so a provider explosion is recorded as a
+  FAILED row + 502 PAYMENT_GATEWAY_ERROR, never lost; clients can NEVER send
+  an amount or provider (extra body keys observed being stripped live).
+- Access model: owner pays own order, ADMIN pays any, GUEST orders payable by
+  any authenticated payer (receipt-link path — payer recorded on the row);
+  foreign owned → 404 (no existence leak, cancel's stance). Payment capture
+  does not emit on the SSE/WS bus yet (payments aren't order status) —
+  noted, not faked.
+- Wiring kept honest by the standing gate specs, not by hoping: swagger doc
+  now **45 operations** (3 new routes registered in `swagger.spec.ts`'s
+  route/op-count/protected/ERRORS/success-schema tables; `PaymentResponse`
+  model + `payments` tag + money-integer assertion), the ParseUUIDPipe sweep
+  grew to **24** guarded path params (2 new), `data-source.spec` to **11**
+  entities, rate-limit config now 3 buckets. 3 new suites: mock + provider
+  selection (12 tests), service unit (19), HTTP with REAL JwtAuthGuard + REAL
+  RateLimitGuard incl. 429 envelope + Retry-After + shared-counter proof (11)
+  — 42 new tests, plus the uuid sweep's 2 new routes parametrized ×2 (4 more)
+  = 46 new tests total.
+
+**Verified:**
+- `nest build` clean; jest **44 suites / 524 tests** green (was 41/478; +46).
+- Migration: generated against the running dev DB, DDL reviewed (enum, UNIQUE
+  providerRef, composite index, CASCADE/SET NULL), `migration:run` applied
+  first try; `down()` present and symmetric.
+- **Live smoke A** (succeed mode, API on :4000): guest order total 4250 →
+  pay 201 with `mock_pi_…` + clientSecret + amountCents=4250 snapshot; replay
+  201 same id clientSecret=null; capture 200 succeeded w/ succeededAt; pay
+  again **409 ORDER_ALREADY_PAID** in the standard envelope; capture replay
+  200; list 200; foreign-owned-order pay **404**; malformed uuid body/path
+  **400**; anonymous **401**; `/api/docs-json` serves 45 ops incl. all 3
+  payments routes + declared tag + `PaymentResponse` schema.
+- **Live smoke B** (second instance on :4100 with `MOCK_PAY_GATEWAY_MODE=fail`):
+  capture → 200 with `status:failed, failureReason:mock_declined`; retry pay
+  → NEW row 201; old failed row capture → 409 PAYMENT_ALREADY_FAILED; list
+  shows the full attempt history newest-first. (A script hiccup: cancelling a
+  GUEST order 404s by existing design — smoke C redid it with owned orders.)
+- **Live smoke C** (owned orders on :4000): pending intent + owner cancel →
+  capture **409 ORDER_CANCELLED**; cancelled-order pay (no rows) → **409
+  ORDER_NOT_PAYABLE**; cancelled-order pay WITH live pending row → 201 replay
+  — the documented row-state-first semantics, each proven over HTTP.
+- Repo hygiene: U+2026 sanitizer scan clean on config files (only historical
+  prose ellipses in DEVLOG), `docker compose config` OK, API instances shut
+  down, dev DB re-seeded to canonical state (payments 0, orders 10, restos 6,
+  users 2). Web untouched → `next build` skipped per WORKFLOW; CI covers both
+  apps on push anyway.
+
+**Docs:** ARCHITECTURE payment bullet + data-model line, `.env.example`
+(3 new keys + provider/fail-mode comments), ROADMAP item decomposed into
+done-core + 5 honest follow-ups (Stripe/Xendit adapters, webhook verify,
+refunds, order-machine payment gate, web pay UI).
+
+**Left for next sessions:** the ROADMAP sub-items in order — the payment gate
+on owner-confirm is the one that changes order semantics, so it needs e2e
+fixture updates + a flag; the Stripe adapter needs real keys and its webhook
+verification endpoint together.
+
 ## 2026-10-27 17:14 — Session 37 — Web consumes the WS feed (SSE demoted to fallback)
 
 **Built:** Roadmap Phase 5 "Web: dashboard/order-tracking consume the WS feed
