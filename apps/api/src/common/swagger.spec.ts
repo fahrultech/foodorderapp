@@ -28,6 +28,8 @@ import { OrdersService } from '../orders/orders.service';
 import { OrderEventsService } from '../orders/order-events.service';
 import { PromosController } from '../promos/promos.controller';
 import { PromosService } from '../promos/promos.service';
+import { OrderPaymentsController, PaymentsController } from '../payments/payments.controller';
+import { PaymentsService } from '../payments/payments.service';
 import { RestaurantsController } from '../restaurants/restaurants.controller';
 import { RestaurantsService } from '../restaurants/restaurants.service';
 import { RestaurantReviewsController, ReviewsController } from '../reviews/reviews.controller';
@@ -58,6 +60,8 @@ const CONTROLLERS = [
   RestaurantReviewsController,
   ReviewsController,
   UsersController,
+  PaymentsController,
+  OrderPaymentsController,
 ];
 
 const empty = () => ({});
@@ -74,6 +78,7 @@ const mockedProviders = [
   { provide: FavoritesService, useValue: empty() },
   { provide: AddressesService, useValue: empty() },
   { provide: PromosService, useValue: empty() },
+  { provide: PaymentsService, useValue: empty() },
   { provide: DataSource, useValue: { query: async () => [] } },
   { provide: JwtService, useValue: empty() },
   { provide: SlidingWindowLogStore, useValue: empty() },
@@ -162,6 +167,9 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['/reviews/{id}', 'patch'],
       ['/reviews/{id}', 'delete'],
       ['/promos/validate', 'post'],
+      ['/payments', 'post'],
+      ['/payments/{id}/capture', 'post'],
+      ['/orders/{orderId}/payments', 'get'],
     ];
     for (const [path, method] of expected) {
       expect(doc.paths[P(path)]?.[method]).toBeDefined();
@@ -191,6 +199,9 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['/restaurants/{id}/orders/stream', 'get'],
       ['/reviews', 'post'],
       ['/menu/items/{id}', 'delete'],
+      ['/payments', 'post'],
+      ['/payments/{id}/capture', 'post'],
+      ['/orders/{orderId}/payments', 'get'],
     ] as Array<[string, string]>) {
       const op = doc.paths[P(path)]?.[method];
       const security = op.security ?? [];
@@ -285,8 +296,11 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['/reviews/{id}', 'patch', 200, 'ref:ReviewWriteResponse'],
       ['/reviews/{id}', 'delete', 200, 'ref:ReviewRemoveResponse'],
       ['/promos/validate', 'post', 201, 'oneOf2'],
+      ['/payments', 'post', 201, 'ref:PaymentResponse'],
+      ['/payments/{id}/capture', 'post', 200, 'ref:PaymentResponse'],
+      ['/orders/{orderId}/payments', 'get', 200, 'array:PaymentResponse'],
     ];
-    expect(SUCCESS.length).toBe(42);
+    expect(SUCCESS.length).toBe(45);
     for (const [path, method, code, kind] of SUCCESS) {
       const res = doc.paths[P(path)]?.[method]?.responses?.[String(code)];
       if (!res) throw new Error(`${method} ${path}: no ${code} response documented`);
@@ -357,6 +371,9 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['/reviews/{id}', 'patch', [400, 401, 404]],
       ['/reviews/{id}', 'delete', [400, 401]],
       ['/promos/validate', 'post', [400]],
+      ['/payments', 'post', [400, 401, 404, 409, 429, 502]],
+      ['/payments/{id}/capture', 'post', [400, 401, 404, 409, 429]],
+      ['/orders/{orderId}/payments', 'get', [400, 401, 404]],
     ];
     for (const [path, method, codes] of ERRORS) {
       const responses = doc.paths[P(path)]?.[method]?.responses ?? {};
@@ -417,6 +434,7 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['RestaurantResponse', 'deliveryFeeCents'],
       ['RestaurantResponse', 'minOrderCents'],
       ['PromoValidResponse', 'discountCents'],
+      ['PaymentResponse', 'amountCents'],
     ] as Array<[string, string]>) {
       if (props(name)[field]?.type !== 'integer') throw new Error(`${name}.${field} must be integer cents`);
     }
@@ -491,6 +509,14 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       items: { $ref: '#/components/schemas/MenuItemResponse' },
     });
     expect(props('RestaurantResponse').ownerId).toMatchObject({ type: 'string', format: 'uuid', nullable: true });
+
+    // Payment rows: terminal-ish lifecycle enum, nullable gateway fields,
+    // and clientSecret NOT required (only the fresh-intent 201 carries it).
+    expect(props('PaymentResponse').status.enum).toEqual(['pending', 'succeeded', 'failed']);
+    expect(props('PaymentResponse').providerRef.nullable).toBe(true);
+    expect(props('PaymentResponse').failureReason.nullable).toBe(true);
+    expect(props('PaymentResponse').succeededAt.format).toBe('date-time');
+    expect(required('PaymentResponse')).not.toContain('clientSecret');
   });
 
   it('documents query params incl. the explicit sort enum and SSE access_token', () => {

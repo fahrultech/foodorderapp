@@ -1,0 +1,97 @@
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  Post,
+  UseGuards,
+} from '@nestjs/common';
+import {
+  ApiBearerAuth,
+  ApiCreatedResponse,
+  ApiOkResponse,
+  ApiOperation,
+  ApiParam,
+  ApiTags,
+} from '@nestjs/swagger';
+import { UuidParam } from '../common/uuid';
+import {
+  ApiError,
+  PaymentResponse,
+} from '../common/swagger-response-models';
+import { PaymentsService } from './payments.service';
+import { CreatePaymentDto } from './dto/create-payment.dto';
+import { JwtAuthGuard } from '../common/jwt-auth.guard';
+import { RateLimitGuard } from '../common/rate-limit/rate-limit.guard';
+import { RateLimit } from '../common/rate-limit/rate-limit.decorator';
+import { CurrentUser } from '../common/current-user.decorator';
+
+/**
+ * Payments REST surface (Phase 5 "payment abstraction"). Every route is
+ * JWT-only — payment is by definition an authenticated action — and rides
+ * the `payments` rate-limit bucket. The whole client input for paying is
+ * an order id; amounts are server-snapshotted, never accepted.
+ */
+@ApiTags('payments')
+@Controller('payments')
+export class PaymentsController {
+  constructor(private readonly service: PaymentsService) {}
+
+  @Post()
+  @RateLimit('payments')
+  @UseGuards(RateLimitGuard, JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Create (or replay) a payment intent for an order', description: 'Snapshots order.totalCents server-side and asks the configured gateway for an intent. Idempotent while an attempt is pending (the same row is returned, no second intent); a succeeded attempt makes this 409. A failed row is terminal — calling again starts a NEW attempt. Guest orders can be paid by any signed-in user; owned orders only by their owner (admins bypass, foreign orders 404).' })
+  @ApiCreatedResponse({ type: PaymentResponse, description: 'Fresh intent: row + provider clientSecret. Replay of a live pending attempt: clientSecret null.' })
+  @ApiError(400, 'orderId missing/not a UUID, or malformed body.')
+  @ApiError(401, 'Missing/invalid/expired access token.')
+  @ApiError(404, 'Unknown order id, or an order belonging to someone else (existence not leaked).')
+  @ApiError(409, 'ORDER_ALREADY_PAID / ORDER_NOT_PAYABLE (order past pending/confirmed) / ORDER_CANCELLED.')
+  @ApiError(429, 'Payments rate limit exceeded; Retry-After header says when to retry.')
+  @ApiError(502, 'PAYMENT_GATEWAY_ERROR — provider refused to create the intent (the row is recorded as failed).')
+  async pay(@Body() dto: CreatePaymentDto, @CurrentUser() user: any) {
+    const { payment, clientSecret } = await this.service.pay(dto.orderId, user);
+    return { ...payment, clientSecret };
+  }
+
+  @Post(':id/capture')
+  @HttpCode(200)
+  @RateLimit('payments')
+  @UseGuards(RateLimitGuard, JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiParam({ name: 'id', schema: { type: 'string', format: 'uuid' } })
+  @ApiOperation({ summary: 'Capture a pending payment through the gateway', description: 'The mock settles synchronously (succeeded unless MOCK_PAY_GATEWAY_MODE=fail). Terminal states are idempotent-or-409: succeeded replays, failed answers PAYMENT_ALREADY_FAILED (start a new attempt), a cancelled order refuses capture. Amount comes from the snapshot — nothing capturable is client-supplied.' })
+  @ApiOkResponse({ type: PaymentResponse })
+  @ApiError(400, 'Malformed (non-UUID) payment id.')
+  @ApiError(401, 'Missing/invalid/expired access token.')
+  @ApiError(404, 'Unknown payment id, or one paid by another user (existence not leaked).')
+  @ApiError(409, 'PAYMENT_ALREADY_FAILED / ORDER_CANCELLED.')
+  @ApiError(429, 'Payments rate limit exceeded.')
+  capture(@UuidParam('id') id: string, @CurrentUser() user: any) {
+    return this.service.capture(id, user);
+  }
+}
+
+/**
+ * Order-scoped payment history, mounted under /orders/{orderId}/… — kept in
+ * its own controller so OrdersController (and its module wiring) stays
+ * untouched; distinct path arity means no route shadowing.
+ */
+@ApiTags('payments')
+@Controller('orders/:orderId/payments')
+export class OrderPaymentsController {
+  constructor(private readonly service: PaymentsService) {}
+
+  @Get('')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiParam({ name: 'orderId', schema: { type: 'string', format: 'uuid' } })
+  @ApiOperation({ summary: 'All payment attempts for one order (newest first)', description: 'Full history per order: failed retries included, amounts as snapped. Same access rules as POST /payments — owner, any authenticated user for guest orders, admin; foreign orders 404.' })
+  @ApiOkResponse({ type: [PaymentResponse], description: 'All attempts for the order, newest first.' })
+  @ApiError(400, 'Malformed (non-UUID) order id.')
+  @ApiError(401, 'Missing/invalid/expired access token.')
+  @ApiError(404, 'Unknown order id or an order belonging to another customer.')
+  list(@UuidParam('orderId') orderId: string, @CurrentUser() user: any) {
+    return this.service.listForOrder(orderId, user);
+  }
+}

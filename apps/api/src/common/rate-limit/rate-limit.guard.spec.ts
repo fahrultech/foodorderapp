@@ -60,7 +60,7 @@ describe('RateLimitGuard (unit)', () => {
   });
 
   it('valid bucket metadata that is not in config fails open', () => {
-    const guard2 = new RateLimitGuard(store, { rules: { auth: undefined as never, orders: undefined as never }, trustProxy: false });
+    const guard2 = new RateLimitGuard(store, { rules: { auth: undefined as never, orders: undefined as never, payments: undefined as never }, trustProxy: false });
     const ctx = makeContext({ ip: '1.2.3.4', headers: {} }, makeRes(), decoratedHandler('auth'));
     expect(guard2.canActivate(ctx)).toBe(true);
   });

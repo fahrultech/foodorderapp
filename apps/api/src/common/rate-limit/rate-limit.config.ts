@@ -7,7 +7,7 @@
  * overrides via env without a redeploy.
  */
 
-export const RATE_LIMIT_BUCKETS = ['auth', 'orders'] as const;
+export const RATE_LIMIT_BUCKETS = ['auth', 'orders', 'payments'] as const;
 export type RateLimitBucket = (typeof RATE_LIMIT_BUCKETS)[number];
 
 export interface RateLimitRule {
@@ -35,6 +35,9 @@ const DEFAULTS: Record<RateLimitBucket, { max: number; windowSec: number }> = {
   auth: { max: 10, windowSec: 60 },
   // Order spam (guest checkout is open by design): 30 orders / minute / IP.
   orders: { max: 30, windowSec: 60 },
+  // Payment intents/captures: a human pays one order in a handful of calls;
+  // tighter than orders because there is no browsing in this counter.
+  payments: { max: 10, windowSec: 60 },
 };
 
 function positiveInt(raw: string | undefined, fallback: number): number {
@@ -57,6 +60,10 @@ export function loadRateLimitConfig(env: NodeJS.ProcessEnv = process.env): RateL
       orders: {
         limit: positiveInt(env.RATE_LIMIT_ORDERS_MAX, DEFAULTS.orders.max),
         windowMs: positiveInt(env.RATE_LIMIT_ORDERS_WINDOW_SEC, DEFAULTS.orders.windowSec) * 1000,
+      },
+      payments: {
+        limit: positiveInt(env.RATE_LIMIT_PAYMENTS_MAX, DEFAULTS.payments.max),
+        windowMs: positiveInt(env.RATE_LIMIT_PAYMENTS_WINDOW_SEC, DEFAULTS.payments.windowSec) * 1000,
       },
     },
     trustProxy: truthy(env.RATE_LIMIT_TRUST_PROXY),

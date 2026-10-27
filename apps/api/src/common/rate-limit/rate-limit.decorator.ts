@@ -21,5 +21,5 @@ export function resolveBucket(context: ExecutionContext): RateLimitBucket | unde
 }
 
 function isBucket(value: unknown): value is RateLimitBucket {
-  return value === 'auth' || value === 'orders';
+  return value === 'auth' || value === 'orders' || value === 'payments';
 }

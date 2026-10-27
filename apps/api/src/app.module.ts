@@ -9,6 +9,7 @@ import { MenuModule } from './menu/menu.module';
 import { OrdersModule } from './orders/orders.module';
 import { ReviewsModule } from './reviews/reviews.module';
 import { PromosModule } from './promos/promos.module';
+import { PaymentsModule } from './payments/payments.module';
 import { HealthModule } from './health/health.module';
 import { RateLimitModule } from './common/rate-limit/rate-limit.module';
 
@@ -38,6 +39,7 @@ import { RateLimitModule } from './common/rate-limit/rate-limit.module';
     OrdersModule,
     ReviewsModule,
     PromosModule,
+    PaymentsModule,
     RateLimitModule,
   ],
 })

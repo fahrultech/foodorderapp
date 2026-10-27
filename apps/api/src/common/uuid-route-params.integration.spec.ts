@@ -18,6 +18,8 @@ import { OrdersService } from '../orders/orders.service';
 import { OrderEventsService } from '../orders/order-events.service';
 import { PromosController } from '../promos/promos.controller';
 import { PromosService } from '../promos/promos.service';
+import { OrderPaymentsController, PaymentsController } from '../payments/payments.controller';
+import { PaymentsService } from '../payments/payments.service';
 import { RestaurantsController } from '../restaurants/restaurants.controller';
 import { RestaurantsService } from '../restaurants/restaurants.service';
 import { RestaurantReviewsController, ReviewsController } from '../reviews/reviews.controller';
@@ -113,6 +115,11 @@ function mocks() {
       setDefault: jest.fn(async () => ({ alreadyDefault: true, item: {} })),
     } as unknown as AddressesService,
     promos: { preview: jest.fn(async () => ({ valid: false })) } as unknown as PromosService,
+    payments: {
+      pay: jest.fn(async () => ({ payment: {}, clientSecret: null })),
+      capture: jest.fn(async (id: string) => ({ id })),
+      listForOrder: jest.fn(async () => []),
+    } as unknown as PaymentsService,
   };
 }
 
@@ -128,6 +135,8 @@ const CONTROLLERS = [
   RestaurantReviewsController,
   ReviewsController,
   UsersController,
+  PaymentsController,
+  OrderPaymentsController,
 ];
 
 /** Stub-open every guard the routes use; also attaches a fake JWT user. */
@@ -200,6 +209,7 @@ describe('uuid route params — ParseUUIDPipe sweep (live HTTP, production pipes
         { provide: FavoritesService, useValue: m.favorites },
         { provide: AddressesService, useValue: m.addresses },
         { provide: PromosService, useValue: m.promos },
+        { provide: PaymentsService, useValue: m.payments },
         { provide: DataSource, useValue: { query: async () => [] } },
         { provide: JwtService, useValue: {} },
         { provide: SlidingWindowLogStore, useValue: {} },
@@ -255,6 +265,8 @@ describe('uuid route params — ParseUUIDPipe sweep (live HTTP, production pipes
       { label: 'Home' }],
     ['DELETE', (id) => `/api/users/me/addresses/${id}`, m.addresses.remove as jest.Mock],
     ['POST', (id) => `/api/users/me/addresses/${id}/default`, m.addresses.setDefault as jest.Mock],
+    ['GET', (id) => `/api/orders/${id}/payments`, m.payments.listForOrder as jest.Mock],
+    ['POST', (id) => `/api/payments/${id}/capture`, m.payments.capture as jest.Mock],
   ];
 
   it.each(uuidRoutes)(

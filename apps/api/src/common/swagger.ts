@@ -27,6 +27,7 @@ export const SWAGGER_TAGS = [
   'orders',
   'reviews',
   'promos',
+  'payments',
 ] as const;
 
 export function buildSwaggerDocumentConfig() {
@@ -51,8 +52,9 @@ export function buildSwaggerDocumentConfig() {
         '`{ "error": { "code", "message", "details?" } }`',
         '(validation failures return 400 with per-field `details`).',
         '',
-        '**Rate limits** — `auth` and `orders` endpoints are throttled per',
-        'client IP; exceeding the window returns 429 with a `Retry-After` header.',
+        '**Rate limits** — `auth`, `orders` and `payments` endpoints are',
+        'throttled per client IP; exceeding the window returns 429 with a',
+      '`Retry-After` header.',
         '',
         'Every response carries an `x-request-id` header for log correlation.',
       ].join('\n'),
@@ -74,5 +76,6 @@ export function buildSwaggerDocumentConfig() {
     .addTag('orders', 'Checkout (guest allowed), order history, cancellation, status machine.')
     .addTag('reviews', 'Ratings on completed orders + public restaurant review feed.')
     .addTag('promos', 'Promo-code preview for the cart.')
+    .addTag('payments', 'Payment attempts behind the provider abstraction (mock gateway today).')
     .build();
 }

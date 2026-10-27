@@ -2,6 +2,7 @@ import { ApiProperty, ApiPropertyOptional, ApiResponse } from '@nestjs/swagger';
 import { OrderStatus } from '../orders/order.entity';
 import { UserRole } from '../users/user.entity';
 import { PromoDiscountType } from '../promos/promo-code.entity';
+import { PaymentStatus } from '../payments/payment.entity';
 
 /**
  * Typed RESPONSE models for the OpenAPI document (roadmap Phase 4 "Swagger
@@ -721,4 +722,65 @@ export class PromoInvalidResponse {
 
   @ApiProperty()
   message: string;
+}
+
+// ---------------------------------------------------------------------------
+// Payments — one payment ATTEMPT per row (retry-after-failure history is the
+// point of the list). Mirrors the Payment entity as serialized by
+// PaymentsService; `clientSecret` appears ONLY on the POST /payments 201 of a
+// FRESH intent (null on a replay of a live pending attempt).
+// ---------------------------------------------------------------------------
+
+export class PaymentResponse {
+  @ApiProperty({ type: 'string', format: 'uuid' })
+  id: string;
+
+  @ApiProperty({ type: 'string', format: 'uuid' })
+  orderId: string;
+
+  @ApiProperty({
+    type: 'string',
+    format: 'uuid',
+    nullable: true,
+    description: 'Payer (always set at creation; null only if the user account was later deleted — the audit row survives).',
+  })
+  userId: string | null;
+
+  @ApiProperty({ description: 'Gateway adapter that handled this attempt; config-selected, never client-chosen.', example: 'mock' })
+  provider: string;
+
+  @ApiProperty({ enum: PaymentStatus })
+  status: PaymentStatus;
+
+  @ApiProperty({ type: 'integer', description: 'Snapshot of order.totalCents at intent creation. Server-copied — clients never supply amounts.' })
+  amountCents: number;
+
+  @ApiProperty({ description: 'ISO 4217 code; single-currency deployment today.', example: 'IDR' })
+  currency: string;
+
+  @ApiProperty({
+    type: 'string',
+    nullable: true,
+    description: "Provider-side intent id (mock: 'mock_pi_<paymentId>'). Null only when gateway intent creation itself failed.",
+  })
+  providerRef: string | null;
+
+  @ApiProperty({ type: 'string', nullable: true, description: 'Machine-readable decline/gateway-failure reason; null while clean.' })
+  failureReason: string | null;
+
+  @ApiProperty({ type: 'string', format: 'date-time', nullable: true, description: 'Set once, when the payment first succeeded.' })
+  succeededAt: string | null;
+
+  @ApiPropertyOptional({
+    type: 'string',
+    nullable: true,
+    description: 'Opaque client-confirmation string (mock stand-in; meaningful only for a future SDK-backed adapter). POST /payments 201 of a FRESH intent only — absent on every other shape.',
+  })
+  clientSecret?: string | null;
+
+  @ApiProperty({ type: 'string', format: 'date-time' })
+  createdAt: string;
+
+  @ApiProperty({ type: 'string', format: 'date-time' })
+  updatedAt: string;
 }

@@ -6,22 +6,26 @@ describe('loadRateLimitConfig', () => {
     RATE_LIMIT_AUTH_WINDOW_SEC: undefined,
     RATE_LIMIT_ORDERS_MAX: undefined,
     RATE_LIMIT_ORDERS_WINDOW_SEC: undefined,
+    RATE_LIMIT_PAYMENTS_MAX: undefined,
+    RATE_LIMIT_PAYMENTS_WINDOW_SEC: undefined,
     RATE_LIMIT_TRUST_PROXY: undefined,
   };
 
-  it('falls back to documented defaults (auth 10/min, orders 30/min, socket IP)', () => {
+  it('falls back to documented defaults (auth 10/min, orders 30/min, payments 10/min, socket IP)', () => {
     const cfg = loadRateLimitConfig({ ...base } as NodeJS.ProcessEnv);
     expect(cfg.rules.auth).toEqual({ limit: 10, windowMs: 60_000 });
     expect(cfg.rules.orders).toEqual({ limit: 30, windowMs: 60_000 });
+    expect(cfg.rules.payments).toEqual({ limit: 10, windowMs: 60_000 });
     expect(cfg.trustProxy).toBe(false);
   });
 
   it('honours env overrides', () => {
     const cfg = loadRateLimitConfig(
-      { ...base, RATE_LIMIT_AUTH_MAX: '5', RATE_LIMIT_ORDERS_WINDOW_SEC: '120' } as NodeJS.ProcessEnv,
+      { ...base, RATE_LIMIT_AUTH_MAX: '5', RATE_LIMIT_ORDERS_WINDOW_SEC: '120', RATE_LIMIT_PAYMENTS_MAX: '3' } as NodeJS.ProcessEnv,
     );
     expect(cfg.rules.auth.limit).toBe(5);
     expect(cfg.rules.orders.windowMs).toBe(120_000);
+    expect(cfg.rules.payments.limit).toBe(3);
   });
 
   it('reads RATE_LIMIT_TRUST_PROXY only on explicit 1/true', () => {
