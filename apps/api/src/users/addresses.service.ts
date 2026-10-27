@@ -6,6 +6,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { DeliveryAddress } from './delivery-address.entity';
+import { isUuid } from '../common/uuid';
 import {
   CreateDeliveryAddressDto,
   UpdateDeliveryAddressDto,
@@ -89,6 +90,9 @@ export class AddressesService {
     if (Object.keys(patch).length === 0) {
       throw new BadRequestException('No address fields to update');
     }
+    // Defense-in-depth for direct calls (HTTP answers 400 at the route's
+    // UuidParam before this runs): a junk uuid must never reach Postgres.
+    if (!isUuid(id)) throw new NotFoundException('Delivery address not found');
     const result = await this.repo.update({ id, userId }, patch);
     if (!result.affected) throw new NotFoundException('Delivery address not found');
     return { item: await this.getOwned(userId, id) };
@@ -103,6 +107,7 @@ export class AddressesService {
     userId: string,
     id: string,
   ): Promise<{ removed: boolean; promotedDefaultId?: string }> {
+    if (!isUuid(id)) return { removed: false }; // defense-in-depth (route pipe 400s first)
     const row = await this.repo.findOne({ where: { id, userId } });
     if (!row) return { removed: false };
     await this.repo.delete({ id: row.id, userId });
@@ -142,6 +147,7 @@ export class AddressesService {
    * indistinguishable answer).
    */
   async getOwned(userId: string, id: string): Promise<DeliveryAddress> {
+    if (!isUuid(id)) throw new NotFoundException('Delivery address not found');
     const row = await this.repo.findOne({ where: { id, userId } });
     if (!row) throw new NotFoundException('Delivery address not found');
     return row;

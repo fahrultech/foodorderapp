@@ -2,10 +2,10 @@ import {
   Body,
   Controller,
   Get,
-  Param,
   Post,
   UseGuards,
 } from '@nestjs/common';
+import { UuidParam } from '../common/uuid';
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
@@ -30,9 +30,10 @@ export class MenuController {
 
   @Get()
   @ApiParam({ name: 'restaurantId', schema: { type: 'string', format: 'uuid' } })
-  @ApiOperation({ summary: 'Public menu of one restaurant (categories grouped client-side)' })
+  @ApiOperation({ summary: 'Public menu of one restaurant (categories grouped client-side)', description: 'Unknown-but-valid restaurant ids answer an empty list; a malformed (non-UUID) id answers 400.' })
   @ApiOkResponse({ type: [MenuItemResponse], description: 'Ordered by category then name.' })
-  list(@Param('restaurantId') restaurantId: string) {
+  @ApiError(400, 'Malformed (non-UUID) restaurant id.')
+  list(@UuidParam('restaurantId') restaurantId: string) {
     return this.service.findByRestaurant(restaurantId);
   }
 
@@ -44,12 +45,12 @@ export class MenuController {
   @ApiParam({ name: 'restaurantId', schema: { type: 'string', format: 'uuid' } })
   @ApiOperation({ summary: 'Owner: add a dish', description: 'OWNER role required (admins bypass); the restaurant in the path must belong to the caller, otherwise 404/403. `restaurantId` is taken from the URL, never the body.' })
   @ApiCreatedResponse({ type: MenuItemResponse })
-  @ApiError(400, 'Body failed validation.')
+  @ApiError(400, 'Body failed validation or the path id is not a UUID.')
   @ApiError(401, 'Missing/invalid/expired access token.')
   @ApiError(403, 'Valid token but role is not OWNER (admins bypass).')
-  @ApiError(404, 'Unknown or malformed restaurant id.')
+  @ApiError(404, 'Unknown restaurant id.')
   create(
-    @Param('restaurantId') restaurantId: string,
+    @UuidParam('restaurantId') restaurantId: string,
     @CurrentUser() user: any,
     @Body() dto: CreateMenuItemDto,
   ) {

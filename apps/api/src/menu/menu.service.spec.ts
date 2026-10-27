@@ -238,3 +238,19 @@ describe('MenuService — owner CRUD', () => {
     });
   });
 });
+
+describe('MenuService.findByRestaurant — malformed uuid guard', () => {
+  it('404s before touching the item repo (defense-in-depth under the route pipe)', async () => {
+    const { itemRepo, service } = build();
+    await expect(service.findByRestaurant('not-a-uuid')).rejects.toBeInstanceOf(NotFoundException);
+    expect(itemRepo.find).not.toHaveBeenCalled();
+  });
+
+  it('still lists for a validly-shaped restaurant id (unknown ids answer [])', async () => {
+    const { service } = build();
+    const rows = await service.findByRestaurant('11111111-1111-4111-8111-111111111111');
+    expect(rows).toHaveLength(1);
+    const none = await service.findByRestaurant('99999999-9999-4999-8999-999999999999');
+    expect(none).toEqual([]);
+  });
+});

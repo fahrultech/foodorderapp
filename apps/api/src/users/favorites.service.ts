@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Favorite } from './favorite.entity';
 import { MenuItem } from '../menu/menu-item.entity';
+import { isUuid } from '../common/uuid';
 
 /** Flat client-facing favorite row: dish fields + restaurant identity + when it was hearted. */
 export interface FavoriteDish {
@@ -81,6 +82,7 @@ export class FavoritesService {
    * silent failure, the flag tells the client whether the DB row changed.
    */
   async add(userId: string, menuItemId: string): Promise<{ created: boolean; item: FavoriteDish }> {
+    if (!isUuid(menuItemId)) throw new NotFoundException('Dish not found');
     const dish = await this.dishRepo.findOne({
       where: { id: menuItemId },
       relations: { restaurant: true },
@@ -106,8 +108,14 @@ export class FavoritesService {
     return { created: true, item: toFavoriteDish(await this.withRelations(row)) };
   }
 
-  /** Un-heart. `removed:false` when the dish wasn't favorited (idempotent). */
+  /**
+   * Un-heart. `removed:false` when the dish wasn't favorited (idempotent).
+   * A malformed id can never match a row, so it answers the same way —
+   * short-circuit keeps junk out of Postgres (22P02). Over HTTP the route's
+   * `UuidParam` answers 400 first; this guard covers direct service calls.
+   */
   async remove(userId: string, menuItemId: string): Promise<{ removed: boolean }> {
+    if (!isUuid(menuItemId)) return { removed: false };
     const result = await this.favRepo.delete({ userId, menuItemId });
     return { removed: (result.affected ?? 0) > 0 };
   }

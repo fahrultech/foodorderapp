@@ -2,12 +2,12 @@ import {
   Controller,
   Get,
   MessageEvent,
-  Param,
   Patch,
   Query,
   Sse,
   UseGuards,
 } from '@nestjs/common';
+import { UuidParam } from '../common/uuid';
 import {
   ApiBearerAuth,
   ApiOkResponse,
@@ -56,11 +56,12 @@ export class RestaurantOrdersController {
   @ApiParam({ name: 'id', schema: { type: 'string', format: 'uuid' } })
   @ApiOperation({ summary: 'Owner inbox: orders of my restaurant (status filter + paging)', description: 'OWNER required (admins bypass). Unknown restaurant or one not owned by the caller answers 404/403. Same ListMyOrdersDto query contract as /orders/my.' })
   @ApiOkResponse({ type: OwnerInboxResponse })
+  @ApiError(400, 'Malformed (non-UUID) restaurant id.')
   @ApiError(401, 'Missing/invalid/expired access token.')
   @ApiError(403, 'Valid token but role is not OWNER (admins bypass).')
-  @ApiError(404, 'Unknown or malformed restaurant id.')
+  @ApiError(404, 'Unknown restaurant id.')
   list(
-    @Param('id') id: string,
+    @UuidParam('id') id: string,
     @CurrentUser() user: any,
     @Query() query: ListMyOrdersDto,
   ) {
@@ -82,13 +83,13 @@ export class RestaurantOrdersController {
   @ApiParam({ name: 'orderId', schema: { type: 'string', format: 'uuid' } })
   @ApiOperation({ summary: 'Owner: move one of my restaurant\u2019s orders (accept/start/deliver/complete/cancel)', description: '`status` is a QUERY param validated against the OrderStatus enum (junk → 400 before touching the DB); illegal transitions of a valid status also answer 400. Customer tokens get 403 from RolesGuard; admins pass and rely on the service-side ownership bypass.' })
   @ApiOkResponse({ type: OrderResponse })
-  @ApiError(400, 'Junk status value (enum validation) or illegal transition.')
+  @ApiError(400, 'Junk status value (enum validation), illegal transition, or a path id that is not a UUID.')
   @ApiError(401, 'Missing/invalid/expired access token.')
   @ApiError(403, 'Valid token but role is not OWNER (admins bypass).')
   @ApiError(404, 'Unknown restaurant/order, or an order that does not belong to this restaurant.')
   setStatus(
-    @Param('id') id: string,
-    @Param('orderId') orderId: string,
+    @UuidParam('id') id: string,
+    @UuidParam('orderId') orderId: string,
     @CurrentUser() user: any,
     @Query() dto: SetOrderStatusDto,
   ) {
@@ -138,11 +139,12 @@ export class RestaurantOrdersController {
       'Server-sent events, not JSON: `event: hello` on connect, then `order.created` / `order.updated` (trigger-only id payloads) and `ping` every 15s.',
     content: { 'text/event-stream': { schema: { type: 'string' } } },
   })
+  @ApiError(400, 'Malformed (non-UUID) restaurant id.')
   @ApiError(401, 'No/bad bearer token or bad ?access_token= query (EventSource cannot send headers).')
   @ApiError(403, 'Valid token but role is not OWNER (admins bypass).')
-  @ApiError(404, 'Unknown or malformed restaurant id.')
+  @ApiError(404, 'Unknown restaurant id.')
   async stream(
-    @Param('id') id: string,
+    @UuidParam('id') id: string,
     @CurrentUser() user: any,
   ): Promise<Observable<MessageEvent>> {
     await this.service.assertStreamAccess(id, { sub: user.sub, role: user.role });

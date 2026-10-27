@@ -3,12 +3,12 @@ import {
   Controller,
   Get,
   NotFoundException,
-  Param,
   Patch,
   Post,
   Query,
   UseGuards,
 } from '@nestjs/common';
+import { UuidParam } from '../common/uuid';
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
@@ -99,12 +99,12 @@ export class RestaurantsController {
   @ApiParam({ name: 'id', schema: { type: 'string', format: 'uuid' } })
   @ApiOperation({ summary: 'Owner: edit own restaurant', description: '`ownerId`, `slug` and `rating` are intentionally not editable here.' })
   @ApiOkResponse({ type: RestaurantResponse })
-  @ApiError(400, 'Body failed validation.')
+  @ApiError(400, 'Body failed validation or the path id is not a UUID.')
   @ApiError(401, 'Missing/invalid/expired access token.')
   @ApiError(403, 'Restaurant belongs to another owner (admins bypass).')
-  @ApiError(404, 'Unknown or malformed restaurant id.')
+  @ApiError(404, 'Unknown restaurant id.')
   update(
-    @Param('id') id: string,
+    @UuidParam('id') id: string,
     @CurrentUser() user: any,
     @Body() dto: UpdateRestaurantDto,
   ) {
@@ -113,10 +113,11 @@ export class RestaurantsController {
 
   @Get(':id')
   @ApiParam({ name: 'id', schema: { type: 'string', format: 'uuid' } })
-  @ApiOperation({ summary: 'One restaurant incl. its menu items', description: 'Public. Unknown or non-UUID ids answer 404.' })
+  @ApiOperation({ summary: 'One restaurant incl. its menu items', description: 'Public. Malformed (non-UUID) ids answer 400; unknown ids answer 404.' })
   @ApiOkResponse({ type: RestaurantWithMenuResponse })
-  @ApiError(404, 'Unknown or malformed restaurant id.')
-  async one(@Param('id') id: string) {
+  @ApiError(400, 'Malformed (non-UUID) restaurant id.')
+  @ApiError(404, 'Unknown restaurant id.')
+  async one(@UuidParam('id') id: string) {
     const restaurant = await this.service.findOne(id);
     if (!restaurant) throw new NotFoundException('Restaurant not found');
     return restaurant;

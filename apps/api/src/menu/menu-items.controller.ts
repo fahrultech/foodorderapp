@@ -2,10 +2,10 @@ import {
   Body,
   Controller,
   Delete,
-  Param,
   Patch,
   UseGuards,
 } from '@nestjs/common';
+import { UuidParam } from '../common/uuid';
 import {
   ApiBearerAuth,
   ApiOkResponse,
@@ -46,12 +46,12 @@ export class MenuItemsController {
   @ApiParam({ name: 'id', schema: { type: 'string', format: 'uuid' } })
   @ApiOperation({ summary: 'Owner: edit dish content', description: 'Partial update; availability lives on its own route and `restaurantId` is not editable — a dish never moves between restaurants.' })
   @ApiOkResponse({ type: MenuItemResponse })
-  @ApiError(400, 'Body failed validation.')
+  @ApiError(400, 'Body failed validation or the path id is not a UUID.')
   @ApiError(401, 'Missing/invalid/expired access token.')
   @ApiError(403, 'Valid token but role is not OWNER (admins bypass).')
-  @ApiError(404, 'Unknown or malformed dish id.')
+  @ApiError(404, 'Unknown dish id.')
   update(
-    @Param('id') id: string,
+    @UuidParam('id') id: string,
     @CurrentUser() user: any,
     @Body() dto: UpdateMenuItemDto,
   ) {
@@ -63,12 +63,12 @@ export class MenuItemsController {
   @ApiParam({ name: 'id', schema: { type: 'string', format: 'uuid' } })
   @ApiOperation({ summary: 'Owner: toggle availability (sold out / back in stock)' })
   @ApiOkResponse({ type: MenuItemResponse })
-  @ApiError(400, 'Body failed validation (isAvailable must be boolean).')
+  @ApiError(400, 'Body failed validation (isAvailable must be boolean) or the path id is not a UUID.')
   @ApiError(401, 'Missing/invalid/expired access token.')
   @ApiError(403, 'Valid token but role is not OWNER (admins bypass).')
-  @ApiError(404, 'Unknown or malformed dish id.')
+  @ApiError(404, 'Unknown dish id.')
   setAvailability(
-    @Param('id') id: string,
+    @UuidParam('id') id: string,
     @CurrentUser() user: any,
     @Body() dto: UpdateAvailabilityDto,
   ) {
@@ -79,10 +79,11 @@ export class MenuItemsController {
   @ApiParam({ name: 'id', schema: { type: 'string', format: 'uuid' } })
   @ApiOperation({ summary: 'Owner: delete a dish', description: 'Ownership is resolved through the dish\u2019s parent restaurant; foreign/unknown ids answer 404.' })
   @ApiOkResponse({ type: MenuItemResponse, description: 'Pre-delete snapshot of the dish (order history keeps its own name/price snapshots).' })
+  @ApiError(400, 'Malformed (non-UUID) dish id.')
   @ApiError(401, 'Missing/invalid/expired access token.')
   @ApiError(403, 'Valid token but role is not OWNER (admins bypass).')
-  @ApiError(404, 'Unknown or malformed dish id.')
-  remove(@Param('id') id: string, @CurrentUser() user: any) {
+  @ApiError(404, 'Unknown dish id.')
+  remove(@UuidParam('id') id: string, @CurrentUser() user: any) {
     return this.service.remove(id, this.actor(user));
   }
 }

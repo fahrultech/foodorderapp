@@ -4,6 +4,9 @@ import { FavoritesService } from './favorites.service';
 import { MenuItem } from '../menu/menu-item.entity';
 import { Restaurant } from '../restaurants/restaurant.entity';
 
+/** The real dish id column is uuid — the service short-circuits junk ids. */
+const DISH_ID = '00000000-0000-4000-8000-0000000000d1';
+
 function fakeDish(overrides: Partial<MenuItem> = {}): MenuItem {
   const restaurant = {
     id: 'r1',
@@ -12,7 +15,7 @@ function fakeDish(overrides: Partial<MenuItem> = {}): MenuItem {
     isOpen: true,
   } as Restaurant;
   return {
-    id: 'd1',
+    id: DISH_ID,
     name: 'Nasi Goreng',
     description: 'Fried rice',
     priceCents: 1200,
@@ -82,7 +85,7 @@ describe('FavoritesService', () => {
       );
       expect(res.total).toBe(2);
       expect(res.items[0]).toEqual({
-        menuItemId: 'd1',
+        menuItemId: DISH_ID,
         name: 'Nasi Goreng',
         description: 'Fried rice',
         priceCents: 1200,
@@ -116,50 +119,67 @@ describe('FavoritesService', () => {
     it('inserts a new favorite and returns created:true with the dish row', async () => {
       const dish = fakeDish();
       const h = build(dish, { existing: null });
-      const res = await h.service.add('u1', 'd1');
+      const res = await h.service.add('u1', DISH_ID);
 
-      expect(h.favRepo.insert).toHaveBeenCalledWith({ userId: 'u1', menuItemId: 'd1' });
+      expect(h.favRepo.insert).toHaveBeenCalledWith({ userId: 'u1', menuItemId: DISH_ID });
       expect(res.created).toBe(true);
-      expect(res.item.menuItemId).toBe('d1');
+      expect(res.item.menuItemId).toBe(DISH_ID);
       expect(res.item.restaurantName).toBe('Warung Nusantara');
     });
 
     it('is idempotent: existing favorite returns created:false, no insert', async () => {
       const dish = fakeDish();
       const h = build(dish, { existing: fakeFavorite(dish) });
-      const res = await h.service.add('u1', 'd1');
+      const res = await h.service.add('u1', DISH_ID);
 
       expect(h.favRepo.insert).not.toHaveBeenCalled();
       expect(res.created).toBe(false);
-      expect(res.item.menuItemId).toBe('d1');
+      expect(res.item.menuItemId).toBe(DISH_ID);
     });
 
     it('absorbs the unique-violation race as created:false', async () => {
       const dish = fakeDish();
       const err = Object.assign(new Error('duplicate key'), { code: '23505' });
       const h = build(dish, { insertThrows: err, raceRow: fakeFavorite(dish) });
-      const res = await h.service.add('u1', 'd1');
+      const res = await h.service.add('u1', DISH_ID);
       expect(res.created).toBe(false);
-      expect(res.item.menuItemId).toBe('d1');
+      expect(res.item.menuItemId).toBe(DISH_ID);
     });
 
     it('rethrows non-unique insert errors untouched', async () => {
       const err = Object.assign(new Error('connection lost'), { code: '08006' });
       const h = build(fakeDish(), { insertThrows: err });
-      await expect(h.service.add('u1', 'd1')).rejects.toBe(err);
+      await expect(h.service.add('u1', DISH_ID)).rejects.toBe(err);
     });
   });
 
   describe('remove', () => {
     it('reports removed:true when a row was deleted', async () => {
       const h = build(null, { affected: 1 });
-      expect(await h.service.remove('u1', 'd1')).toEqual({ removed: true });
-      expect(h.favRepo.delete).toHaveBeenCalledWith({ userId: 'u1', menuItemId: 'd1' });
+      expect(await h.service.remove('u1', DISH_ID)).toEqual({ removed: true });
+      expect(h.favRepo.delete).toHaveBeenCalledWith({ userId: 'u1', menuItemId: DISH_ID });
     });
 
     it('is idempotent: unknown pair reports removed:false, never 404s', async () => {
       const h = build(null, { affected: 0 });
-      expect(await h.service.remove('u1', 'd1')).toEqual({ removed: false });
+      expect(await h.service.remove('u1', DISH_ID)).toEqual({ removed: false });
     });
+  });
+});
+
+describe('FavoritesService — malformed uuid guards (route pipe 400s over HTTP)', () => {
+  const U = '11111111-1111-4111-8111-111111111111';
+
+  it('add short-circuits junk dish ids to 404 without any repo read', async () => {
+    const { favRepo, dishRepo, service } = build(null);
+    await expect(service.add(U, 'garbage')).rejects.toBeInstanceOf(NotFoundException);
+    expect(dishRepo.findOne).not.toHaveBeenCalled();
+    expect(favRepo.insert).not.toHaveBeenCalled();
+  });
+
+  it('remove keeps its idempotent answer for junk ids WITHOUT touching the DB', async () => {
+    const { favRepo, service } = build(null);
+    await expect(service.remove(U, 'not-a-uuid')).resolves.toEqual({ removed: false });
+    expect(favRepo.delete).not.toHaveBeenCalled();
   });
 });

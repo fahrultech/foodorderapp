@@ -2,12 +2,12 @@ import {
   Body,
   Controller,
   Get,
-  Param,
   Patch,
   Post,
   Query,
   UseGuards,
 } from '@nestjs/common';
+import { UuidParam } from '../common/uuid';
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
@@ -79,11 +79,11 @@ export class OrdersController {
   @ApiParam({ name: 'id', schema: { type: 'string', format: 'uuid' } })
   @ApiOperation({ summary: 'Cancel my order (while still cancellable)', description: 'Allowed until the order is out for delivery: pending/confirmed/preparing may move to cancelled; anything later answers 400. Foreign or unknown ids answer the same 404 (no existence leak). Rate-limited per IP.' })
   @ApiCreatedResponse({ type: OrderResponse, description: 'The cancelled order. Nest default POST status is 201.' })
-  @ApiError(400, 'Order already delivering/completed/cancelled — no longer cancellable.')
+  @ApiError(400, 'Order already delivering/completed/cancelled — no longer cancellable; a malformed (non-UUID) id also answers 400.')
   @ApiError(401, 'Missing/invalid/expired access token.')
-  @ApiError(404, 'Unknown, malformed, or an order belonging to another customer (guest orders cannot be cancelled either).')
+  @ApiError(404, 'Unknown order id or an order belonging to another customer (guest orders cannot be cancelled either).')
   @ApiError(429, 'Orders rate limit exceeded.')
-  cancel(@Param('id') id: string, @CurrentUser() user: any) {
+  cancel(@UuidParam('id') id: string, @CurrentUser() user: any) {
     return this.service.cancel(id, user.sub);
   }
 
@@ -91,8 +91,9 @@ export class OrdersController {
   @ApiParam({ name: 'id', schema: { type: 'string', format: 'uuid' } })
   @ApiOperation({ summary: 'One order incl. line items (public by id — order number receipt view)', description: 'No auth: this powers the post-checkout receipt page for guest orders. It exposes only that one order\u2019s snapshot.' })
   @ApiOkResponse({ type: OrderResponse, description: 'Includes the embedded restaurant summary.' })
-  @ApiError(404, 'Unknown or malformed order id.')
-  one(@Param('id') id: string) {
+  @ApiError(400, 'Malformed (non-UUID) order id.')
+  @ApiError(404, 'Unknown order id.')
+  one(@UuidParam('id') id: string) {
     return this.service.findOne(id);
   }
 
@@ -100,8 +101,9 @@ export class OrdersController {
   @ApiParam({ name: 'id', schema: { type: 'string', format: 'uuid' } })
   @ApiOperation({ summary: 'Statuses legally reachable from the order\u2019s current one' })
   @ApiOkResponse({ type: NextStatusesResponse })
-  @ApiError(404, 'Unknown or malformed order id.')
-  async next(@Param('id') id: string) {
+  @ApiError(400, 'Malformed (non-UUID) order id.')
+  @ApiError(404, 'Unknown order id.')
+  async next(@UuidParam('id') id: string) {
     return { next: await this.service.nextStatuses(id) };
   }
 
@@ -119,11 +121,11 @@ export class OrdersController {
   @ApiQuery({ name: 'status', enum: OrderStatus, description: 'Target status; illegal transitions answer 400' })
   @ApiOperation({ summary: 'Admin: force a status transition', description: 'Ops backdoor (ADMIN role required). Owner-portal transitions go through PATCH /restaurants/:id/orders/:orderId/status instead.' })
   @ApiOkResponse({ type: OrderResponse })
-  @ApiError(400, 'Illegal transition from the current status.')
+  @ApiError(400, 'Illegal transition from the current status, or the path id is not a UUID.')
   @ApiError(401, 'Missing/invalid/expired access token.')
   @ApiError(403, 'Valid token but role is not ADMIN.')
-  @ApiError(404, 'Unknown or malformed order id.')
-  updateStatus(@Param('id') id: string, @Query('status') status: OrderStatus) {
+  @ApiError(404, 'Unknown order id.')
+  updateStatus(@UuidParam('id') id: string, @Query('status') status: OrderStatus) {
     return this.service.updateStatus(id, status);
   }
 

@@ -16,10 +16,13 @@ const createDto = (over: Record<string, unknown> = {}) =>
   }) as any;
 
 let seq = 0;
+/** The real column is uuid; shape-guards in the service require
+ *  the fakes to look like one too (12-hex tail with a per-row counter). */
+const rowId = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 function fakeRow(overrides: Partial<DeliveryAddress> = {}): DeliveryAddress {
   seq += 1;
   return {
-    id: `a${seq}`,
+    id: rowId(seq),
     userId: USER_ID,
     label: 'Home',
     recipientName: 'Ada Lovelace',
@@ -65,8 +68,9 @@ function build(rows: DeliveryAddress[] = []) {
       return cands[0] ?? null;
     }),
     count: jest.fn(async ({ where }: any) => live.filter((r) => r.userId === where.userId).length),
-    create: jest.fn((x: any) => ({ id: `a-new-${++seq}`, ...x })),
+    create: jest.fn((x: any) => ({ id: rowId(1000 + ++seq), ...x })),
     save: jest.fn(async (x: DeliveryAddress) => {
+      if (!x.id) x.id = rowId(2000 + ++seq);
       live.push(x);
       return x;
     }),
@@ -239,5 +243,33 @@ describe('AddressesService.setDefault', () => {
   it('getOwned 404s when the row is absent for that user', async () => {
     const h = build();
     await expect(h.service.getOwned(USER_ID, 'nope')).rejects.toBeInstanceOf(NotFoundException);
+  });
+});
+
+describe('AddressesService — malformed uuid guards (route pipe 400s over HTTP)', () => {
+  const BAD = 'not-a-uuid';
+
+  it('update rejects junk ids AFTER dto-shape checks, before any repo write', async () => {
+    const { repo, service } = build();
+    await expect(service.update(USER_ID, BAD, { label: 'X' } as any)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+    expect(repo.update).not.toHaveBeenCalled();
+    // The empty-patch 400 still takes precedence over the shape guard.
+    await expect(service.update(USER_ID, BAD, {} as any)).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+  });
+
+  it('remove answers removed:false for junk ids without touching the DB', async () => {
+    const { repo, service } = build();
+    await expect(service.remove(USER_ID, BAD)).resolves.toEqual({ removed: false });
+    expect(repo.findOne).not.toHaveBeenCalled();
+  });
+
+  it('setDefault short-circuits junk ids to 404 (via getOwned guard)', async () => {
+    const { repo, service } = build();
+    await expect(service.setDefault(USER_ID, BAD)).rejects.toBeInstanceOf(NotFoundException);
+    expect(repo.update).not.toHaveBeenCalled();
   });
 });

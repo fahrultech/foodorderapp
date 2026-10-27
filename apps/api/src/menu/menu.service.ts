@@ -28,7 +28,14 @@ export class MenuService {
     private readonly restaurants: Repository<Restaurant>,
   ) {}
 
-  findByRestaurant(restaurantId: string) {
+  /**
+   * Public menu of one restaurant. The uuid guard here is defense-in-depth
+   * for direct service calls: over HTTP, `UuidParam` on the route already
+   * answers 400 for malformed ids. An unknown-but-valid id answers an
+   * empty list (pre-existing contract — no existence leak either way).
+   */
+  async findByRestaurant(restaurantId: string): Promise<MenuItem[]> {
+    if (!isUuid(restaurantId)) throw new NotFoundException('Restaurant not found');
     return this.repo.find({
       where: { restaurantId },
       order: { category: 'ASC', name: 'ASC' },

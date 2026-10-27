@@ -4,12 +4,11 @@ import {
   Delete,
   Get,
   HttpCode,
-  NotFoundException,
-  Param,
   Patch,
   Post,
   UseGuards,
 } from '@nestjs/common';
+import { UuidParam } from '../common/uuid';
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
@@ -40,7 +39,6 @@ import {
 } from './dto/delivery-address.dto';
 import { JwtAuthGuard } from '../common/jwt-auth.guard';
 import { CurrentUser } from '../common/current-user.decorator';
-import { isUuid } from '../common/uuid';
 
 /**
  * Routes a user has about their own account. Everything here is scoped to the
@@ -97,18 +95,17 @@ export class UsersController {
   }
 
   /**
-   * Un-heart. Malformed ids are 404 (same "unknown resource" semantics the
-   * uuid guard uses elsewhere — the value never reaches Postgres as-is).
+   * Un-heart. A malformed (non-UUID) id is rejected by `UuidParam` with 400
+   * before the handler runs; unknown hearts stay idempotent (`removed:false`).
    */
   @Delete('me/favorites/:menuItemId')
   @UseGuards(JwtAuthGuard)
   @ApiParam({ name: 'menuItemId', schema: { type: 'string', format: 'uuid' } })
   @ApiOperation({ summary: 'Un-heart a dish (idempotent)' })
   @ApiOkResponse({ type: RemovedResponse })
+  @ApiError(400, 'Malformed (non-UUID) dish id.')
   @ApiError(401, 'Missing/invalid/expired access token.')
-  @ApiError(404, 'Only for a malformed (non-UUID) id — unknown hearts answer removed:false, never 404.')
-  removeFavorite(@CurrentUser() user: any, @Param('menuItemId') menuItemId: string) {
-    if (!isUuid(menuItemId)) throw new NotFoundException('Favorite not found');
+  removeFavorite(@CurrentUser() user: any, @UuidParam('menuItemId') menuItemId: string) {
     return this.favorites.remove(user.sub, menuItemId);
   }
 
@@ -147,15 +144,14 @@ export class UsersController {
   @ApiParam({ name: 'id', schema: { type: 'string', format: 'uuid' } })
   @ApiOperation({ summary: 'Edit one of my addresses', description: 'Text fields only; `isDefault` is not settable here — use POST …/default. Empty patch → 400, foreign/unknown → 404.' })
   @ApiOkResponse({ type: AddressItemResponse })
-  @ApiError(400, 'Validation failed or the patch set no field.')
+  @ApiError(400, 'Validation failed, the patch set no field, or the path id is not a UUID.')
   @ApiError(401, 'Missing/invalid/expired access token.')
   @ApiError(404, 'Unknown or foreign address id.')
   updateAddress(
     @CurrentUser() user: any,
-    @Param('id') id: string,
+    @UuidParam('id') id: string,
     @Body() dto: UpdateDeliveryAddressDto,
   ) {
-    if (!isUuid(id)) throw new NotFoundException('Delivery address not found');
     return this.addresses.update(user.sub, id, dto);
   }
 
@@ -167,12 +163,12 @@ export class UsersController {
   @Delete('me/addresses/:id')
   @UseGuards(JwtAuthGuard)
   @ApiParam({ name: 'id', schema: { type: 'string', format: 'uuid' } })
-  @ApiOperation({ summary: 'Delete one of my addresses (idempotent)', description: 'Removing the default promotes the oldest survivor — `promotedDefaultId` names it when that happens.' })
+  @ApiOperation({ summary: 'Delete one of my addresses (idempotent)', description: 'Removing the default promotes the oldest survivor — `promotedDefaultId` names it when that happens. Malformed (non-UUID) ids answer 400.' })
   @ApiOkResponse({ type: AddressRemoveResponse })
+  @ApiError(400, 'Malformed (non-UUID) address id.')
   @ApiError(401, 'Missing/invalid/expired access token.')
 
-  deleteAddress(@CurrentUser() user: any, @Param('id') id: string) {
-    if (!isUuid(id)) return { removed: false };
+  deleteAddress(@CurrentUser() user: any, @UuidParam('id') id: string) {
     return this.addresses.remove(user.sub, id);
   }
 
@@ -183,10 +179,10 @@ export class UsersController {
   @ApiParam({ name: 'id', schema: { type: 'string', format: 'uuid' } })
   @ApiOperation({ summary: 'Promote an address to default (idempotent)', description: 'Re-promoting the current default answers 200 with `alreadyDefault: true`.' })
   @ApiOkResponse({ type: AddressDefaultResponse })
+  @ApiError(400, 'Malformed (non-UUID) address id.')
   @ApiError(401, 'Missing/invalid/expired access token.')
   @ApiError(404, 'Unknown or foreign address id.')
-  setDefaultAddress(@CurrentUser() user: any, @Param('id') id: string) {
-    if (!isUuid(id)) throw new NotFoundException('Delivery address not found');
+  setDefaultAddress(@CurrentUser() user: any, @UuidParam('id') id: string) {
     return this.addresses.setDefault(user.sub, id);
   }
 }

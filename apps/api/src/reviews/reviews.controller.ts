@@ -4,12 +4,12 @@ import {
   Delete,
   Get,
   HttpCode,
-  Param,
   Patch,
   Post,
   Query,
   UseGuards,
 } from '@nestjs/common';
+import { UuidParam } from '../common/uuid';
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
@@ -72,12 +72,12 @@ export class ReviewsController {
   @ApiParam({ name: 'id', schema: { type: 'string', format: 'uuid' } })
   @ApiOperation({ summary: 'Edit my review', description: 'At least one of rating/comment required; `comment: null` clears the text. Foreign/unknown ids answer 404.' })
   @ApiOkResponse({ type: ReviewWriteResponse })
-  @ApiError(400, 'Patch carries neither rating nor comment.')
+  @ApiError(400, 'Patch carries neither rating nor comment, or the path id is not a UUID.')
   @ApiError(401, 'Missing/invalid/expired access token.')
   @ApiError(404, 'Unknown or foreign review id.')
   update(
     @CurrentUser() user: any,
-    @Param('id') id: string,
+    @UuidParam('id') id: string,
     @Body() dto: UpdateReviewDto,
   ) {
     return this.service.update(user.sub, id, dto);
@@ -86,11 +86,12 @@ export class ReviewsController {
   /** Delete own review. Idempotent: unknown/foreign ids answer `removed:false`. */
   @Delete(':id')
   @ApiParam({ name: 'id', schema: { type: 'string', format: 'uuid' } })
-  @ApiOperation({ summary: 'Delete my review (idempotent)', description: 'Retried deletes of unknown/foreign ids answer `{ removed: false }`, never 404. Rating recomputed when a review disappears.' })
+  @ApiOperation({ summary: 'Delete my review (idempotent)', description: 'Retried deletes of unknown/foreign ids answer `{ removed: false }`, never 404. A malformed (non-UUID) id answers 400. Rating recomputed when a review disappears.' })
   @ApiOkResponse({ type: ReviewRemoveResponse })
+  @ApiError(400, 'Malformed (non-UUID) review id.')
   @ApiError(401, 'Missing/invalid/expired access token.')
 
-  remove(@CurrentUser() user: any, @Param('id') id: string) {
+  remove(@CurrentUser() user: any, @UuidParam('id') id: string) {
     return this.service.remove(user.sub, id);
   }
 }
@@ -110,11 +111,12 @@ export class RestaurantReviewsController {
   @ApiParam({ name: 'id', schema: { type: 'string', format: 'uuid' } })
   @ApiQuery({ name: 'page', required: false, schema: { type: 'integer', minimum: 1 } })
   @ApiQuery({ name: 'limit', required: false, schema: { type: 'integer', minimum: 1 } })
-  @ApiOperation({ summary: 'Public review feed of one restaurant (paginated)', description: 'No auth: restaurant pages are public; each row exposes only the reviewer\u2019s display name. Unknown/non-UUID restaurant → 404.' })
+  @ApiOperation({ summary: 'Public review feed of one restaurant (paginated)', description: 'No auth: restaurant pages are public; each row exposes only the reviewer\u2019s display name. Unknown restaurant → 404; malformed (non-UUID) id → 400.' })
   @ApiOkResponse({ type: ReviewFeedResponse })
-  @ApiError(404, 'Unknown or malformed restaurant id.')
+  @ApiError(400, 'Malformed (non-UUID) restaurant id.')
+  @ApiError(404, 'Unknown restaurant id.')
   list(
-    @Param('id') id: string,
+    @UuidParam('id') id: string,
     @Query('page') page?: number,
     @Query('limit') limit?: number,
   ) {
