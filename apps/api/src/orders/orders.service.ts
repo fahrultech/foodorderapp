@@ -21,6 +21,12 @@ import { OrderEventsService } from './order-events.service';
 import { PromosService, normalizePromoCode } from '../promos/promos.service';
 import { AddressesService } from '../users/addresses.service';
 import { isUuid } from '../common/uuid';
+import {
+  runStaleOrderSweep,
+  resolveStaleSweepConfig,
+  StaleSweepOptions,
+  StaleSweepReport,
+} from './stale-order-sweep';
 
 const STATUS_FLOW: Record<OrderStatus, OrderStatus[]> = {
   [OrderStatus.PENDING]: [OrderStatus.CONFIRMED, OrderStatus.CANCELLED],
@@ -388,5 +394,27 @@ export class OrdersService {
 
   nextStatuses(id: string) {
     return this.findOne(id).then((o) => STATUS_FLOW[o.status]);
+  }
+
+  /**
+   * Ops sweep (Phase 5 "auto-cancel stale pending orders"): move abandoned
+   * `pending` orders to `cancelled` through the shared stale-order-sweep
+   * logic. Each transition emits `order.updated` so live owner inboxes update
+   * the same way a manual cancel does. The default age window comes from
+   * STALE_ORDER_MINUTES (see resolveStaleSweepConfig); callers (the admin
+   * route, the cron script) may override per-run.
+   */
+  async cancelStalePending(
+    options: StaleSweepOptions = {},
+  ): Promise<StaleSweepReport> {
+    return runStaleOrderSweep(this.orders, {
+      config: resolveStaleSweepConfig(),
+      ...options,
+      // Compose, don't clobber: a caller-provided hook still runs after ours.
+      onCancelled: async (order) => {
+        this.emit('order.updated', order);
+        await options.onCancelled?.(order);
+      },
+    });
   }
 }

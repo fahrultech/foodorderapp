@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  HttpCode,
   Patch,
   Post,
   Query,
@@ -19,12 +20,14 @@ import {
 } from '@nestjs/swagger';
 import {
   ApiError,
+  CancelStaleResponse,
   NextStatusesResponse,
   OrderResponse,
   PaginatedOrdersResponse,
 } from '../common/swagger-response-models';
 import { OrdersService } from './orders.service';
 import { CreateOrderDto } from './dto/create-order.dto';
+import { CancelStaleDto } from './dto/cancel-stale.dto';
 import { ListMyOrdersDto } from './dto/list-my-orders.dto';
 import { OrderStatus } from './order.entity';
 import { JwtAuthGuard } from '../common/jwt-auth.guard';
@@ -129,4 +132,28 @@ export class OrdersController {
     return this.service.updateStatus(id, status);
   }
 
+  /**
+   * Ops sweep (ADMIN only): auto-cancel abandoned `pending` orders. This is
+   * the same logic the `ops/cancel-stale.sh` cron runs, exposed over HTTP so an
+   * operator can drain the backlog (or dry-check the window) against a live
+   * API — and, unlike the standalone script, cancellations here push `order.updated`
+   * to any connected owner-inbox SSE stream. Overrides are optional; omitting
+   * them uses STALE_ORDER_MINUTES / STALE_ORDER_BATCH.
+   */
+  @Post('ops/cancel-stale')
+  @HttpCode(200)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Admin: auto-cancel stale pending orders', description: 'Sweeps pending orders older than the abandonment window (default STALE_ORDER_MINUTES=45) to cancelled — the machine path for guest checkouts nobody acted on. Only `pending` is touched; confirmed/preparing/delivering are human decisions. Returns how many were cancelled and whether the batch cap was hit (re-run to drain a larger backlog). ADMIN role required.' })
+  @ApiOkResponse({ type: CancelStaleResponse, description: 'Sweep report for this run.' })
+  @ApiError(400, 'staleMinutes or limit out of bounds / not an integer.')
+  @ApiError(401, 'Missing/invalid/expired access token.')
+  @ApiError(403, 'Valid token but role is not ADMIN.')
+  cancelStale(@Body() dto?: CancelStaleDto) {
+    return this.service.cancelStalePending({
+      staleMinutes: dto?.staleMinutes,
+      limit: dto?.limit,
+    });
+  }
 }

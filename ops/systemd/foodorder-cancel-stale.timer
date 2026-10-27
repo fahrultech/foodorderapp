@@ -1,0 +1,15 @@
+[Unit]
+Description=FoodOrder stale-pending-order sweep timer (every 15 min)
+
+[Timer]
+# Fire every 15 minutes; jitter up to 90s so many hosts don't align. With the
+# default STALE_ORDER_MINUTES=45 an abandoned guest order is cancelled within
+# ~45-60 min of being placed. Persistent=true catches up a missed run after the
+# host was down.
+OnBootSec=5min
+OnUnitActiveSec=15min
+RandomizedDelaySec=90
+Persistent=true
+
+[Install]
+WantedBy=timers.target

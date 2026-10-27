@@ -1,0 +1,26 @@
+# systemd unit EXAMPLES for the FoodOrder stale-pending-order sweep (not
+# installed — copy to /etc/systemd/system/ and adjust paths for your host).
+#
+#   sudo cp ops/systemd/foodorder-cancel-stale.{service,timer} /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now foodorder-cancel-stale.timer
+#   systemctl list-timers foodorder-cancel-stale.timer   # next fire
+#
+# The service runs ops/cancel-stale.sh, which sweeps `pending` orders older
+# than STALE_ORDER_MINUTES (default 45) to `cancelled`. DATABASE_URL is read by
+# the api's dotenv loader from the untracked apps/api/.env (EnvironmentFile
+# below makes it explicit); credentials are never stored in this unit.
+
+[Unit]
+Description=FoodOrder auto-cancel stale pending orders
+Wants=postgresql.service
+After=network-online.target postgresql.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/ubuntu/foodorderapp
+# DATABASE_URL (and optional STALE_ORDER_*/DRY_RUN) live in the api env file.
+EnvironmentFile=-/home/ubuntu/foodorderapp/apps/api/.env
+ExecStart=/home/ubuntu/foodorderapp/ops/cancel-stale.sh
+NoNewPrivileges=true
+PrivateTmp=true

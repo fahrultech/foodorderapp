@@ -11,6 +11,7 @@
     "migration:run": "typeorm-ts-node-commonjs migration:run -d src/database/data-source.ts",
     "migration:revert": "typeorm-ts-node-commonjs migration:revert -d src/database/data-source.ts",
     "db:stamp-baseline": "ts-node -r tsconfig-paths/register src/database/stamp-baseline.ts",
+    "cancel-stale": "ts-node -r tsconfig-paths/register src/scripts/cancel-stale.ts",
     "test": "jest",
     "lint": "eslint src --ext .ts"
   },

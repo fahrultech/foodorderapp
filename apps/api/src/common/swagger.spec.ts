@@ -148,6 +148,7 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['/menu/items/{id}', 'delete'],
       ['/orders', 'post'],
       ['/orders/my', 'get'],
+      ['/orders/ops/cancel-stale', 'post'],
       ['/orders/{id}', 'get'],
       ['/orders/{id}/cancel', 'post'],
       ['/orders/{id}/next-statuses', 'get'],
@@ -184,6 +185,7 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['/auth/logout', 'post'],
       ['/users/me', 'patch'],
       ['/orders/my', 'get'],
+      ['/orders/ops/cancel-stale', 'post'],
       ['/orders/{id}/status', 'patch'],
       ['/restaurants/{id}/orders', 'get'],
       ['/restaurants/{id}/orders/stream', 'get'],
@@ -269,6 +271,7 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['/menu/items/{id}', 'delete', 200, 'ref:MenuItemResponse'],
       ['/orders', 'post', 201, 'ref:OrderResponse'],
       ['/orders/my', 'get', 200, 'ref:PaginatedOrdersResponse'],
+      ['/orders/ops/cancel-stale', 'post', 200, 'ref:CancelStaleResponse'],
       ['/orders/{id}', 'get', 200, 'ref:OrderResponse'],
       ['/orders/{id}/cancel', 'post', 201, 'ref:OrderResponse'],
       ['/orders/{id}/next-statuses', 'get', 200, 'ref:NextStatusesResponse'],
@@ -283,7 +286,7 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['/reviews/{id}', 'delete', 200, 'ref:ReviewRemoveResponse'],
       ['/promos/validate', 'post', 201, 'oneOf2'],
     ];
-    expect(SUCCESS.length).toBe(41);
+    expect(SUCCESS.length).toBe(42);
     for (const [path, method, code, kind] of SUCCESS) {
       const res = doc.paths[P(path)]?.[method]?.responses?.[String(code)];
       if (!res) throw new Error(`${method} ${path}: no ${code} response documented`);
@@ -340,6 +343,7 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['/menu/items/{id}', 'delete', [400, 401, 403, 404]],
       ['/orders', 'post', [400, 404, 429]],
       ['/orders/my', 'get', [401]],
+      ['/orders/ops/cancel-stale', 'post', [400, 401, 403]],
       ['/orders/{id}', 'get', [400, 404]],
       ['/orders/{id}/cancel', 'post', [400, 401, 404, 429]],
       ['/orders/{id}/next-statuses', 'get', [400, 404]],
@@ -445,6 +449,15 @@ describe('OpenAPI document (generated from the real controllers)', () => {
     expect([...props('NextStatusesResponse').next.items.enum].sort()).toEqual(
       [...(schemas['OrderStatus'] as any).enum].sort(),
     );
+
+    // Stale-order sweep report: integer counters, ISO cutoff, boolean capped flag.
+    expect(required('CancelStaleResponse').sort()).toEqual(
+      ['capped', 'cutoff', 'cancelled', 'orders', 'scanned', 'staleMinutes'].sort(),
+    );
+    expect(props('CancelStaleResponse').staleMinutes.type).toBe('integer');
+    expect(props('CancelStaleResponse').cutoff.format).toBe('date-time');
+    expect(props('CancelStaleResponse').capped.type).toBe('boolean');
+    expect(props('CancelStaleResponse').orders.type).toBe('array');
 
     // Address wrappers: list vs {item} vs {removed, promotedDefaultId?}.
     expect(refOf(props('AddressItemResponse').item)).toBe('#/components/schemas/DeliveryAddressResponse');

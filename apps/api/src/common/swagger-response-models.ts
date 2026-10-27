@@ -402,6 +402,47 @@ export class NextStatusesResponse {
   next: OrderStatus[];
 }
 
+/**
+ * Admin stale-order sweep report (POST /orders/ops/cancel-stale) — mirrors
+ * `StaleSweepReport` exactly. Money-free operational counters; `cutoff` is an
+ * ISO string (Dates serialize as strings), quantities are integers.
+ */
+export class CancelStaleResponse {
+  @ApiProperty({
+    type: 'integer',
+    description: 'Pending-abandonment window actually applied to this run, in minutes.',
+  })
+  staleMinutes: number;
+
+  @ApiProperty({
+    type: 'string',
+    format: 'date-time',
+    description: 'ISO instant; orders with createdAt strictly before this are stale.',
+  })
+  cutoff: string;
+
+  @ApiProperty({ type: 'integer', description: 'Stale pending candidates selected this run (<= limit).' })
+  scanned: number;
+
+  @ApiProperty({ type: 'integer', description: 'Orders moved pending -> cancelled by this run.' })
+  cancelled: number;
+
+  @ApiProperty({
+    type: 'boolean',
+    description:
+      'True when the run filled its whole batch — more stale orders likely remain, re-run to drain; false when the backlog is clear.',
+  })
+  capped: boolean;
+
+  @ApiProperty({
+    isArray: true,
+    type: 'object',
+    additionalProperties: { type: 'string' },
+    description: 'Cancelled orders as { id, code } pairs (oldest first).',
+  })
+  orders: { id: string; code: string }[];
+}
+
 // ---------------------------------------------------------------------------
 // Favorites
 // ---------------------------------------------------------------------------
