@@ -49,7 +49,8 @@
 - [x] API: reject malformed uuid route params with 400 via `UuidParam` (ParseUUIDPipe) on all 22 uuid params; service-layer guards kept for direct calls (2026-10-27, session 34; 42-case HTTP spec + live smoke, menu 500→400)
 
 ## Phase 5 — Scale-out ideas (seed list, expand freely)
-- [ ] Realtime order feed with WebSocket gateway (Socket.IO)
+- [x] Realtime order feed with WebSocket gateway (Socket.IO) (2026-10-27, session 36; `RealtimeGateway` on /orders namespace, JWT handshake auth, restaurant+user rooms off the shared SSE bus; 9-case socket integration spec + live smoke. Follow-up below: web-side consumer)
+- [ ] Web: dashboard/order-tracking consume the WS feed (SSE stays the fallback)
 - [ ] Payment abstraction (mock gateway → Stripe/Xendit adapters behind one interface)
 - [ ] Notifications: email confirmations (nodemailer) then push (web-push)
 - [ ] Multi-city rollout config (cities as entities, restaurant scoping by city)

@@ -4,6 +4,81 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
+## 2026-10-27 14:03 — Session 36 — Realtime order feed: Socket.IO gateway
+
+**Built:** Roadmap Phase 5 "Realtime order feed with WebSocket gateway
+(Socket.IO)". The SSE stream is owner-inbox-only and single-consumer-shaped;
+this adds a general-purpose push transport that both owners AND customers can
+use, without touching a single REST write path.
+
+- `orders/realtime.gateway.ts` — `RealtimeGateway`, Socket.IO namespace
+  `/orders` on the SAME HTTP port as REST (Nest auto-attaches
+  `@nestjs/platform-socket.io` to the express server; verified live).
+  Handshake auth is REQUIRED and identical in rules to the REST guards:
+  access-JWT in `auth.token` (query `?token=` fallback), same secret, `typ`
+  claim checked; failure → `auth_error {ok:false, code:UNAUTHENTICATED}` +
+  close, success → `hello {serverTime}`. No app-level heartbeat (Socket.IO
+  pings at the transport layer; the 15s SSE ping existed only against proxy
+  idle timeouts).
+- App-level subscribe protocol with acks (never throws over the wire):
+  `subscribe:restaurant` reuses `OrdersService.assertStreamAccess` — the
+  EXACT inbox gate — so 404/403/400 surface as ack codes and a non-owner
+  never joins; rooms are `r:<restaurantId>` (fan-out side) and `u:<sub>`
+  where the id comes from the VERIFIED token, not client input — a customer
+  cannot eavesdrop on another's orders, and this is the first customer-side
+  live feed the app ever had (`subscribe:me`, the `/orders/my` timeline).
+  `unsubscribe:*` mirror the subscribes. Payloads are the SAME trigger-only
+  `{orderId, code, status}` as SSE: consumers refetch via normal GETs.
+- One event bus, two transports: gateway subscribes to `OrderEventsService`
+  (SSE keeps consuming it untouched), so WS and SSE can only ever differ in
+  delivery, not in content. Bus events gained an OPTIONAL `userId` (null for
+  guest orders) at `OrdersService.emit` — drives the `u:` fan-out; SSE
+  ignores it. Guest orders fan out to the restaurant room only.
+- Deps: `@nestjs/websockets` + `@nestjs/platform-socket.io` + `socket.io`
+  (prod), `socket.io-client` (dev, tests only). The npm mirror silently
+  baked 29 `resolved` entries in the api lockfile — AND the mirror's path
+  prefix `/npm/` is NOT 1:1 with registry.npmjs.org (first rewrite attempt
+  404'd on `xmlhttprequest-ssl`). Rewritten correctly (host+prefix stripped),
+  proven like a runner: fresh HOME + empty cache `npm ci` → 688 packages,
+  green; all 689 `resolved` URLs now registry.npmjs.org.
+
+**Verified:**
+- `nest build` clean; `jest` **41 suites / 478 tests all green** (was
+  40/469; +9 gateway cases; two strict event-literal assertions in
+  orders.service.spec updated for the new `userId` field — they now pin it).
+- New `realtime.gateway.spec.ts`: REAL Nest app on an ephemeral port, REAL
+  socket.io-client handshakes — no/garbage/refresh-typ tokens refused with
+  auth_error+disconnect, access token gets hello; BAD_REQUEST acks for junk
+  restaurantId (service never called), NOT_FOUND/FORBIDDEN acks mapped from
+  the inbox gate, verified claims (not client input) reach the gate; room
+  fan-out delivers created+updated to subscribers only (a deaf socket on the
+  same token+namespace receives nothing), unsubscribe stops the feed;
+  `subscribe:me` isolation (other user's events never arrive) + guest-order
+  no-user-fan-out; admin bypasses ownership exactly like the GET.
+- **Live runtime smoke** (API :4000 on local Postgres 16, seeded DB; JWTs via
+  normal login, none echoed): unauth socket → auth_error+close; owner
+  subscribe real restaurant → ok ack; unknown → NOT_FOUND, junk → BAD_REQUEST;
+  customer `subscribe:me` → ok. Then REAL REST writes drove the WS feed:
+  `POST /orders` (FO-VCA4) → both owner-room and customer-room sockets got
+  `order.created` {code FO-VCA4, pending}; owner `PATCH .../status?status=
+  confirmed` → both got `order.updated confirmed`; customer
+  `POST /orders/:id/cancel` → owner got `order.updated cancelled` (3 events
+  each, zero loss). SSE stream re-checked on the same boot (hello frame with
+  restaurantId) — bus change broke nothing. Smoke order left cancelled in the
+  DB (normal churn).
+- Sanitizer audit: every touched file read back — zero U+2026/'***'
+  corruption; `package.json`/lockfile parse as valid JSON.
+
+**Docs:** ARCHITECTURE gained the full WS contract bullet (namespace, auth,
+protocol, rooms, guest rule, "dashboard keeps SSE"); ROADMAP item ticked with
+an honest follow-up sub-item ("web consumes the WS feed") so the surface stays
+on the radar; no REST surface changed → swagger counts untouched.
+
+**Left for next sessions:** dashboard/order-tracking client on the WS feed
+(new roadmap bullet); payment abstraction is the next top unchecked item.
+
+---
+
 ## 2026-10-27 12:38 — Session 35 — Scheduled cron: auto-cancel stale pending orders
 
 **Built:** Roadmap Phase 5 "Scheduled cron: auto-cancel stale pending orders".

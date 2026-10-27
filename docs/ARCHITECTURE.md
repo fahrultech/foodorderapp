@@ -78,7 +78,8 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   and a 15s `ping` heartbeat. Events are live-only from a process-local rxjs
   bus (`OrderEventsService`), published by `OrdersService` after create /
   owner-status / customer-cancel / admin-status writes; single-container
-  scope is deliberate (multi-node realtime is the Phase 5 Socket.IO item).
+  scope is deliberate (the bus stays process-local even with multi-node
+  deployments — the WS gateway below consumes the same bus).
   Auth is `SseJwtAuthGuard` + `RolesGuard @Roles(OWNER)` +
   `OrdersService.assertStreamAccess` (same 404/403 semantics as the inbox)
   asserted BEFORE the stream starts. `EventSource` cannot send headers, so
@@ -88,6 +89,25 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   heartbeat: two missed cycles (`STREAM_STALL_MS`) mark the connection a
   zombie → poll fallback + rebuild; the stream is also rebuilt with a fresh
   token every 15min, well inside the 30m access TTL.
+
+- **Realtime order feed (Socket.IO)** — Phase 5 item: `RealtimeGateway`
+  (`orders/realtime.gateway.ts`) mounts a Socket.IO server under the `/orders`
+  namespace on the SAME HTTP port as REST (URL `ws://<api>/orders`, default
+  path `/socket.io/`). It consumes the one `OrderEventsService` bus, so SSE
+  and WS announce identical trigger-only payloads (`{orderId, code, status}`)
+  and can never drift in content — only in transport. Handshake REQUIRES an
+  access JWT (`auth: { token }`, query `?token=` fallback), verified with the
+  same secret + `typ` rules as the REST guards; a bad socket gets an
+  `auth_error` frame then a close, no events ever flow. Subscribing is an
+  app-level protocol with acks: `subscribe:restaurant {restaurantId}` reuses
+  `OrdersService.assertStreamAccess` (the exact inbox GET gate; 403/404/400
+  surface as ack codes, never a join) and joins room `r:<restaurantId>`;
+  `subscribe:me` joins `u:<sub>` with the id taken from the VERIFIED token —
+  the customer-side live feed for one's own orders, which never had an
+  endpoint before. Guest orders (`userId` null on the event) fan out to the
+  restaurant room only. No app-level heartbeat: Socket.IO pings at the
+  transport layer. The dashboard keeps SSE (it works); the WS gateway is the
+  general-purpose feed for richer clients and future surfaces.
 
 - **Owner menu manager** — web `/dashboard/menu` does full dish CRUD on the
   existing owner routes (`POST /restaurants/:id/menu`, `PATCH /menu/items/:id`,
