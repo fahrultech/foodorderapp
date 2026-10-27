@@ -4,6 +4,88 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
+## 2026-10-27 17:14 — Session 37 — Web consumes the WS feed (SSE demoted to fallback)
+
+**Built:** Roadmap Phase 5 "Web: dashboard/order-tracking consume the WS feed
+(SSE stays the fallback)" — the browser side of session 36's gateway.
+
+- `lib/ws-feed.ts` (pure, assertion-tested): `wsFeedUrl` (API origin +
+  `/orders` namespace), `wsReconnectDelayMs` (capped exponential backoff),
+  `WS_SUBSCRIBE_ACK_MS`, `shouldOpenSse` (the ladder gate), `feedTransport`
+  (`ws|sse|poll|paused` precedence), terminal-status helpers.
+- `lib/use-order-feed.ts` — `useOrderFeed` hook owning the whole socket
+  lifecycle: handshake with a FRESH access token, `transports:['websocket']`
+  + `reconnection:false` (a dead feed must fail FAST and degrade to the
+  fallback ladder, never silently ride engine.io long-polling), subscribe
+  ACKs gate `wsUp` (5s ack-silence watchdog), every failure path
+  (connect_error/auth_error/disconnect/negative-or-missing ack) reconnects
+  with a NEW token after backoff, 15m proactive rebuild mirrors the SSE
+  token rule; stale-socket handlers are neutered via a `mine()` guard.
+- `/dashboard` transport LADDER: `useOrderFeed(restaurantId)` is PRIMARY;
+  the SSE effect (now `sseUp`) only opens while `shouldOpenSse(live, wsUp)`
+  and is closed the instant WS recovers; the 10s poll idles while EITHER
+  push is up; Live pill gains `data-feed-transport="ws|sse|poll|paused"` +
+  transport-aware title. Pause closes all three, as before.
+- `/orders/[id]` — the customer tracking page had NO live path at all
+  ("Reload to check for updates"). New `components/OrderLiveFeed.tsx`
+  island (page stays a server component): `subscribe:me` events for THIS
+  orderId → debounced `router.refresh()` (server re-runs its own GET, the
+  feed stays trigger-only); 10s interval refresh as the fallback when WS is
+  down; guests and terminal orders keep the manual-reload hint;
+  hydration-safe (auth hydrates as 'loading').
+- **Real bug found & fixed:** the push-debounce timer used to capture the
+  closure of whatever render SCHEDULED it. The mount render's catch-up call
+  scheduled it with `selectedId=null`, so its fire guard-owned into nothing
+  AND — while pending — swallowed every real wake-up inside its 400ms
+  window. WS acks cluster exactly there, so the first order event after page
+  load could be silently lost (the SSE era only escaped it by hello-timing
+  luck). Fix: `requestSync` is now a stable scheduler whose timer ALWAYS
+  executes through `syncFireRef` (pinned to the latest render's gate +
+  fetchInbox).
+- Deps: `socket.io-client@4.8.4` (matches server). The npm mirror baked 9
+  `mirrors.tencentyun.com` resolved URLs into the web lockfile again —
+  host+prefix rewrite (the mirror's `/npm/` prefix is NOT 1:1), verified by
+  a runner-style `npm ci` in fresh HOME + empty cache; lockfile now 100%
+  registry.npmjs.org.
+- New `e2e/tests/live-feed.spec.ts` (3 tests, CI-covered by the existing
+  e2e job): owner inbox reaches `data-feed-transport="ws"` and a new guest
+  order + NEW badge land in <5s (the 10s poll cannot make that window);
+  a signed-in tracking page follows an owner status change over `u:<self>`
+  without reload; and with `window.WebSocket` sabotaged (addInitScript),
+  the dashboard falls to `data-feed-transport="sse"` and push STILL works
+  — the fallback rung proven, not just asserted in code.
+
+**Verified:**
+- `next build` clean (×5 during the session; final clean-instrumentation
+  build green).
+- Pure-helper assertion run (tsc→ESM + node assert, scratch): 24 cases over
+  wsFeedUrl/backoff/SSE-gate/transport-ladder/terminal-status + live-sync
+  regression sanity. One initial failure was MY expected-value bug
+  (orderStreamUrl keeps the `/api` path), not a code bug — corrected.
+- API untouched this session; `nest build` + `jest` re-run green
+  (41 suites / 478 tests) before smoke.
+- **Runtime smoke (real browsers, prod build):** Postgres 16 service + API
+  :4000 (node dist/main.js) + web :3000 (next start). Full Playwright suite
+  **7/7 green twice** (8.6s, 9.3s) — 4 pre-existing specs + 3 new feed
+  specs. Debug trail worth noting: the ws push initially "failed" in test 1
+  only because the e2e raced the restaurant switch (inbox was on Seoul
+  Street while the fixture ordered Warung) AND because of the stale-closure
+  bug above — caught via WSDBG console/closure instrumentation and a raw
+  socket.io-client probe proving the server fan-out was correct all along.
+  Note: the live auth rate limit (10/min/IP) bit the repeated e2e re-runs,
+  not the app — spaced reruns, final two runs clean.
+
+**Docs:** ARCHITECTURE realtime bullet rewritten (ladder + hook contract +
+tracking island), ROADMAP item ticked, DEVLOG this entry.
+
+**Left for next sessions:** roadmap Phase 5 continues with "Payment
+abstraction (mock gateway → Stripe/Xendit adapters behind one interface)";
+`/orders/my` list page could also wake on feed events (polish); the
+single-worker e2e suite is getting long — consider per-test DB fixtures
+before adding more state-touching specs.
+
+---
+
 ## 2026-10-27 14:03 — Session 36 — Realtime order feed: Socket.IO gateway
 
 **Built:** Roadmap Phase 5 "Realtime order feed with WebSocket gateway

@@ -50,7 +50,7 @@
 
 ## Phase 5 — Scale-out ideas (seed list, expand freely)
 - [x] Realtime order feed with WebSocket gateway (Socket.IO) (2026-10-27, session 36; `RealtimeGateway` on /orders namespace, JWT handshake auth, restaurant+user rooms off the shared SSE bus; 9-case socket integration spec + live smoke. Follow-up below: web-side consumer)
-- [ ] Web: dashboard/order-tracking consume the WS feed (SSE stays the fallback)
+- [x] Web: dashboard/order-tracking consume the WS feed (SSE stays the fallback) (2026-10-27, session 37; `useOrderFeed` hook + transport ladder WS→SSE→poll, tracking page got its first live path; stale-debounce-closure bug found+fixed; 3 new e2e specs incl. WS-sabotage SSE-fallback test, suite 7/7 green x2)
 - [ ] Payment abstraction (mock gateway → Stripe/Xendit adapters behind one interface)
 - [ ] Notifications: email confirmations (nodemailer) then push (web-push)
 - [ ] Multi-city rollout config (cities as entities, restaurant scoping by city)

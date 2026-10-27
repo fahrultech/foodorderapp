@@ -106,8 +106,22 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   the customer-side live feed for one's own orders, which never had an
   endpoint before. Guest orders (`userId` null on the event) fan out to the
   restaurant room only. No app-level heartbeat: Socket.IO pings at the
-  transport layer. The dashboard keeps SSE (it works); the WS gateway is the
-  general-purpose feed for richer clients and future surfaces.
+  transport layer. The web consumes it as its PRIMARY push transport
+  (session 37): `lib/use-order-feed.ts` wraps the handshake/subscribe/
+  reconnect lifecycle (WS-only transport so a dead feed fails fast and
+  degrades instead of silently re-routing through engine.io polling;
+  `reconnection: false` — the hook owns reconnect with capped backoff and a
+  fresh-token handshake, `subscribe` ACKs gate the `wsUp` state, plus a
+  15m proactive rebuild mirroring the SSE token rule). `/dashboard` runs a
+  strict transport LADDER — WS up ⇒ SSE stays closed (`shouldOpenSse`);
+  WS down ⇒ SSE opens (the Phase-2 stream unchanged, now the fallback);
+  both down ⇒ the 10s poll; the Live pill renders the current rung as
+  `data-feed-transport="ws|sse|poll|paused"`. `/orders/[id]` (customer
+  tracking, previously manual-reload only) gained live updates the same
+  way via the `OrderLiveFeed` island: `subscribe:me` events for THIS order
+  trigger a coalesced `router.refresh()` (server component re-runs its
+  own GET — the feed never carries truth), with 10s refresh polling as the
+  fallback and no transport at all for guests or terminal orders.
 
 - **Owner menu manager** — web `/dashboard/menu` does full dish CRUD on the
   existing owner routes (`POST /restaurants/:id/menu`, `PATCH /menu/items/:id`,
