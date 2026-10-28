@@ -4,6 +4,66 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
+## 2026-10-28 19:20 — Session 42 — Order-machine gate: `ORDER_CONFIRM_REQUIRES_PAYMENT` (owner/admin confirm needs a succeeded payment, flag-gated)
+
+**Built:** Phase 5 payments sub-item "Order-machine gate: owner confirm
+requires a succeeded payment (behind a feature flag)". (Stripe/Xendit
+adapters above it stay credential-blocked; this was the top unblocked item.)
+
+- New `orders/payment-confirm-gate.ts`: flag parser — truthy `1/true/yes/on`
+  (trimmed, case-insensitive), EVERYTHING else OFF including garbage:
+  deliberately fail-OPEN, a typo'd env must not silently block order flow
+  (documented the inversion vs the payment-provider fail-fast: blocking the
+  till is worse than letting one unpaid order through, and the flag is opt-in).
+- `OrdersService.assertConfirmGate`: entering `CONFIRMED` while the flag is
+  ON requires a `payments` row with status `succeeded` for that order
+  (`repository.exist` — existence probe, no cross-module service import, no
+  status write from the payment side). `refunded` rows do NOT satisfy it
+  (money that came back is not payment). Throws `AppException` 402 with
+  stable code `PAYMENT_REQUIRED` through the standard error envelope. Wired
+  into BOTH paths that can confirm — owner portal
+  `setStatusForRestaurant` AND the ADMIN backdoor `updateStatus` — so the
+  gate cannot be stepped around; runs AFTER flow legality, BEFORE any
+  mutation. Non-confirm transitions (cancel/preparing/...) never query
+  payments (flag-on cancel stays payment-free — smoke-proven).
+- Wiring: `OrdersModule.forFeature` gains the `Payment` entity (same
+  shared-entity pattern `PaymentsModule` already uses for `Order`); the two
+  new constructor params are OPTIONAL — all 8 pre-existing spec construction
+  sites compile untouched and the gate is inert without the repo (defense in
+  depth for older harnesses). DI provides both in the app (ConfigModule is
+  global). No migration, no new endpoints, no DTO changes — swagger count
+  stays 47.
+- `.env.example`: documented knob (default `off`) + why the flag ships inert
+  (e2e fixtures have no paying steps yet). `payment.entity.ts` +
+  ARCHITECTURE "NOT yet wired" paragraph updated to describe the gate.
+
+**Verified:**
+- `npm run build` green; `npx jest` **598/598 (46 suites, 576→598, +22 new)**
+  — flag parser table tests (ON spellings / OFF incl. garbage), owner-path
+  402 + order untouched + query scoping assertion, paid→confirm OK,
+  flag-OFF zero-payment-queries, refunded-does-not-satisfy, illegal
+  transition 400 BEFORE any payment lookup, repo-less construction inert,
+  ADMIN-backdoor gated + paid-passes.
+- Live smoke (flag ON, mock provider) **12/12**: guest-owned order confirm →
+  402 `PAYMENT_REQUIRED` envelope, order still `pending` + no `confirmedAt`;
+  `POST /payments` → pending intent → `capture` → `succeeded` → owner confirm
+  → 200 with `confirmedAt` stamped; demo promoted to ADMIN — backdoor PATCH
+  confirm also 402, `pending→preparing` still the plain 400 flow rule,
+  unpaid customer cancel still 201. (Three earlier partial runs tripped the
+  10/min auth rate bucket — a smoke-runner artifact, not a code issue; after
+  a window reset every branch passed in one clean run.)
+- Flag-OFF regression: fresh boot without the env → unpaid owner confirm →
+  **200 `confirmed`**, byte-identical pre-gate behavior.
+- Postgres untouched by the change (no migration; `exist` probe rides the
+  existing `(orderId, createdAt)` index). API stopped after smoke; port 4000
+  released.
+
+**Left for next sessions:** web pay button on `/checkout` + `/orders/[id]`
+(then e2e paying fixtures, then the enable-by-default decision); supertest
+integration spec for the gate's HTTP 402 envelope sits naturally in the
+Phase 6 "payments+refunds integration specs" item.
+
+
 ## 2026-10-28 15:30 — Session 41 — Repaired sanitizer-corrupted DATABASE_URL fallbacks + corruption guard spec
 
 **Built:** Phase 4 cleanup item. The committed dev fallbacks in
