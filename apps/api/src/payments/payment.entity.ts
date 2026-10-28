@@ -14,8 +14,9 @@ import { User } from '../users/user.entity';
 
 /**
  * Payment lifecycle owned by the PAYMENT side only — deliberately NOT mixed
- * with OrderStatus. The order machine stays what it is; gating order
- * confirmation on a succeeded payment is a follow-up (docs/ROADMAP.md).
+ * with OrderStatus. The order machine stays what it is; `ORDER_CONFIRM_
+ * REQUIRES_PAYMENT` (off by default) optionally gates ENTRY into `confirmed`
+ * on a `succeeded` row here — it never writes order status (docs/ROADMAP.md).
  *   pending   — row created, gateway intent in flight or created, not captured
  *   succeeded — gateway captured it; money "moved" (mock: simulated). May
  *               carry a partial refund (refundedCents > 0) and stay here
