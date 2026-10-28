@@ -4,6 +4,84 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
+## 2026-10-28 10:45 — Session 39 — Payment refunds: add-on gateway interface + ADMIN refund route + partial amounts
+
+**Built:** Roadmap Phase 5 payment sub-item "Refund flow: `refunded` status +
+gateway `refundIntent` + ADMIN route + partial amounts" — done API-side,
+against the mock (the Stripe/Xendit adapters above it on the list are
+credential-blocked; this was the next self-contained one).
+
+- `payment-gateway.interface.ts`: refunds are an ADD-ON interface
+  (`PaymentRefundGateway` + `RefundInput/RefundResult` + `supportsRefunds()`
+  capability probe) — exactly the "adapters may ADD optional interfaces,
+  never widen the core one" contract session 38's header comment promised.
+  The service probes the mounted adapter and 501s `REFUND_UNSUPPORTED` when
+  absent.
+- `mock-payment-gateway.ts`: implements the add-on; deterministic
+  `mock_re_<paymentId>_<cents>` refs; rejects non-positive/float amounts with
+  the same hard TypeError as pay/capture; NEW `MOCK_REFUND_GATEWAY_MODE=fail`
+  knob deliberately SEPARATE from the capture knob so a live server can
+  pay+capture while refunds decline (documented in `.env.example`).
+- `payment.entity.ts` + migration `1793154590353-AddPaymentRefunds`: status
+  enum gains terminal `refunded`; `refundedCents int DEFAULT 0` +
+  `refundedAt` accumulate refunds on the SAME row (the money trail never
+  rewrites history); CHECK `0 <= refundedCents <= amountCents` declared on
+  BOTH entity (`@Check`) and migration so future generate-diffs keep it.
+  Migration HAND-WRITTEN (reviewed the generated diff: it rename/recreated
+  the enum type — table-locking; PG16 runs `ALTER TYPE ... ADD VALUE` inside
+  the migration transaction just fine since nothing uses the value there).
+  Down drops the columns, does NOT pretend to remove the enum value.
+- Semantics (service): refund only a `succeeded` row — pending 409
+  `PAYMENT_NOT_CAPTURED`, failed 409, `refunded` 409
+  `PAYMENT_ALREADY_REFUNDED`; omitted amount = full remainder (partial
+  refunds keep status `succeeded`, the exact full amount flips it);
+  overspec/non-integer 400 `INVALID_REFUND_AMOUNT` BEFORE the gateway; a
+  provider DECLINE (409 `REFUND_DECLINED`) or explosion (502) leaves the row
+  EXACTLY as it was. Order status does not gate refunds (refunding a
+  cancelled order's payment is the normal case). Downstream: capture now
+  409s refunded rows (no double-charge through one row), and a fully
+  refunded row releases `ORDER_ALREADY_PAID` so re-paying starts a NEW
+  attempt — while a PARTIALLY refunded row still reads already-paid.
+- Concurrency: compare-and-set `UPDATE … WHERE refundedCents = <read value>`;
+  loser gets 409 `REFUND_CONFLICT` — two racing admins cannot both land.
+  Route `POST /payments/:id/refund` (Bearer, `@Roles(ADMIN)` + RolesGuard +
+  service re-check, payments rate bucket, `@HttpCode(200)`, RefundPaymentDto
+  — one optional validated int, whitelist strips everything else).
+- Gate specs moved with the code: swagger doc 46 operations (route/op-count/
+  protected/ERRORS/SUCCESS tables + `PaymentResponse` gains `refundedCents`
+  [money-integer list]/`refundedAt`, enum 4 values), ParseUUIDPipe sweep now
+  23 routes × malformed+valid passes, fake repo made honest (findOne hydrates
+  copies — a live-object fake would have hidden a real CAS race; one capture
+  identity assertion changed to deep-equality accordingly).
+
+**Verified:**
+- `nest build` clean; FULL jest 560/560 (was 524; +36: mock 10, service 22,
+  controller HTTP 6 — incl. guards-before-pipes ordering proof: a bad body
+  from a non-admin 403s, never 400).
+- Migration applied to dev DB `foodorder`: enum shows 4 values; CHECK
+  live-probed — insert with refundedCents>amountCents rejected (23514), a
+  'refunded' row UPDATE accepted; probes deleted after.
+- Live smoke 28/28 against a booted API (rate buckets relaxed via env only
+  for the run): full happy path pay→capture→partial→remainder-full→refunded;
+  403 for customer AND for a not-yet-promoted admin (SQL enum gotcha: roles
+  are lowercase — `role='admin'`; JWT role claim asserted by decoding);
+  400s (negative/float via DTO, over-total & over-remainder via service);
+  409 branches (pending, refunded-twice, capture-after-refund); refund of a
+  PENDING row 409; history shows amounts intact; repay-after-refund created
+  a NEW pending attempt; SECOND API instance with MOCK_REFUND_GATEWAY_MODE=
+  fail on :4100 proved the knobs are independent (capture succeeded there,
+  refund 409 REFUND_DECLINED, row untouched afterwards).
+- Smoke leftovers: 3 test users + their orders/payments rows remain in the
+  dev DB (disposable seed-able data, same as prior sessions).
+
+**Docs:** ARCHITECTURE payments bullet (+refunds paragraph), ROADMAP item
+ticked + refund-audit-trail follow-up added, `.env.example` knob documented.
+
+**Left for next sessions:** refund audit trail (per-refund rows), order-
+machine payment gate (behind feature flag), web pay/refund surfaces, the
+credential-blocked Stripe/Xendit adapters.
+
+
 ## 2026-10-27 19:37 — Session 38 — Payment abstraction: gateway interface + mock adapter + payments API
 
 **Built:** Roadmap Phase 5 "Payment abstraction (mock gateway → Stripe/Xendit

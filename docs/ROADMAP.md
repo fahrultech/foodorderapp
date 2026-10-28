@@ -55,7 +55,8 @@
   - [x] API core: `PaymentGateway` interface + `MockPaymentGateway` behind DI (PAYMENT_PROVIDER, boot fail-fast) + `payments` entity/migration + `POST /payments`, `POST /payments/:id/capture`, `GET /orders/:orderId/payments` + `payments` rate bucket + 46 new specs; live smokes incl. fail-mode and cancelled-order branches (2026-10-27, session 38)
   - [ ] Stripe adapter implementing `PaymentGateway` (+ webhook verification endpoint, clientSecret-driven confirm) — needs API keys; keep mock as CI/dev default
   - [ ] Xendit adapter (same interface + registry entry)
-  - [ ] Refund flow: `refunded` status + gateway `refundIntent` + ADMIN route + partial amounts
+  - [x] Refund flow: `refunded` status + gateway `refundIntent` + ADMIN route + partial amounts — API: `PaymentRefundGateway` optional add-on + `supportsRefunds()` probe (mock implements it, independent `MOCK_REFUND_GATEWAY_MODE=fail` knob) + `refundedCents`/`refundedAt` + `refunded` status (migration w/ CHECK) + `POST /payments/:id/refund` ADMIN route w/ CAS on `refundedCents` (partial accumulates, full → terminal; capture refuses refunded rows; repay-after-refund opens a NEW attempt) + 36 new tests (524→560) + live smoke 28/28 incl. declined-refund branch (2026-10-28, session 39)
+    - [ ] Refund audit trail: per-refund rows (provider refund refs + amounts + acting admin) instead of a single accumulated `refundedCents`
   - [ ] Order-machine gate: owner confirm requires a succeeded payment (behind a feature flag; e2e fixtures need paying steps first)
   - [ ] Web: pay button on `/checkout` + `/orders/[id]` (consume intent/capture endpoints; receipt shows payment status)
 - [ ] Notifications: email confirmations (nodemailer) then push (web-push)

@@ -319,8 +319,21 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   leak, same stance as cancel). Rows persist BEFORE the intent call, so a
   gateway explosion is recorded as a FAILED row + surfaced as 502
   `PAYMENT_GATEWAY_ERROR`, never lost. `payments` bucket throttles pay+capture
-  together (default 10/min/IP). NOT yet wired: order confirmation does not
-  require payment, refunds, web checkout UI — see ROADMAP follow-ups.
+  together (default 10/min/IP). **Refunds** (same bucket): the optional
+  `PaymentRefundGateway` add-on (`refundIntent`) — probed via
+  `supportsRefunds()`, never forced onto the core interface; the mock ships it
+  with an INDEPENDENT `MOCK_REFUND_GATEWAY_MODE=fail` knob (a live server can
+  pay+capture while refunds decline, exactly the refund-failure path).
+  `POST /payments/:id/refund` is ADMIN-only (@Roles + service re-check):
+  refunds accumulate on the SUCCEEDED row (`refundedCents`/`refundedAt`,
+  CHECK-constrained 0..amountCents); partial keeps status `succeeded`, the
+  exact full amount flips it to terminal `refunded` (which frees the order to
+  be repaid as a NEW attempt and blocks capture with 409). Omitted amount =
+  full remainder; overspecs 400; declines never touch the row; a compare-and-set
+  on `refundedCents` makes two racing refunds impossible. Order status does
+  NOT gate refunds (refunding a cancelled order's payment is the normal case).
+  NOT yet wired: order confirmation does not require payment, web checkout/pay
+  UI — see ROADMAP follow-ups.
 - **No token revocation list for access tokens** — deliberate: short TTL +
   stateless verification. Re-add a deny-list only if TTL ever grows.
 - **Web session client** (`apps/web/lib/auth.tsx`): the storefront keeps the
