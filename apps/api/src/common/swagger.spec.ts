@@ -169,6 +169,7 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['/promos/validate', 'post'],
       ['/payments', 'post'],
       ['/payments/{id}/capture', 'post'],
+      ['/payments/{id}/refund', 'post'],
       ['/orders/{orderId}/payments', 'get'],
     ];
     for (const [path, method] of expected) {
@@ -201,6 +202,7 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['/menu/items/{id}', 'delete'],
       ['/payments', 'post'],
       ['/payments/{id}/capture', 'post'],
+      ['/payments/{id}/refund', 'post'],
       ['/orders/{orderId}/payments', 'get'],
     ] as Array<[string, string]>) {
       const op = doc.paths[P(path)]?.[method];
@@ -298,9 +300,10 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['/promos/validate', 'post', 201, 'oneOf2'],
       ['/payments', 'post', 201, 'ref:PaymentResponse'],
       ['/payments/{id}/capture', 'post', 200, 'ref:PaymentResponse'],
+      ['/payments/{id}/refund', 'post', 200, 'ref:PaymentResponse'],
       ['/orders/{orderId}/payments', 'get', 200, 'array:PaymentResponse'],
     ];
-    expect(SUCCESS.length).toBe(45);
+    expect(SUCCESS.length).toBe(46);
     for (const [path, method, code, kind] of SUCCESS) {
       const res = doc.paths[P(path)]?.[method]?.responses?.[String(code)];
       if (!res) throw new Error(`${method} ${path}: no ${code} response documented`);
@@ -373,6 +376,7 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['/promos/validate', 'post', [400]],
       ['/payments', 'post', [400, 401, 404, 409, 429, 502]],
       ['/payments/{id}/capture', 'post', [400, 401, 404, 409, 429]],
+      ['/payments/{id}/refund', 'post', [400, 401, 403, 404, 409, 429, 501, 502]],
       ['/orders/{orderId}/payments', 'get', [400, 401, 404]],
     ];
     for (const [path, method, codes] of ERRORS) {
@@ -435,6 +439,7 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['RestaurantResponse', 'minOrderCents'],
       ['PromoValidResponse', 'discountCents'],
       ['PaymentResponse', 'amountCents'],
+      ['PaymentResponse', 'refundedCents'],
     ] as Array<[string, string]>) {
       if (props(name)[field]?.type !== 'integer') throw new Error(`${name}.${field} must be integer cents`);
     }
@@ -512,7 +517,7 @@ describe('OpenAPI document (generated from the real controllers)', () => {
 
     // Payment rows: terminal-ish lifecycle enum, nullable gateway fields,
     // and clientSecret NOT required (only the fresh-intent 201 carries it).
-    expect(props('PaymentResponse').status.enum).toEqual(['pending', 'succeeded', 'failed']);
+    expect(props('PaymentResponse').status.enum).toEqual(['pending', 'succeeded', 'failed', 'refunded']);
     expect(props('PaymentResponse').providerRef.nullable).toBe(true);
     expect(props('PaymentResponse').failureReason.nullable).toBe(true);
     expect(props('PaymentResponse').succeededAt.format).toBe('date-time');

@@ -771,6 +771,16 @@ export class PaymentResponse {
   @ApiProperty({ type: 'string', format: 'date-time', nullable: true, description: 'Set once, when the payment first succeeded.' })
   succeededAt: string | null;
 
+  @ApiProperty({
+    type: 'integer',
+    minimum: 0,
+    description: 'Cumulative cents refunded against this row (0 until an admin refunds). Partial refunds accumulate; the exact captured amount flips status to refunded.',
+  })
+  refundedCents: number;
+
+  @ApiProperty({ type: 'string', format: 'date-time', nullable: true, description: 'When the most recent refund landed; null while nothing was refunded.' })
+  refundedAt: string | null;
+
   @ApiPropertyOptional({
     type: 'string',
     nullable: true,

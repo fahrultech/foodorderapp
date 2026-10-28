@@ -60,3 +60,41 @@ export interface PaymentGateway {
   createIntent(input: CreateIntentInput): Promise<CreatedIntent>;
   capture(input: CaptureInput): Promise<CaptureResult>;
 }
+
+// ---------------------------------------------------------------------------
+// REFUNDS — deliberately an ADD-ON interface, not part of `PaymentGateway`.
+// Stripe/Xendit refund APIs are shaped differently and arrive later; forcing
+// every adapter to stub `refundIntent` would be the "widen the core interface"
+// mistake this file's header comment warns about. The service probes for the
+// capability with `supportsRefunds()` and answers 501 when absent.
+// ---------------------------------------------------------------------------
+
+export interface RefundInput {
+  paymentId: string;
+  /** The captured provider intent being refunded (NOT a fresh id). */
+  providerRef: string;
+  /** This refund's amount — partial refunds repeat against one intent. */
+  amountCents: number;
+  /** What is left refundable on the intent (adapter-side sanity). */
+  remainingCents: number;
+  currency: string;
+}
+
+export interface RefundResult {
+  succeeded: boolean;
+  /** Provider-side refund id (Stripe `re_…`) when the refund landed. */
+  providerRefundRef?: string;
+  /** Machine-readable decline reason when `succeeded` is false. */
+  reason?: string;
+}
+
+export interface PaymentRefundGateway {
+  refundIntent(input: RefundInput): Promise<RefundResult>;
+}
+
+/** Capability probe — keeps `instanceof` out of DI-constructed singletons. */
+export function supportsRefunds(
+  gateway: PaymentGateway,
+): gateway is PaymentGateway & PaymentRefundGateway {
+  return typeof (gateway as Partial<PaymentRefundGateway>).refundIntent === 'function';
+}

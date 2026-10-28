@@ -119,6 +119,7 @@ function mocks() {
       pay: jest.fn(async () => ({ payment: {}, clientSecret: null })),
       capture: jest.fn(async (id: string) => ({ id })),
       listForOrder: jest.fn(async () => []),
+      refund: jest.fn(async (id: string) => ({ id })),
     } as unknown as PaymentsService,
   };
 }
@@ -267,6 +268,7 @@ describe('uuid route params — ParseUUIDPipe sweep (live HTTP, production pipes
     ['POST', (id) => `/api/users/me/addresses/${id}/default`, m.addresses.setDefault as jest.Mock],
     ['GET', (id) => `/api/orders/${id}/payments`, m.payments.listForOrder as jest.Mock],
     ['POST', (id) => `/api/payments/${id}/capture`, m.payments.capture as jest.Mock],
+    ['POST', (id) => `/api/payments/${id}/refund`, m.payments.refund as jest.Mock, { amountCents: 100 }],
   ];
 
   it.each(uuidRoutes)(

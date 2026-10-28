@@ -8,11 +8,13 @@ import { Reflector } from '@nestjs/core';
 import { OrderPaymentsController, PaymentsController } from './payments.controller';
 import { PaymentsService } from './payments.service';
 import { Payment, PaymentStatus } from './payment.entity';
+import { AppException } from '../common/app-exception';
 import { ErrorFormatFilter } from '../common/error-format.filter';
 import { createGlobalValidationPipe } from '../common/app-config';
 import { TOKEN_TYPE_ACCESS } from '../common/tokens';
 import { UserRole } from '../users/user.entity';
 import { RateLimitGuard } from '../common/rate-limit/rate-limit.guard';
+import { RolesGuard } from '../common/roles.guard';
 import { SlidingWindowLogStore } from '../common/rate-limit/rate-limit.store';
 import { RATE_LIMIT_CONFIG, loadRateLimitConfig } from '../common/rate-limit/rate-limit.config';
 
@@ -30,6 +32,7 @@ const SECRET = 'unit-payment-secret';
 const ORDER_ID = '11111111-1111-4111-8111-111111111111';
 const PAY_ID = '33333333-3333-4333-8333-333333333333';
 const CUSTOMER = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+const ADMIN_ID = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
 
 const row: Payment = {
   id: PAY_ID,
@@ -42,6 +45,8 @@ const row: Payment = {
   providerRef: `mock_pi_${PAY_ID}`,
   failureReason: null,
   succeededAt: null,
+  refundedCents: 0,
+  refundedAt: null,
   createdAt: new Date('2026-10-27T00:00:00Z'),
   updatedAt: new Date('2026-10-27T00:00:00Z'),
 } as Payment;
@@ -86,13 +91,25 @@ async function boot(paymentsMax: string) {
     pay: jest.fn(async () => ({ payment: row, clientSecret: 'mock_secret_new' })),
     capture: jest.fn(async () => row),
     listForOrder: jest.fn(async () => [row]),
-  } as unknown as PaymentsService & { pay: jest.Mock; capture: jest.Mock; listForOrder: jest.Mock };
+    refund: jest.fn(async (id: string, _actor: unknown, amountCents?: number) => ({
+      ...row,
+      id,
+      status: amountCents === undefined || amountCents === 4200 ? 'refunded' : 'succeeded',
+      refundedCents: amountCents ?? 4200,
+    })),
+  } as unknown as PaymentsService & {
+    pay: jest.Mock;
+    capture: jest.Mock;
+    listForOrder: jest.Mock;
+    refund: jest.Mock;
+  };
   const moduleRef = await Test.createTestingModule({
     imports: [JwtModule.register({ secret: SECRET })],
     controllers: [PaymentsController, OrderPaymentsController],
     providers: [
       RateLimitGuard,
       SlidingWindowLogStore,
+      RolesGuard,
       Reflector,
       { provide: RATE_LIMIT_CONFIG, useValue: loadRateLimitConfig({ RATE_LIMIT_PAYMENTS_MAX: paymentsMax }) },
       { provide: PaymentsService, useValue: svc },
@@ -105,22 +122,25 @@ async function boot(paymentsMax: string) {
   await app.listen(0);
   const jwt = app.get(JwtService);
   const token = await jwt.signAsync({ sub: CUSTOMER, role: UserRole.CUSTOMER, typ: TOKEN_TYPE_ACCESS });
-  return { app, svc, token };
+  const adminToken = await jwt.signAsync({ sub: ADMIN_ID, role: UserRole.ADMIN, typ: TOKEN_TYPE_ACCESS });
+  return { app, svc, token, adminToken };
 }
 
 describe('payments HTTP surface (real guards + pipes, mocked service)', () => {
   let app: INestApplication;
-  let svc: { pay: jest.Mock; capture: jest.Mock; listForOrder: jest.Mock };
+  let svc: { pay: jest.Mock; capture: jest.Mock; listForOrder: jest.Mock; refund: jest.Mock };
   let token: string;
+  let adminToken: string;
 
   beforeAll(async () => {
-    ({ app, svc, token } = await boot('100'));
+    ({ app, svc, token, adminToken } = await boot('100'));
   });
   afterAll(async () => app.close());
   beforeEach(() => {
     svc.pay.mockClear();
     svc.capture.mockClear();
     svc.listForOrder.mockClear();
+    svc.refund.mockClear();
   });
 
   it('POST /payments: 401 envelope without a token, service untouched', async () => {
@@ -199,6 +219,85 @@ describe('payments HTTP surface (real guards + pipes, mocked service)', () => {
     // route simply doesn't exist (404 Cannot GET) while OUR route answers.
     const ours = await request(app, 'GET', `/api/orders/${ORDER_ID}/payments`, { token });
     expect(ours.status).toBe(200);
+  });
+
+  // ---- POST /payments/:id/refund ------------------------------------------
+
+  it('refund: anonymous → 401, CUSTOMER role → 403 (RolesGuard), service untouched both ways', async () => {
+    const anon = await request(app, 'POST', `/api/payments/${PAY_ID}/refund`, {
+      body: { amountCents: 100 },
+    });
+    expect(anon.status).toBe(401);
+    expect(svc.refund).not.toHaveBeenCalled();
+
+    const notAdmin = await request(app, 'POST', `/api/payments/${PAY_ID}/refund`, {
+      body: { amountCents: 100 },
+      token, // the CUSTOMER token this suite is built on
+    });
+    expect(notAdmin.status).toBe(403);
+    expect(notAdmin.json.error.code).toBe('FORBIDDEN');
+    expect(svc.refund).not.toHaveBeenCalled();
+  });
+
+  it('refund: admin + explicit amount → 200 pinned, uuid + actor + cents passed through', async () => {
+    const res = await request(app, 'POST', `/api/payments/${PAY_ID}/refund`, {
+      body: { amountCents: 1500 },
+      token: adminToken,
+    });
+    expect(res.status).toBe(200);
+    expect(svc.refund).toHaveBeenCalledWith(
+      PAY_ID,
+      expect.objectContaining({ sub: ADMIN_ID, role: UserRole.ADMIN }),
+      1500,
+    );
+    expect(res.json).toMatchObject({ id: PAY_ID, status: 'succeeded', refundedCents: 1500 });
+  });
+
+  it('refund: admin + empty body → full remainder (service receives undefined amount)', async () => {
+    const res = await request(app, 'POST', `/api/payments/${PAY_ID}/refund`, {
+      body: {},
+      token: adminToken,
+    });
+    expect(res.status).toBe(200);
+    expect(svc.refund).toHaveBeenCalledWith(PAY_ID, expect.anything(), undefined);
+  });
+
+  it('refund: malformed uuid → 400 BEFORE the service; non-integer/zero amounts → 400 from the DTO', async () => {
+    const badId = await request(app, 'POST', '/api/payments/nope/refund', { token: adminToken });
+    expect(badId.status).toBe(400);
+    expect(badId.json.error.message).toMatch(/uuid/i);
+    expect(svc.refund).not.toHaveBeenCalled();
+
+    const zero = await request(app, 'POST', `/api/payments/${PAY_ID}/refund`, {
+      body: { amountCents: 0 },
+      token: adminToken,
+    });
+    expect(zero.status).toBe(400);
+    const floaty = await request(app, 'POST', `/api/payments/${PAY_ID}/refund`, {
+      body: { amountCents: 12.5 },
+      token: adminToken,
+    });
+    expect(floaty.status).toBe(400);
+    expect(svc.refund).not.toHaveBeenCalled(); // all three rejected upstream
+  });
+
+  it('refund: client cannot steer orderId/provider — extra body keys stripped before the service', async () => {
+    const res = await request(app, 'POST', `/api/payments/${PAY_ID}/refund`, {
+      body: { amountCents: 100, orderId: ORDER_ID, provider: 'stripe', userId: CUSTOMER },
+      token: adminToken,
+    });
+    expect(res.status).toBe(200);
+    expect(svc.refund).toHaveBeenCalledWith(PAY_ID, expect.anything(), 100);
+    expect(svc.refund.mock.calls[0][1]).not.toHaveProperty('orderId');
+  });
+
+  it('refund: service REFUND_DECLINED (409) surfaces as the standard envelope', async () => {
+    svc.refund.mockRejectedValueOnce(
+      new AppException(409, 'REFUND_DECLINED', 'The payment provider declined the refund', { reason: 'x' }),
+    );
+    const res = await request(app, 'POST', `/api/payments/${PAY_ID}/refund`, { token: adminToken });
+    expect(res.status).toBe(409);
+    expect(res.json.error.code).toBe('REFUND_DECLINED');
   });
 });
 

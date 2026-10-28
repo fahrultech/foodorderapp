@@ -5,6 +5,9 @@ import {
   CreatedIntent,
   CreateIntentInput,
   PaymentGateway,
+  PaymentRefundGateway,
+  RefundInput,
+  RefundResult,
 } from './payment-gateway.interface';
 
 export const MOCK_GATEWAY_ID = 'mock';
@@ -21,13 +24,24 @@ export function resolveMockMode(env: NodeJS.ProcessEnv = process.env): 'succeed'
 }
 
 /**
+ * Refund-specific sibling of `resolveMockMode` (a SEPARATE knob on purpose:
+ * the live smoke needs capture to succeed *and then* a declined refund —
+ * one switch can drive both). Same default-allow semantics.
+ */
+export function resolveMockRefundMode(env: NodeJS.ProcessEnv = process.env): 'succeed' | 'fail' {
+  return String(env.MOCK_REFUND_GATEWAY_MODE ?? '').toLowerCase() === 'fail' ? 'fail' : 'succeed';
+}
+
+/**
  * The default adapter — no network, no secrets, deterministic. It is a
  * faithful implementation of `PaymentGateway`, so anything written against
  * the interface works identically when a real Stripe/Xendit adapter is
- * swapped in via `PAYMENT_PROVIDER`.
+ * swapped in via `PAYMENT_PROVIDER`. Refunds are implemented HERE (as the
+ * optional `PaymentRefundGateway` add-on) so the refund path is exercisable
+ * end-to-end before any real provider adapter exists.
  */
 @Injectable()
-export class MockPaymentGateway implements PaymentGateway {
+export class MockPaymentGateway implements PaymentGateway, PaymentRefundGateway {
   readonly id = MOCK_GATEWAY_ID;
 
   async createIntent(input: CreateIntentInput): Promise<CreatedIntent> {
@@ -49,6 +63,23 @@ export class MockPaymentGateway implements PaymentGateway {
       return { succeeded: false, reason: 'mock_declined' };
     }
     return { succeeded: true };
+  }
+
+  async refundIntent(input: RefundInput): Promise<RefundResult> {
+    // Same money contract as the other verbs — refuse, never normalize.
+    assertPositiveCents(input.amountCents);
+    if (input.remainingCents < 0) {
+      throw new TypeError(
+        `MockPaymentGateway: remainingCents must never be negative, got ${input.remainingCents}`,
+      );
+    }
+    if (resolveMockRefundMode() === 'fail') {
+      return { succeeded: false, reason: 'mock_refund_declined' };
+    }
+    // Derived from paymentId + the refund size: stable for identical partial
+    // requests, distinct across different splits of one intent. The service
+    // does not persist it today (audit of individual refunds is a follow-up).
+    return { succeeded: true, providerRefundRef: `mock_re_${input.paymentId}_${input.amountCents}` };
   }
 }
 

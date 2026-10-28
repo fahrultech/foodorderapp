@@ -3,7 +3,7 @@ import { Repository } from 'typeorm';
 import { PaymentsService, PaymentActor } from './payments.service';
 import { Payment, PaymentStatus } from './payment.entity';
 import { Order, OrderStatus } from '../orders/order.entity';
-import { PaymentGateway } from './payment-gateway.interface';
+import { PaymentGateway, PaymentRefundGateway } from './payment-gateway.interface';
 import { AppException } from '../common/app-exception';
 import { UserRole } from '../users/user.entity';
 
@@ -47,6 +47,8 @@ function payment(overrides: Partial<Payment> = {}): Payment {
     providerRef: `mock_pi_${PAY_ID}`,
     failureReason: null,
     succeededAt: null,
+    refundedCents: 0,
+    refundedAt: null,
     ...overrides,
   } as Payment;
 }
@@ -54,7 +56,7 @@ function payment(overrides: Partial<Payment> = {}): Payment {
 function build(opts: {
   orderRow?: Order | null;
   payments?: Payment[];
-  gateway?: Partial<PaymentGateway>;
+  gateway?: Partial<PaymentGateway & PaymentRefundGateway>;
 } = {}) {
   const rows = opts.payments ?? [];
   const orderRow = 'orderRow' in opts ? opts.orderRow : order();
@@ -70,9 +72,24 @@ function build(opts: {
       return row;
     }),
     find: jest.fn(async () => rows),
-    findOne: jest.fn(async (o: any) =>
-      o?.where?.id ? rows.find((r) => r.id === o.where.id) ?? null : null,
-    ),
+    // Hydrates per query, like a real ORM read: a concurrent mutation of the
+    // row after this call must NOT be visible through the earlier snapshot
+    // (the refund CAS test depends on this being a copy, not a live object).
+    findOne: jest.fn(async (o: any) => {
+      const hit = o?.where?.id ? rows.find((r) => r.id === o.where.id) : undefined;
+      return hit ? { ...hit } : null;
+    }),
+    // Compare-and-set UPDATE emulation (refund concurrency): matches id +
+    // the expected refundedCents, mutates the in-place row when it lands.
+    update: jest.fn(async (criteria: any, partial: any) => {
+      const hit = rows.find(
+        (r) => r.id === criteria.id && r.refundedCents === criteria.refundedCents,
+      );
+      if (!hit) return { affected: 0 } as any;
+      Object.assign(hit, partial);
+      savedWrites.push({ updated: hit });
+      return { affected: 1 } as any;
+    }),
   } as unknown as Repository<Payment>;
 
   const ordersRepo = {
@@ -83,8 +100,13 @@ function build(opts: {
     id: 'mock',
     createIntent: jest.fn(async () => ({ providerRef: 'mock_pi_new', clientSecret: 'mock_secret_new' })),
     capture: jest.fn(async () => ({ succeeded: true })),
+    refundIntent: jest.fn(async () => ({ succeeded: true, providerRefundRef: 'mock_re_new' })),
     ...opts.gateway,
-  } as unknown as PaymentGateway & { createIntent: jest.Mock; capture: jest.Mock };
+  } as unknown as PaymentGateway & {
+    createIntent: jest.Mock;
+    capture: jest.Mock;
+    refundIntent: jest.Mock;
+  };
 
   const service = new PaymentsService(paymentsRepo, ordersRepo, gateway);
   return { service, paymentsRepo, ordersRepo, gateway, savedWrites };
@@ -228,7 +250,9 @@ describe('PaymentsService.capture', () => {
     const row = payment({ status: PaymentStatus.SUCCEEDED });
     const { service, gateway } = build({ payments: [row] });
     const res = await service.capture(PAY_ID, owner);
-    expect(res).toBe(row);
+    // The fake (like a real ORM read) hydrates a fresh instance per query —
+    // identity is not the contract; "same row, gateway never consulted" is.
+    expect(res).toStrictEqual(row);
     expect(gateway.capture).not.toHaveBeenCalled();
   });
 
@@ -289,5 +313,152 @@ describe('PaymentsService.listForOrder', () => {
     const b = build({ orderRow: order({ userId: OTHER }) });
     await expectAppError(b.service.listForOrder(ORDER_ID, stranger), 404);
     expect(b.paymentsRepo.find).not.toHaveBeenCalled();
+  });
+});
+
+describe('PaymentsService.refund', () => {
+  const paid = (overrides: Partial<Payment> = {}) =>
+    payment({ status: PaymentStatus.SUCCEEDED, succeededAt: new Date(), ...overrides });
+
+  it('rejects non-admin actors BEFORE touching the repository (route guard is not the only door)', async () => {
+    const { service, paymentsRepo } = build({ payments: [paid()] });
+    let err: any;
+    await service.refund(PAY_ID, owner).catch((e) => (err = e));
+    expect(err.getStatus()).toBe(403);
+    expect(paymentsRepo.update).not.toHaveBeenCalled();
+  });
+
+  it('unknown / malformed payment id → 404, no gateway call', async () => {
+    const { service, gateway } = build({ payments: [] });
+    await expectAppError(service.refund(PAY_ID, admin), 404);
+    await expectAppError(service.refund('not-a-uuid', admin), 404);
+    expect(gateway.refundIntent).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [PaymentStatus.PENDING, 'PAYMENT_NOT_CAPTURED'],
+    [PaymentStatus.FAILED, 'PAYMENT_ALREADY_FAILED'],
+    [PaymentStatus.REFUNDED, 'PAYMENT_ALREADY_REFUNDED'],
+  ])('status %s cannot be refunded → 409 %s', async (status, code) => {
+    const { service, gateway } = build({ payments: [payment({ status })] });
+    await expectAppError(service.refund(PAY_ID, admin), 409, code);
+    expect(gateway.refundIntent).not.toHaveBeenCalled();
+  });
+
+  it('full refund (no amount given): exact captured amount, terminal refunded, refundedAt set', async () => {
+    const row = paid();
+    const { service, gateway } = build({ payments: [row] });
+    const res = await service.refund(PAY_ID, admin);
+    expect(gateway.refundIntent).toHaveBeenCalledWith({
+      paymentId: PAY_ID,
+      providerRef: `mock_pi_${PAY_ID}`,
+      amountCents: 4200,
+      remainingCents: 4200,
+      currency: 'IDR',
+    });
+    expect(res.status).toBe(PaymentStatus.REFUNDED);
+    expect(res.refundedCents).toBe(4200);
+    expect(res.refundedAt).toBeInstanceOf(Date);
+  });
+
+  it('partial refund: amount lands, status stays succeeded, remainder shrinks', async () => {
+    const row = paid();
+    const { service } = build({ payments: [row] });
+    const first = await service.refund(PAY_ID, admin, 1500);
+    expect(first.refundedCents).toBe(1500);
+    expect(first.status).toBe(PaymentStatus.SUCCEEDED);
+    // Second admin action refunds the remainder — full now.
+    const second = await service.refund(PAY_ID, admin, 2700);
+    expect(second.refundedCents).toBe(4200);
+    expect(second.status).toBe(PaymentStatus.REFUNDED);
+  });
+
+  it('after a partial, the omitted amount means "remaining" — not the original total', async () => {
+    const row = paid({ refundedCents: 1000 });
+    const { service, gateway } = build({ payments: [row] });
+    await service.refund(PAY_ID, admin);
+    expect(gateway.refundIntent).toHaveBeenCalledWith(
+      expect.objectContaining({ amountCents: 3200, remainingCents: 3200 }),
+    );
+  });
+
+  it.each([
+    [4201, 'exceeds remainder'],
+    [0, 'non-positive'],
+    [12.5, 'float'],
+  ])('INVALID_REFUND_AMOUNT for %p (%s) — rejected BEFORE the gateway', async (amount) => {
+    const { service, gateway } = build({ payments: [paid()] });
+    await expectAppError(service.refund(PAY_ID, admin, amount), 400, 'INVALID_REFUND_AMOUNT');
+    expect(gateway.refundIntent).not.toHaveBeenCalled();
+  });
+
+  it('a gateway WITHOUT the refund add-on → 501 REFUND_UNSUPPORTED, row untouched', async () => {
+    const { service, paymentsRepo } = build({
+      payments: [paid()],
+      gateway: { refundIntent: undefined },
+    });
+    await expectAppError(service.refund(PAY_ID, admin), 501, 'REFUND_UNSUPPORTED');
+    expect(paymentsRepo.update).not.toHaveBeenCalled();
+  });
+
+  it('a DECLINED provider refund leaves the row exactly as it was (history never rewritten)', async () => {
+    const row = paid();
+    const { service, paymentsRepo } = build({
+      payments: [row],
+      gateway: { refundIntent: async () => ({ succeeded: false, reason: 'insufficient_provider_funds' }) },
+    });
+    await expectAppError(service.refund(PAY_ID, admin), 409, 'REFUND_DECLINED');
+    expect(paymentsRepo.update).not.toHaveBeenCalled();
+    expect(row.refundedCents).toBe(0);
+    expect(row.status).toBe(PaymentStatus.SUCCEEDED);
+  });
+
+  it('a gateway EXCEPTION on refund → 502, row unchanged (retry is safe)', async () => {
+    const row = paid();
+    const { service, paymentsRepo } = build({
+      payments: [row],
+      gateway: { refundIntent: async () => { throw new Error('network down'); } },
+    });
+    await expectAppError(service.refund(PAY_ID, admin), 502, 'PAYMENT_GATEWAY_ERROR');
+    expect(paymentsRepo.update).not.toHaveBeenCalled();
+    expect(row.refundedCents).toBe(0);
+  });
+
+  it('compare-and-set loser (row refunded concurrently mid-flight) → 409 REFUND_CONFLICT, no double refund', async () => {
+    // The fake update matches refundedCents as the CAS key: pre-race the row
+    // to 1500 while the service still thinks it read 0.
+    const row = paid();
+    const { service, gateway } = build({ payments: [row] });
+    gateway.refundIntent.mockImplementation(async () => {
+      row.refundedCents = 1500; // someone else landed during our await
+      return { succeeded: true };
+    });
+    await expectAppError(service.refund(PAY_ID, admin, 1000), 409, 'REFUND_CONFLICT');
+    expect(row.refundedCents).toBe(1500); // the winner's value stands
+  });
+
+  it('capture refuses a fully refunded row (PAYMENT_ALREADY_REFUNDED, no gateway settle)', async () => {
+    const { service, gateway } = build({
+      payments: [payment({ status: PaymentStatus.REFUNDED, refundedCents: 4200 })],
+    });
+    await expectAppError(service.capture(PAY_ID, admin), 409, 'PAYMENT_ALREADY_REFUNDED');
+    expect(gateway.capture).not.toHaveBeenCalled();
+  });
+
+  it('a fully refunded row releases the ORDER_ALREADY_PAID lock — repaying starts a NEW attempt', async () => {
+    const { service, gateway } = build({
+      payments: [payment({ status: PaymentStatus.REFUNDED, refundedCents: 4200 })],
+    });
+    const res = await service.pay(ORDER_ID, owner);
+    expect(res.payment.id).toBe('new-1');
+    expect(res.payment.amountCents).toBe(4200);
+    expect(gateway.createIntent).toHaveBeenCalledTimes(1);
+  });
+
+  it('a PARTIALLY refunded row is still the paid attempt — pay() keeps saying ORDER_ALREADY_PAID', async () => {
+    const { service } = build({
+      payments: [payment({ status: PaymentStatus.SUCCEEDED, succeededAt: new Date(), refundedCents: 800 })],
+    });
+    await expectAppError(service.pay(ORDER_ID, owner), 409, 'ORDER_ALREADY_PAID');
   });
 });

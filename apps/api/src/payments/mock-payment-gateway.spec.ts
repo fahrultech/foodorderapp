@@ -1,6 +1,6 @@
-import { MockPaymentGateway, resolveMockMode } from './mock-payment-gateway';
+import { MockPaymentGateway, resolveMockMode, resolveMockRefundMode } from './mock-payment-gateway';
 import { selectPaymentGateway } from './payments.module';
-import { PaymentGateway } from './payment-gateway.interface';
+import { PaymentGateway, supportsRefunds } from './payment-gateway.interface';
 
 /**
  * The mock adapter + provider selection (Phase 5 "payment abstraction").
@@ -20,9 +20,12 @@ const intentInput = (amountCents = 4200) => ({
 describe('MockPaymentGateway', () => {
   const gw = new MockPaymentGateway();
   const saved = process.env.MOCK_PAY_GATEWAY_MODE;
+  const savedRefund = process.env.MOCK_REFUND_GATEWAY_MODE;
   afterEach(() => {
     if (saved === undefined) delete process.env.MOCK_PAY_GATEWAY_MODE;
     else process.env.MOCK_PAY_GATEWAY_MODE = saved;
+    if (savedRefund === undefined) delete process.env.MOCK_REFUND_GATEWAY_MODE;
+    else process.env.MOCK_REFUND_GATEWAY_MODE = savedRefund;
   });
 
   it('identifies as "mock"', () => {
@@ -72,6 +75,55 @@ describe('MockPaymentGateway', () => {
     expect(resolveMockMode({ MOCK_PAY_GATEWAY_MODE: 'nope' })).toBe('succeed');
     expect(resolveMockMode({ MOCK_PAY_GATEWAY_MODE: ' fail ' })).toBe('succeed'); // whitespace ≠ fail (documented strictness)
     expect(resolveMockMode({ MOCK_PAY_GATEWAY_MODE: 'fail' })).toBe('fail');
+  });
+
+  // ---- refund add-on interface -------------------------------------------
+
+  it('implements the refund capability probe (mock is refund-capable)', () => {
+    expect(supportsRefunds(gw)).toBe(true);
+    expect(supportsRefunds({ id: 'x', createIntent: async () => ({ providerRef: '' }), capture: async () => ({ succeeded: true }) })).toBe(false);
+  });
+
+  it('refunds deterministically by default: id derives from payment + split size', async () => {
+    delete process.env.MOCK_REFUND_GATEWAY_MODE;
+    expect(
+      await gw.refundIntent({ paymentId: 'p-1', providerRef: 'mock_pi_p-1', amountCents: 1500, remainingCents: 4200, currency: 'IDR' }),
+    ).toEqual({ succeeded: true, providerRefundRef: 'mock_re_p-1_1500' });
+    // A different partial split of the same intent gets a distinguishable ref.
+    const second = await gw.refundIntent({ paymentId: 'p-1', providerRef: 'mock_pi_p-1', amountCents: 900, remainingCents: 2700, currency: 'IDR' });
+    expect(second.providerRefundRef).toBe('mock_re_p-1_900');
+  });
+
+  it.each([0, -1, 1.5, NaN, Infinity])(
+    'refunds obey the SAME money contract as pay/capture — refuses (%p)',
+    async (amount) => {
+      await expect(
+        gw.refundIntent({ paymentId: 'p', providerRef: 'r', amountCents: amount as number, remainingCents: 100, currency: 'IDR' }),
+      ).rejects.toThrow(TypeError);
+    },
+  );
+
+  it('rejects a negative remainingCents — the caller bookkeeping is already broken', async () => {
+    await expect(
+      gw.refundIntent({ paymentId: 'p', providerRef: 'r', amountCents: 100, remainingCents: -1, currency: 'IDR' }),
+    ).rejects.toThrow(TypeError);
+  });
+
+  it('declines refunds only via the SEPARATE refund knob (capture stays succeed)', async () => {
+    delete process.env.MOCK_PAY_GATEWAY_MODE;
+    process.env.MOCK_REFUND_GATEWAY_MODE = 'fail';
+    expect(await gw.refundIntent({ paymentId: 'p', providerRef: 'r', amountCents: 100, remainingCents: 100, currency: 'IDR' })).toEqual({
+      succeeded: false,
+      reason: 'mock_refund_declined',
+    });
+    // One knob must not flip the other verb — the live smoke relies on this.
+    expect(await gw.capture({ paymentId: 'p', providerRef: 'r', amountCents: 100 })).toEqual({ succeeded: true });
+  });
+
+  it('resolveMockRefundMode: same strict-read semantics as the pay knob', () => {
+    expect(resolveMockRefundMode({})).toBe('succeed');
+    expect(resolveMockRefundMode({ MOCK_REFUND_GATEWAY_MODE: 'nope' })).toBe('succeed');
+    expect(resolveMockRefundMode({ MOCK_REFUND_GATEWAY_MODE: 'FAIL' })).toBe('fail');
   });
 });
 

@@ -21,7 +21,11 @@ import {
 } from '../common/swagger-response-models';
 import { PaymentsService } from './payments.service';
 import { CreatePaymentDto } from './dto/create-payment.dto';
+import { RefundPaymentDto } from './dto/refund-payment.dto';
 import { JwtAuthGuard } from '../common/jwt-auth.guard';
+import { RolesGuard } from '../common/roles.guard';
+import { Roles } from '../common/roles.decorator';
+import { UserRole } from '../users/user.entity';
 import { RateLimitGuard } from '../common/rate-limit/rate-limit.guard';
 import { RateLimit } from '../common/rate-limit/rate-limit.decorator';
 import { CurrentUser } from '../common/current-user.decorator';
@@ -69,6 +73,27 @@ export class PaymentsController {
   @ApiError(429, 'Payments rate limit exceeded.')
   capture(@UuidParam('id') id: string, @CurrentUser() user: any) {
     return this.service.capture(id, user);
+  }
+
+  @Post(':id/refund')
+  @HttpCode(200)
+  @RateLimit('payments')
+  @UseGuards(RateLimitGuard, JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @ApiBearerAuth()
+  @ApiParam({ name: 'id', schema: { type: 'string', format: 'uuid' } })
+  @ApiOperation({ summary: 'Refund a succeeded payment (ADMIN)', description: 'Partial or full. Omit amountCents to refund the remaining captured amount; partial refunds accumulate on the row (refundedCents) while the status stays succeeded — the exact full amount flips it to the terminal refunded. Pending/failed rows 409 (nothing to refund), a fully refunded row 409, an over-large amount 400, a provider without refund support 501, a provider decline 409 REFUND_DECLINED with the row untouched. Guarded by compare-and-set: two racing refunds cannot both land. Order status does NOT gate refunds — refunding the payment of a cancelled order is the normal case.' })
+  @ApiOkResponse({ type: PaymentResponse, description: 'The payment row after the refund landed (refundedCents / refundedAt / status updated).' })
+  @ApiError(400, 'Malformed (non-UUID) payment id, or INVALID_REFUND_AMOUNT (non-positive / over the refundable remainder).')
+  @ApiError(401, 'Missing/invalid/expired access token.')
+  @ApiError(403, 'Caller is not ADMIN — refunds are an admin action.')
+  @ApiError(404, 'Unknown payment id.')
+  @ApiError(409, 'PAYMENT_NOT_CAPTURED / PAYMENT_ALREADY_FAILED / PAYMENT_ALREADY_REFUNDED / REFUND_DECLINED / REFUND_CONFLICT.')
+  @ApiError(429, 'Payments rate limit exceeded.')
+  @ApiError(501, 'REFUND_UNSUPPORTED — the configured gateway adapter cannot refund.')
+  @ApiError(502, 'PAYMENT_GATEWAY_ERROR — the provider errored the refund; the row is unchanged.')
+  refund(@UuidParam('id') id: string, @Body() dto: RefundPaymentDto, @CurrentUser() user: any) {
+    return this.service.refund(id, user, dto.amountCents);
   }
 }
 

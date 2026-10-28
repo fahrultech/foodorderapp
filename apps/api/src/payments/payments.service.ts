@@ -1,4 +1,10 @@
-import { HttpStatus, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  HttpStatus,
+  Inject,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Payment, PaymentStatus } from './payment.entity';
@@ -7,6 +13,8 @@ import {
   CreatedIntent,
   PAYMENT_GATEWAY,
   PaymentGateway,
+  RefundResult,
+  supportsRefunds,
 } from './payment-gateway.interface';
 import { AppException } from '../common/app-exception';
 import { isUuid } from '../common/uuid';
@@ -142,6 +150,15 @@ export class PaymentsService {
     const payment = await this.getVisiblePayment(paymentId, actor);
 
     if (payment.status === PaymentStatus.SUCCEEDED) return payment; // idempotent
+    if (payment.status === PaymentStatus.REFUNDED) {
+      // The money already came back — capturing a refunded intent again
+      // would be double-charging through the same row.
+      throw AppException.conflict(
+        'PAYMENT_ALREADY_REFUNDED',
+        'This payment was fully refunded — nothing left to capture',
+        { paymentId: payment.id },
+      );
+    }
     if (payment.status === PaymentStatus.FAILED) {
       throw AppException.conflict(
         'PAYMENT_ALREADY_FAILED',
@@ -194,6 +211,131 @@ export class PaymentsService {
       where: { orderId: order.id },
       order: { createdAt: 'DESC' },
     });
+  }
+
+  /**
+   * Refund (partially or fully) a SUCCEEDED payment. ADMIN-only — the route
+   * pins @Roles(ADMIN), the service re-checks so direct calls cannot skip it.
+   *
+   * Model: refunds accumulate on the SAME row (`refundedCents` grows;
+   * `amountCents` is the untouchable captured snapshot). Partial → status
+   * stays `succeeded` (money moved, some came back); the exact full amount →
+   * terminal `refunded`. A declined refund never mutates the row — history
+   * is never rewritten, matching the failed-attempt philosophy.
+   *
+   * Concurrency: the row is written with a compare-and-set on `refundedCents`
+   * (UPDATE ... WHERE refundedCents = <read value>). Two racing admins
+   * refunding the same payment cannot both land — the loser gets 409
+   * REFUND_CONFLICT and re-reads reality instead of double-refunding.
+   */
+  async refund(
+    paymentId: string,
+    actor: PaymentActor,
+    requestedCents?: number,
+  ): Promise<Payment> {
+    if (actor.role !== UserRole.ADMIN) {
+      throw new ForbiddenException('Only admins can issue refunds');
+    }
+    if (!isUuid(paymentId)) throw new NotFoundException('Payment not found');
+    const payment = await this.payments.findOne({ where: { id: paymentId } });
+    if (!payment) throw new NotFoundException('Payment not found');
+
+    switch (payment.status) {
+      case PaymentStatus.PENDING:
+        throw AppException.conflict(
+          'PAYMENT_NOT_CAPTURED',
+          'Nothing was captured yet — there is no money to refund',
+          { paymentId: payment.id },
+        );
+      case PaymentStatus.FAILED:
+        throw AppException.conflict(
+          'PAYMENT_ALREADY_FAILED',
+          'This payment failed — nothing was charged, nothing to refund',
+          { paymentId: payment.id },
+        );
+      case PaymentStatus.REFUNDED:
+        throw AppException.conflict(
+          'PAYMENT_ALREADY_REFUNDED',
+          'This payment is already fully refunded',
+          { paymentId: payment.id },
+        );
+    }
+
+    const remainingCents = payment.amountCents - payment.refundedCents;
+    const amountCents = requestedCents ?? remainingCents;
+    if (!Number.isInteger(amountCents) || amountCents <= 0) {
+      throw AppException.badRequest(
+        'INVALID_REFUND_AMOUNT',
+        'Refund amount must be a positive integer of cents',
+        { amountCents: requestedCents ?? null },
+      );
+    }
+    if (amountCents > remainingCents) {
+      throw AppException.badRequest(
+        'INVALID_REFUND_AMOUNT',
+        `Refund exceeds the refundable remainder of this payment`,
+        { requestedCents: amountCents, remainingCents },
+      );
+    }
+
+    if (!supportsRefunds(this.gateway)) {
+      // Provider selected at deployment lacks refunds — honest 501, not a
+      // silent partial-success and not a row mutation.
+      throw new AppException(
+        HttpStatus.NOT_IMPLEMENTED,
+        'REFUND_UNSUPPORTED',
+        `The payment provider '${this.gateway.id}' does not support refunds`,
+        { provider: this.gateway.id },
+      );
+    }
+
+    let result: RefundResult;
+    try {
+      result = await this.gateway.refundIntent({
+        paymentId: payment.id,
+        providerRef: payment.providerRef ?? '',
+        amountCents,
+        remainingCents,
+        currency: payment.currency,
+      });
+    } catch (err) {
+      throw new AppException(
+        HttpStatus.BAD_GATEWAY,
+        'PAYMENT_GATEWAY_ERROR',
+        'The payment provider could not process the refund — nothing changed, retry',
+        { provider: this.gateway.id, paymentId: payment.id, error: (err as Error).message },
+      );
+    }
+    if (!result.succeeded) {
+      throw AppException.conflict(
+        'REFUND_DECLINED',
+        'The payment provider declined the refund — the payment is unchanged',
+        { paymentId: payment.id, reason: result.reason ?? 'declined' },
+      );
+    }
+
+    const newRefundedCents = payment.refundedCents + amountCents;
+    const update = await this.payments.update(
+      { id: payment.id, refundedCents: payment.refundedCents },
+      {
+        refundedCents: newRefundedCents,
+        refundedAt: new Date(),
+        // Full refund flips the terminal status; partial keeps `succeeded`.
+        ...(newRefundedCents === payment.amountCents
+          ? { status: PaymentStatus.REFUNDED }
+          : {}),
+      },
+    );
+    if (!update.affected) {
+      throw AppException.conflict(
+        'REFUND_CONFLICT',
+        'This payment changed while the refund was in flight — re-read it and retry',
+        { paymentId: payment.id },
+      );
+    }
+    const fresh = await this.payments.findOne({ where: { id: payment.id } });
+    if (!fresh) throw new NotFoundException('Payment not found');
+    return fresh;
   }
 
   // -----------------------------------------------------------------------
