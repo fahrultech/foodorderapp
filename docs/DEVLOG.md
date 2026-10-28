@@ -4,6 +4,41 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
+## 2026-10-28 15:30 — Session 41 — Repaired sanitizer-corrupted DATABASE_URL fallbacks + corruption guard spec
+
+**Built:** Phase 4 cleanup item. The committed dev fallbacks in
+`src/database/data-source.ts` and `src/app.module.ts` carried a literal
+three-asterisk string as the password — transcript-sanitizer corruption of the
+original tool write, dead code in practice (`.env`/compose/CI always provide
+`DATABASE_URL`) but a loud trap when unset. Fixed per the roadmap constraint
+WITHOUT typing the secret into any tool call: a python step read the real
+`DATABASE_URL` from the untracked `apps/api/.env` at write time and rewrote
+both fallbacks; equivalence proven by sha256 comparison against the `.env`
+value (never echoed). New regression spec
+`src/database/committed-credentials.spec.ts` (3 cases): repo-wide scan that no
+quoted postgres URL in `src/` carries a masked (`*` or U+2026) password, plus
+per-file well-formedness of both fallbacks — so this corruption class fails CI
+if it ever re-enters committed code.
+
+**Verified:**
+- Codepoint readback before/after: fallback password segment went from 3 chars
+ (all `0x2A`) to the real 9-char value; both files' fallback strings
+  hash-identical to the `.env` `DATABASE_URL`. Repo-wide scan: no other source
+  file carried a masked credential-shaped literal (the masking in
+  `ops/backup-db.sh` is an intentional redaction sed rule — left alone).
+- `npm run build` green; `npx jest` 576/576 (45 suites, up from 573/44).
+- Fallback boot: `env -u DATABASE_URL node dist/main.js` run from a scratch cwd
+  (no `.env` discoverable) -> `/api/health` `db:"up"`, `/api/restaurants?limit=1`
+  and a real restaurant menu route served from Postgres — the repaired fallback
+  was genuinely the only DB path in that boot.
+- Normal boot from `apps/api` (`.env` loaded) re-confirmed green; server stopped
+  afterwards, port 4000 clean.
+
+**Notes:** the guard spec had to be de-masked itself — the sanitizer rewrote a `\u2026`
+`\u2026` escape in the write into a literal U+2026 character; caught by
+codepoint readback and repaired with an escape built at runtime (standing rule:
+verify config-ish writes by codepoint, display masks both ways).
+
 ## 2026-10-28 13:35 — Session 40 — Refund audit trail: `payment_refunds` ledger + ADMIN trail route + collision-free mock refund refs
 
 **Built:** Roadmap Phase 5 refund sub-item "Refund audit trail: per-refund
