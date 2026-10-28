@@ -4,6 +4,79 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
+## 2026-10-28 13:35 — Session 40 — Refund audit trail: `payment_refunds` ledger + ADMIN trail route + collision-free mock refund refs
+
+**Built:** Roadmap Phase 5 refund sub-item "Refund audit trail: per-refund
+rows (provider refund refs + amounts + acting admin) instead of a single
+accumulated `refundedCents`" — done. (Stripe/Xendit adapter items above it on
+the list remain credential-blocked.)
+
+- NEW entity + migration `AddPaymentRefundAuditTrail`: `payment_refunds`
+  append-only ledger — one row per LANDED refund: `providerRefundRef`
+  (varchar 128, NULLABLE, deliberately NOT unique — a schema rule must never
+  be able to reject the transaction of a refund the provider already
+  executed), this refund's `amountCents` (CHECK `> 0`, declared on BOTH
+  entity `@Check` and migration), `refundedAfterCents` running balance (makes
+  the ledger self-describing; SUM(rows) == payment.refundedCents is the
+  reconciliation invariant), `actingAdminId` FK SET NULL + `actingAdminEmail`
+  snapshotted from the verified JWT (attribution outlives account deletion),
+  composite `(paymentId, createdAt)` index matching the only read path.
+  Generated diff reviewed: table + named CHECK + index + both FKs, nothing
+  else touched. Down is a clean drop.
+- `PaymentsService.refund`: the CAS balance UPDATE and the audit INSERT now
+  run in ONE `manager.transaction` — balance and trail land together or not
+  at all; the CAS loser throws inside the transaction (nothing half-written;
+  real DB rolls back). Declined/errored provider refunds still leave neither
+  row nor trail. Residual gap documented honestly: if the DB write itself
+  fails AFTER the provider moved the money, the admin gets an error and the
+  discrepancy reconciles against the provider — same exposure the CAS path
+  always had, and the reason real adapters will need webhook reconciliation.
+- NEW route `GET /payments/:id/refunds` (Bearer + @Roles(ADMIN) + RolesGuard
+  + service re-check): chronological trail, empty array for never-refunded
+  payments (not 404), malformed 400 (ParseUUIDPipe), unknown 404. Read route
+  → no rate bucket, consistent with the other GETs. `PaymentResponse` sibling
+  model `PaymentRefundResponse` added; swagger 46→47 operations, uuid sweep
+  23→24 routes.
+- Mock gateway refund refs were `mock_re_<paymentId>_<cents>` — TWO EQUAL
+  partials of one intent produced the SAME provider ref, fine while nothing
+  persisted it, a lie inside an audit ledger. Format now
+  `mock_re_<paymentId>_<remaining>_<cents>`: the remainder-before component
+  makes every refund of one intent distinct (proven on a live server with two
+  consecutive 1000-cent partials).
+
+**Verified:**
+- `nest build` clean; FULL jest 573/573 (was 560; +13: 4 audit-write specs
+  incl. running-balance chain and null-ref adapter, 4 `listRefunds` specs,
+  3 HTTP guard specs, equal-split distinctness in mock spec, no-trail
+  assertions added to the declined/502/CAS-loser tests).
+- Migration applied to dev DB `foodorder` (12 recorded); CHECK live-probed —
+  insert with amountCents=0 rejected on `CHK_payment_refunds_amount_positive`;
+  unknown paymentId rejected on the FK; failed probes persisted nothing.
+- Live smoke 35/35 against a booted API: order→pay→capture, then 1000 + 1000
+  (EQUAL partials — refs `…_4250_1000` vs `…_3250_1000`, distinct) + remainder
+  full → `refunded`; trail over HTTP: 3 rows, amounts [1000,1000,2250],
+  running balances [1000,2000,4250], admin id+email on every row; guards 401
+  anon / 403 owner / 400 malformed / 404 unknown; never-refunded payment
+  reads []; SQL ledger chronological, SUM == refundedCents == amountCents.
+- Live `/api/docs-json`: 47 operations, new route with bearer security +
+  400/401/403/404 envelopes + `PaymentRefundResponse` array schema.
+- Dev DB re-seeded to canonical state after the smoke (ledger emptied by the
+  payments TRUNCATE cascade, as designed).
+- Sanitizer sweep (standing rule): tracked files contain NO U+2026. NEW
+  discovery — codepoint readback showed the COMMITTED fallback `DATABASE_URL`
+  in `data-source.ts` + `app.module.ts` carries a literal `***` password
+  (earlier sanitizer corruption, predates this session; my diff never touched
+  those lines). Dead code in practice; added as an explicit Phase 4 roadmap
+  item with the safe repair recipe instead of side-questing it here.
+
+**Docs:** ARCHITECTURE payments bullet + audit-trail paragraph, data model
+`payment_refunds` relation line (and the payments enum/refund columns that
+session 39's write-up missed), ROADMAP item ticked + fallback-URL follow-up.
+
+**Left for next sessions:** order-machine payment gate (feature-flagged),
+web pay/refund surfaces, credential-blocked Stripe/Xendit adapters, the
+`***` fallback repair (now on the roadmap).
+
 ## 2026-10-28 10:45 — Session 39 — Payment refunds: add-on gateway interface + ADMIN refund route + partial amounts
 
 **Built:** Roadmap Phase 5 payment sub-item "Refund flow: `refunded` status +

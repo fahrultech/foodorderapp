@@ -332,6 +332,16 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   full remainder; overspecs 400; declines never touch the row; a compare-and-set
   on `refundedCents` makes two racing refunds impossible. Order status does
   NOT gate refunds (refunding a cancelled order's payment is the normal case).
+  **Refund audit trail** (`payment_refunds`): every LANDED refund appends one
+  row — provider refund ref (mock `mock_re_<paymentId>_<remaining>_<cents>`;
+  the remainder-before component makes even two equal partials of one intent
+  carry distinct refs), this refund's cents, the running `refundedAfterCents`,
+  and the acting admin (id FK SET NULL + email snapshot from the JWT, so
+  attribution outlives account deletion) — written in the SAME transaction as
+  the CAS balance update it explains; declined/errored attempts leave no trace.
+  The row's cumulative `refundedCents` stays the fast balance check;
+  SUM(ledger.amountCents) must equal it. `GET /payments/:id/refunds`
+  (ADMIN-only) reads one payment's trail chronologically.
   NOT yet wired: order confirmation does not require payment, web checkout/pay
   UI — see ROADMAP follow-ups.
 - **No token revocation list for access tokens** — deliberate: short TTL +
@@ -354,7 +364,8 @@ users(1)──(N)orders(1)──(N)order_items(N)──(1)menu_items(N)──(1)
 users(1)──(N)restaurants  (restaurants.ownerId → users.id; nullable, FK ON DELETE SET NULL, indexed)
 users(1)──(N)reviews(1)──(1)orders(1)──(1)restaurants  (reviews: unique orderId, all FKs ON DELETE CASCADE; restaurants.rating/ratingCount are recomputed server-side on every review write)
 restaurants(1)──(N)promo_codes  (restaurantId nullable: null = platform-wide, FK ON DELETE CASCADE; code unique uppercase; orders keep promoCode/discountCents text+int snapshots, no FK)
-orders(1)──(N)payments  (payments.orderId FK ON DELETE CASCADE; payer payments.userId FK ON DELETE SET NULL — audit row survives user deletion; providerRef UNIQUE nullable (null only when intent creation itself failed); amountCents = server snapshot of orders.totalCents at intent time; status enum pending|succeeded|failed; indexed (orderId, createdAt) for the per-order history list)
+orders(1)──(N)payments  (payments.orderId FK ON DELETE CASCADE; payer payments.userId FK ON DELETE SET NULL — audit row survives user deletion; providerRef UNIQUE nullable (null only when intent creation itself failed); amountCents = server snapshot of orders.totalCents at intent time; status enum pending|succeeded|failed|refunded; refundedCents/refundedAt accumulate refunds on the same row, CHECK 0..amountCents; indexed (orderId, createdAt) for the per-order history list)
+payments(1)──(N)payment_refunds  (refund audit ledger — one append-only row per LANDED refund, written in the same transaction as the payment-row CAS update; paymentId FK ON DELETE CASCADE, indexed (paymentId, createdAt) for the chronological read; providerRefundRef varchar(128) snapshot — nullable, deliberately NOT unique: a schema rule must never reject a refund the provider already executed; amountCents > 0 CHECK; refundedAfterCents running balance; actingAdminId FK SET NULL + actingAdminEmail JWT snapshot for attribution outliving the account)
 
 Roles: `customer` (default), `owner`, `admin`. Owner-only routes guarded by `JwtAuthGuard` + `RolesGuard` (`@Roles(UserRole.OWNER)`); ADMIN bypasses `@Roles`. Owners create/update only their own restaurants (`PATCH /restaurants/:id` returns 403 unless caller owns the row). `slug`/`rating`/`ownerId` are not owner-writable — slug auto-derived and de-duplicated (`-2`, `-3`…) at create.
 Dish ownership is **derived through the parent restaurant** (menu_items carries no owner column): owner menu routes `POST /restaurants/:id/menu`, `PATCH /menu/items/:id` (content only), `PATCH /menu/items/:id/availability`, `DELETE /menu/items/:id` all check `MenuService.assertCanManage`; platform restaurants (`ownerId null`) are admin-only. Route params that must be uuids are screened by `common/uuid.ts isUuid` → 404 instead of a raw Postgres 22P02 500.
