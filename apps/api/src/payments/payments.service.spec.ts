@@ -2,6 +2,7 @@ import { HttpException } from '@nestjs/common';
 import { Repository } from 'typeorm';
 import { PaymentsService, PaymentActor } from './payments.service';
 import { Payment, PaymentStatus } from './payment.entity';
+import { PaymentRefund } from './payment-refund.entity';
 import { Order, OrderStatus } from '../orders/order.entity';
 import { PaymentGateway, PaymentRefundGateway } from './payment-gateway.interface';
 import { AppException } from '../common/app-exception';
@@ -63,6 +64,18 @@ function build(opts: {
   const savedWrites: any[] = [];
   let insertSeq = 0;
 
+  // The refund audit ledger as the transaction fake sees it: insert appends,
+  // find replays — so a refund() followed by listRefunds() reads its own
+  // trail, mirroring the real table.
+  const refundRows: PaymentRefund[] = [];
+  const refundsRepo = {
+    insert: jest.fn(async (x: any) => {
+      refundRows.push({ ...x });
+      return { identifiers: [{ id: `audit-${refundRows.length}` }] };
+    }),
+    find: jest.fn(async () => refundRows.map((r) => ({ ...r }))),
+  } as unknown as Repository<PaymentRefund>;
+
   const paymentsRepo = {
     create: jest.fn((x: any) => ({ ...x })),
     save: jest.fn(async (x: any) => {
@@ -90,6 +103,16 @@ function build(opts: {
       savedWrites.push({ updated: hit });
       return { affected: 1 } as any;
     }),
+    // The refund path writes CAS + audit through manager.transaction; this
+    // fake runs the callback against the same repo fakes (an exception
+    // thrown inside propagates, standing in for the real rollback).
+    manager: {
+      transaction: jest.fn(async (cb: any) =>
+        cb({
+          getRepository: (entity: any) => (entity === PaymentRefund ? refundsRepo : paymentsRepo),
+        }),
+      ),
+    },
   } as unknown as Repository<Payment>;
 
   const ordersRepo = {
@@ -108,8 +131,8 @@ function build(opts: {
     refundIntent: jest.Mock;
   };
 
-  const service = new PaymentsService(paymentsRepo, ordersRepo, gateway);
-  return { service, paymentsRepo, ordersRepo, gateway, savedWrites };
+  const service = new PaymentsService(paymentsRepo, ordersRepo, gateway, refundsRepo);
+  return { service, paymentsRepo, ordersRepo, gateway, savedWrites, refundsRepo, refundRows };
 }
 
 /** Run a rejected promise and assert it is our envelope with a stable code. */
@@ -403,24 +426,26 @@ describe('PaymentsService.refund', () => {
 
   it('a DECLINED provider refund leaves the row exactly as it was (history never rewritten)', async () => {
     const row = paid();
-    const { service, paymentsRepo } = build({
+    const { service, paymentsRepo, refundsRepo } = build({
       payments: [row],
       gateway: { refundIntent: async () => ({ succeeded: false, reason: 'insufficient_provider_funds' }) },
     });
     await expectAppError(service.refund(PAY_ID, admin), 409, 'REFUND_DECLINED');
     expect(paymentsRepo.update).not.toHaveBeenCalled();
+    expect(refundsRepo.insert).not.toHaveBeenCalled(); // declined attempts leave NO audit trail
     expect(row.refundedCents).toBe(0);
     expect(row.status).toBe(PaymentStatus.SUCCEEDED);
   });
 
   it('a gateway EXCEPTION on refund → 502, row unchanged (retry is safe)', async () => {
     const row = paid();
-    const { service, paymentsRepo } = build({
+    const { service, paymentsRepo, refundsRepo } = build({
       payments: [row],
       gateway: { refundIntent: async () => { throw new Error('network down'); } },
     });
     await expectAppError(service.refund(PAY_ID, admin), 502, 'PAYMENT_GATEWAY_ERROR');
     expect(paymentsRepo.update).not.toHaveBeenCalled();
+    expect(refundsRepo.insert).not.toHaveBeenCalled(); // provider never moved money → no audit row
     expect(row.refundedCents).toBe(0);
   });
 
@@ -428,13 +453,16 @@ describe('PaymentsService.refund', () => {
     // The fake update matches refundedCents as the CAS key: pre-race the row
     // to 1500 while the service still thinks it read 0.
     const row = paid();
-    const { service, gateway } = build({ payments: [row] });
+    const { service, gateway, refundsRepo } = build({ payments: [row] });
     gateway.refundIntent.mockImplementation(async () => {
       row.refundedCents = 1500; // someone else landed during our await
       return { succeeded: true };
     });
     await expectAppError(service.refund(PAY_ID, admin, 1000), 409, 'REFUND_CONFLICT');
     expect(row.refundedCents).toBe(1500); // the winner's value stands
+    // The loser's audit insert must never run: the throw happens INSIDE the
+    // transaction before it — in the real DB the rollback would erase it too.
+    expect(refundsRepo.insert).not.toHaveBeenCalled();
   });
 
   it('capture refuses a fully refunded row (PAYMENT_ALREADY_REFUNDED, no gateway settle)', async () => {
@@ -460,5 +488,95 @@ describe('PaymentsService.refund', () => {
       payments: [payment({ status: PaymentStatus.SUCCEEDED, succeededAt: new Date(), refundedCents: 800 })],
     });
     await expectAppError(service.pay(ORDER_ID, owner), 409, 'ORDER_ALREADY_PAID');
+  });
+
+  // ---- audit trail (payment_refunds rows) ---------------------------------
+
+  it('a landed refund writes ONE audit row with full attribution', async () => {
+    const row = paid();
+    const { service, refundsRepo, refundRows } = build({ payments: [row] });
+    await service.refund(PAY_ID, { ...admin, email: 'admin@foodorder.app' }, 1500);
+    expect(refundsRepo.insert).toHaveBeenCalledTimes(1);
+    expect(refundRows[0]).toMatchObject({
+      paymentId: PAY_ID,
+      provider: 'mock',
+      providerRefundRef: 'mock_re_new', // whatever the adapter reported, snapshotted
+      amountCents: 1500,
+      refundedAfterCents: 1500,
+      actingAdminId: OTHER,
+      actingAdminEmail: 'admin@foodorder.app',
+    });
+  });
+
+  it('successive partials append one row each, with the running balance', async () => {
+    const row = paid(); // 4200 captured
+    const { service, refundRows } = build({ payments: [row] });
+    await service.refund(PAY_ID, admin, 1500);
+    await service.refund(PAY_ID, admin, 900);
+    await service.refund(PAY_ID, admin); // remainder = 1800 → terminal
+    expect(refundRows.map((r) => r.amountCents)).toEqual([1500, 900, 1800]);
+    expect(refundRows.map((r) => r.refundedAfterCents)).toEqual([1500, 2400, 4200]);
+    // The ledger explains the row exactly: last running balance == row total.
+    expect(refundRows[refundRows.length - 1].refundedAfterCents).toBe(row.refundedCents);
+  });
+
+  it('a token without an email claim still lands the refund; the snapshot is null, not a crash', async () => {
+    const row = paid();
+    const { service, refundRows } = build({ payments: [row] });
+    await service.refund(PAY_ID, admin, 500); // `admin` actor has no email
+    expect(refundRows).toHaveLength(1);
+    expect(refundRows[0].actingAdminEmail).toBeNull();
+    expect(row.refundedCents).toBe(500); // the refund itself landed
+  });
+
+  it('an adapter returning NO provider ref stores null (the column is a snapshot, not a requirement)', async () => {
+    const row = paid();
+    const { service, refundRows } = build({
+      payments: [row],
+      gateway: { refundIntent: async () => ({ succeeded: true }) }, // no providerRefundRef
+    });
+    await service.refund(PAY_ID, admin, 700);
+    expect(refundRows[0].providerRefundRef).toBeNull();
+  });
+});
+
+describe('PaymentsService.listRefunds', () => {
+  const paid = (overrides: Partial<Payment> = {}) =>
+    payment({ status: PaymentStatus.SUCCEEDED, succeededAt: new Date(), ...overrides });
+
+  it('admin reads the trail oldest-first through the repository contract', async () => {
+    const { service, refundsRepo } = build({ payments: [paid()] });
+    const res = await service.listRefunds(PAY_ID, admin);
+    expect(res).toEqual([]);
+    expect(refundsRepo.find).toHaveBeenCalledWith({
+      where: { paymentId: PAY_ID },
+      order: { createdAt: 'ASC' },
+    });
+  });
+
+  it('the trail a refund writes is the trail listRefunds reads', async () => {
+    const { service } = build({ payments: [paid()] });
+    await service.refund(PAY_ID, { ...admin, email: 'admin@foodorder.app' }, 1000);
+    await service.refund(PAY_ID, { ...admin, email: 'admin@foodorder.app' });
+    const trail = await service.listRefunds(PAY_ID, admin);
+    expect(trail).toHaveLength(2);
+    expect(trail.map((t) => t.amountCents)).toEqual([1000, 3200]);
+    expect(trail.every((t) => t.actingAdminEmail === 'admin@foodorder.app')).toBe(true);
+  });
+
+  it('rejects non-admin actors BEFORE touching the repository', async () => {
+    const { service, paymentsRepo, refundsRepo } = build({ payments: [paid()] });
+    let err: any;
+    await service.listRefunds(PAY_ID, owner).catch((e) => (err = e));
+    expect(err.getStatus()).toBe(403);
+    expect(paymentsRepo.findOne).not.toHaveBeenCalled();
+    expect(refundsRepo.find).not.toHaveBeenCalled();
+  });
+
+  it('malformed / unknown payment id → 404; the audit table is never queried', async () => {
+    const { service, refundsRepo } = build({ payments: [] });
+    await expectAppError(service.listRefunds('not-a-uuid', admin), 404);
+    await expectAppError(service.listRefunds(PAY_ID, admin), 404);
+    expect(refundsRepo.find).not.toHaveBeenCalled();
   });
 });

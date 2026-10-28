@@ -8,6 +8,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Payment, PaymentStatus } from './payment.entity';
+import { PaymentRefund } from './payment-refund.entity';
 import { Order, OrderStatus } from '../orders/order.entity';
 import {
   CreatedIntent,
@@ -24,6 +25,8 @@ import { UserRole } from '../users/user.entity';
 export interface PaymentActor {
   sub: string;
   role: UserRole;
+  /** From the verified JWT; snapshotted onto refund audit rows. */
+  email?: string;
 }
 
 /** Order statuses that accept a new payment intent. */
@@ -56,6 +59,7 @@ export class PaymentsService {
     @InjectRepository(Payment) private readonly payments: Repository<Payment>,
     @InjectRepository(Order) private readonly orders: Repository<Order>,
     @Inject(PAYMENT_GATEWAY) private readonly gateway: PaymentGateway,
+    @InjectRepository(PaymentRefund) private readonly refunds: Repository<PaymentRefund>,
   ) {}
 
   /**
@@ -224,9 +228,11 @@ export class PaymentsService {
    * is never rewritten, matching the failed-attempt philosophy.
    *
    * Concurrency: the row is written with a compare-and-set on `refundedCents`
-   * (UPDATE ... WHERE refundedCents = <read value>). Two racing admins
-   * refunding the same payment cannot both land — the loser gets 409
-   * REFUND_CONFLICT and re-reads reality instead of double-refunding.
+   * (UPDATE ... WHERE refundedCents = <read value>) IN THE SAME TRANSACTION as
+   * the `payment_refunds` audit row (per-refund amount + provider refund ref
+   * + acting admin). Two racing admins refunding the same payment cannot both
+   * land — the loser gets 409 REFUND_CONFLICT and re-reads reality instead of
+   * double-refunding.
    */
   async refund(
     paymentId: string,
@@ -315,27 +321,64 @@ export class PaymentsService {
     }
 
     const newRefundedCents = payment.refundedCents + amountCents;
-    const update = await this.payments.update(
-      { id: payment.id, refundedCents: payment.refundedCents },
-      {
-        refundedCents: newRefundedCents,
-        refundedAt: new Date(),
-        // Full refund flips the terminal status; partial keeps `succeeded`.
-        ...(newRefundedCents === payment.amountCents
-          ? { status: PaymentStatus.REFUNDED }
-          : {}),
-      },
-    );
-    if (!update.affected) {
-      throw AppException.conflict(
-        'REFUND_CONFLICT',
-        'This payment changed while the refund was in flight — re-read it and retry',
-        { paymentId: payment.id },
+    // CAS row update + audit row in ONE transaction: the balance and the
+    // trail that explains it land together or not at all. (The provider has
+    // already moved the money by this point — if the DB write throws, the
+    // admin gets an error and the discrepancy is reconciled against the
+    // provider, exactly like the REFUND_CONFLICT path above. What is never
+    // acceptable is a landed refund with no audit row.)
+    await this.payments.manager.transaction(async (em) => {
+      const update = await em.getRepository(Payment).update(
+        { id: payment.id, refundedCents: payment.refundedCents },
+        {
+          refundedCents: newRefundedCents,
+          refundedAt: new Date(),
+          // Full refund flips the terminal status; partial keeps `succeeded`.
+          ...(newRefundedCents === payment.amountCents
+            ? { status: PaymentStatus.REFUNDED }
+            : {}),
+        },
       );
-    }
+      if (!update.affected) {
+        throw AppException.conflict(
+          'REFUND_CONFLICT',
+          'This payment changed while the refund was in flight — re-read it and retry',
+          { paymentId: payment.id },
+        );
+      }
+      await em.getRepository(PaymentRefund).insert({
+        paymentId: payment.id,
+        provider: this.gateway.id,
+        providerRefundRef: result.providerRefundRef ?? null,
+        amountCents,
+        refundedAfterCents: newRefundedCents,
+        actingAdminId: actor.sub,
+        actingAdminEmail: actor.email ?? null,
+      });
+    });
     const fresh = await this.payments.findOne({ where: { id: payment.id } });
     if (!fresh) throw new NotFoundException('Payment not found');
     return fresh;
+  }
+
+  /**
+   * The per-refund audit trail of one payment, oldest first — ADMIN-only,
+   * same two-door stance as `refund` (route pins @Roles(ADMIN); this guards
+   * direct calls). Unknown/malformed payment ids 404 (existence is not
+   * leaked even to admins reading a wrong id), and a payment that has never
+   * been refunded reads as an empty trail, not an error.
+   */
+  async listRefunds(paymentId: string, actor: PaymentActor): Promise<PaymentRefund[]> {
+    if (actor.role !== UserRole.ADMIN) {
+      throw new ForbiddenException('Only admins can read the refund audit trail');
+    }
+    if (!isUuid(paymentId)) throw new NotFoundException('Payment not found');
+    const payment = await this.payments.findOne({ where: { id: paymentId } });
+    if (!payment) throw new NotFoundException('Payment not found');
+    return this.refunds.find({
+      where: { paymentId: payment.id },
+      order: { createdAt: 'ASC' },
+    });
   }
 
   // -----------------------------------------------------------------------

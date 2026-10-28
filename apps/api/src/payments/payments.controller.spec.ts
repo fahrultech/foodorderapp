@@ -19,7 +19,8 @@ import { SlidingWindowLogStore } from '../common/rate-limit/rate-limit.store';
 import { RATE_LIMIT_CONFIG, loadRateLimitConfig } from '../common/rate-limit/rate-limit.config';
 
 /**
- * `POST /payments`, `POST /payments/:id/capture` and
+ * `POST /payments`, `POST /payments/:id/capture`, `POST /payments/:id/refund`
+ * (ADMIN), `GET /payments/:id/refunds` (ADMIN) and
  * `GET /orders/:orderId/payments` over real HTTP with the PRODUCTION pipe +
  * error filter, the REAL JwtAuthGuard and the REAL RateLimitGuard (own store
  * per app). The service itself is unit-tested elsewhere; this proves routing,
@@ -97,11 +98,25 @@ async function boot(paymentsMax: string) {
       status: amountCents === undefined || amountCents === 4200 ? 'refunded' : 'succeeded',
       refundedCents: amountCents ?? 4200,
     })),
+    listRefunds: jest.fn(async () => [
+      {
+        id: 'refund-1',
+        paymentId: PAY_ID,
+        provider: 'mock',
+        providerRefundRef: `mock_re_${PAY_ID}_4200_1500`,
+        amountCents: 1500,
+        refundedAfterCents: 1500,
+        actingAdminId: ADMIN_ID,
+        actingAdminEmail: 'admin@foodorder.app',
+        createdAt: '2026-10-28T00:00:00.000Z',
+      },
+    ]),
   } as unknown as PaymentsService & {
     pay: jest.Mock;
     capture: jest.Mock;
     listForOrder: jest.Mock;
     refund: jest.Mock;
+    listRefunds: jest.Mock;
   };
   const moduleRef = await Test.createTestingModule({
     imports: [JwtModule.register({ secret: SECRET })],
@@ -128,7 +143,7 @@ async function boot(paymentsMax: string) {
 
 describe('payments HTTP surface (real guards + pipes, mocked service)', () => {
   let app: INestApplication;
-  let svc: { pay: jest.Mock; capture: jest.Mock; listForOrder: jest.Mock; refund: jest.Mock };
+  let svc: { pay: jest.Mock; capture: jest.Mock; listForOrder: jest.Mock; refund: jest.Mock; listRefunds: jest.Mock };
   let token: string;
   let adminToken: string;
 
@@ -298,6 +313,41 @@ describe('payments HTTP surface (real guards + pipes, mocked service)', () => {
     const res = await request(app, 'POST', `/api/payments/${PAY_ID}/refund`, { token: adminToken });
     expect(res.status).toBe(409);
     expect(res.json.error.code).toBe('REFUND_DECLINED');
+  });
+
+  // ---- GET /payments/:id/refunds (the audit trail) ------------------------
+
+  it('refunds list: admin → 200 array with attribution fields', async () => {
+    const res = await request(app, 'GET', `/api/payments/${PAY_ID}/refunds`, { token: adminToken });
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.json)).toBe(true);
+    expect(res.json[0]).toMatchObject({
+      paymentId: PAY_ID,
+      amountCents: 1500,
+      refundedAfterCents: 1500,
+      actingAdminId: ADMIN_ID,
+      actingAdminEmail: 'admin@foodorder.app',
+      providerRefundRef: `mock_re_${PAY_ID}_4200_1500`,
+    });
+    expect(svc.listRefunds).toHaveBeenCalledWith(PAY_ID, expect.objectContaining({ sub: ADMIN_ID, role: UserRole.ADMIN }));
+  });
+
+  it('refunds list: anonymous → 401, CUSTOMER → 403 (RolesGuard), service untouched both ways', async () => {
+    svc.listRefunds.mockClear();
+    const anon = await request(app, 'GET', `/api/payments/${PAY_ID}/refunds`);
+    expect(anon.status).toBe(401);
+    const notAdmin = await request(app, 'GET', `/api/payments/${PAY_ID}/refunds`, { token });
+    expect(notAdmin.status).toBe(403);
+    expect(notAdmin.json.error.code).toBe('FORBIDDEN');
+    expect(svc.listRefunds).not.toHaveBeenCalled();
+  });
+
+  it('refunds list: malformed uuid → 400 BEFORE the service (ParseUUIDPipe)', async () => {
+    svc.listRefunds.mockClear();
+    const res = await request(app, 'GET', '/api/payments/nope/refunds', { token: adminToken });
+    expect(res.status).toBe(400);
+    expect(res.json.error.message).toMatch(/uuid/i);
+    expect(svc.listRefunds).not.toHaveBeenCalled();
   });
 });
 

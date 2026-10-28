@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Payment } from './payment.entity';
+import { PaymentRefund } from './payment-refund.entity';
 import { Order } from '../orders/order.entity';
 import { PaymentsService } from './payments.service';
 import { PaymentsController, OrderPaymentsController } from './payments.controller';
@@ -32,7 +33,7 @@ export function selectPaymentGateway(
 }
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Payment, Order]), AuthModule],
+  imports: [TypeOrmModule.forFeature([Payment, PaymentRefund, Order]), AuthModule],
   controllers: [PaymentsController, OrderPaymentsController],
   providers: [
     PaymentsService,

@@ -18,6 +18,7 @@ import { UuidParam } from '../common/uuid';
 import {
   ApiError,
   PaymentResponse,
+  PaymentRefundResponse,
 } from '../common/swagger-response-models';
 import { PaymentsService } from './payments.service';
 import { CreatePaymentDto } from './dto/create-payment.dto';
@@ -94,6 +95,21 @@ export class PaymentsController {
   @ApiError(502, 'PAYMENT_GATEWAY_ERROR — the provider errored the refund; the row is unchanged.')
   refund(@UuidParam('id') id: string, @Body() dto: RefundPaymentDto, @CurrentUser() user: any) {
     return this.service.refund(id, user, dto.amountCents);
+  }
+
+  @Get(':id/refunds')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @ApiBearerAuth()
+  @ApiParam({ name: 'id', schema: { type: 'string', format: 'uuid' } })
+  @ApiOperation({ summary: 'Per-refund audit trail of a payment (ADMIN)', description: 'One row per LANDED refund, oldest first: amount, provider refund ref, running refundedCents after the row, and the acting admin (id + email snapshot from the token). Declined/errored attempts never appear — the trail records money that came back, and each row was written in the SAME transaction as the balance update it explains. Never-refunded payments read as an empty array.' })
+  @ApiOkResponse({ type: [PaymentRefundResponse], description: 'Audit rows, oldest first. Empty for a payment that was never refunded.' })
+  @ApiError(400, 'Malformed (non-UUID) payment id.')
+  @ApiError(401, 'Missing/invalid/expired access token.')
+  @ApiError(403, 'Caller is not ADMIN — the refund audit trail is an admin view.')
+  @ApiError(404, 'Unknown payment id.')
+  listRefunds(@UuidParam('id') id: string, @CurrentUser() user: any) {
+    return this.service.listRefunds(id, user);
   }
 }
 

@@ -170,6 +170,7 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['/payments', 'post'],
       ['/payments/{id}/capture', 'post'],
       ['/payments/{id}/refund', 'post'],
+      ['/payments/{id}/refunds', 'get'],
       ['/orders/{orderId}/payments', 'get'],
     ];
     for (const [path, method] of expected) {
@@ -203,6 +204,7 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['/payments', 'post'],
       ['/payments/{id}/capture', 'post'],
       ['/payments/{id}/refund', 'post'],
+      ['/payments/{id}/refunds', 'get'],
       ['/orders/{orderId}/payments', 'get'],
     ] as Array<[string, string]>) {
       const op = doc.paths[P(path)]?.[method];
@@ -301,9 +303,10 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['/payments', 'post', 201, 'ref:PaymentResponse'],
       ['/payments/{id}/capture', 'post', 200, 'ref:PaymentResponse'],
       ['/payments/{id}/refund', 'post', 200, 'ref:PaymentResponse'],
+      ['/payments/{id}/refunds', 'get', 200, 'array:PaymentRefundResponse'],
       ['/orders/{orderId}/payments', 'get', 200, 'array:PaymentResponse'],
     ];
-    expect(SUCCESS.length).toBe(46);
+    expect(SUCCESS.length).toBe(47);
     for (const [path, method, code, kind] of SUCCESS) {
       const res = doc.paths[P(path)]?.[method]?.responses?.[String(code)];
       if (!res) throw new Error(`${method} ${path}: no ${code} response documented`);
@@ -377,6 +380,7 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['/payments', 'post', [400, 401, 404, 409, 429, 502]],
       ['/payments/{id}/capture', 'post', [400, 401, 404, 409, 429]],
       ['/payments/{id}/refund', 'post', [400, 401, 403, 404, 409, 429, 501, 502]],
+      ['/payments/{id}/refunds', 'get', [400, 401, 403, 404]],
       ['/orders/{orderId}/payments', 'get', [400, 401, 404]],
     ];
     for (const [path, method, codes] of ERRORS) {

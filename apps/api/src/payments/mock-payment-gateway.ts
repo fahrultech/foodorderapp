@@ -76,10 +76,15 @@ export class MockPaymentGateway implements PaymentGateway, PaymentRefundGateway 
     if (resolveMockRefundMode() === 'fail') {
       return { succeeded: false, reason: 'mock_refund_declined' };
     }
-    // Derived from paymentId + the refund size: stable for identical partial
-    // requests, distinct across different splits of one intent. The service
-    // does not persist it today (audit of individual refunds is a follow-up).
-    return { succeeded: true, providerRefundRef: `mock_re_${input.paymentId}_${input.amountCents}` };
+    // Derived from paymentId + the refundable remainder BEFORE the refund +
+    // the split size. The remainder makes EVERY refund of one intent distinct
+    // — including two equal partials, which the old payment+size format
+    // collided on. Collisions matter now that refs land in the audit ledger:
+    // one landed refund must have exactly one provider refund id.
+    return {
+      succeeded: true,
+      providerRefundRef: `mock_re_${input.paymentId}_${input.remainingCents}_${input.amountCents}`,
+    };
   }
 }
 

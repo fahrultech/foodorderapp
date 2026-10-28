@@ -794,3 +794,52 @@ export class PaymentResponse {
   @ApiProperty({ type: 'string', format: 'date-time' })
   updatedAt: string;
 }
+
+// ---------------------------------------------------------------------------
+// PaymentRefundResponse — one row of the refund AUDIT TRAIL (per landed
+// refund: provider ref + amount + acting admin), written in the same
+// transaction as the payment-row balance update it explains. Declined or
+// errored refund attempts never appear here.
+// ---------------------------------------------------------------------------
+
+export class PaymentRefundResponse {
+  @ApiProperty({ type: 'string', format: 'uuid' })
+  id: string;
+
+  @ApiProperty({ type: 'string', format: 'uuid', description: 'Payment this refund came out of.' })
+  paymentId: string;
+
+  @ApiProperty({ description: 'Gateway adapter that executed the refund; snapshot like payment.provider.', example: 'mock' })
+  provider: string;
+
+  @ApiProperty({
+    type: 'string',
+    nullable: true,
+    description: "Provider-side refund id (mock: 'mock_re_<paymentId>_<remaining>_<cents>'). Null when the adapter returned no ref — the column is a snapshot, never unique-constrained.",
+  })
+  providerRefundRef: string | null;
+
+  @ApiProperty({ type: 'integer', minimum: 1, description: 'THIS refund amount in integer cents (partial refunds = multiple rows).' })
+  amountCents: number;
+
+  @ApiProperty({ type: 'integer', minimum: 1, description: "Payment.refundedCents AFTER this row landed — the running balance. SUM(rows.amountCents) must equal the payment's refundedCents." })
+  refundedAfterCents: number;
+
+  @ApiProperty({
+    type: 'string',
+    format: 'uuid',
+    nullable: true,
+    description: 'Admin who issued the refund (null only if their account was later deleted — the SET NULL keeps the ledger row alive).',
+  })
+  actingAdminId: string | null;
+
+  @ApiProperty({
+    type: 'string',
+    nullable: true,
+    description: 'Admin email snapshotted from the verified JWT at refund time — attribution outlives account deletion.',
+  })
+  actingAdminEmail: string | null;
+
+  @ApiProperty({ type: 'string', format: 'date-time' })
+  createdAt: string;
+}

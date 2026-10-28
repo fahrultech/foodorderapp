@@ -84,14 +84,19 @@ describe('MockPaymentGateway', () => {
     expect(supportsRefunds({ id: 'x', createIntent: async () => ({ providerRef: '' }), capture: async () => ({ succeeded: true }) })).toBe(false);
   });
 
-  it('refunds deterministically by default: id derives from payment + split size', async () => {
+  it('refunds deterministically by default: id derives from payment + remainder-before + split size', async () => {
     delete process.env.MOCK_REFUND_GATEWAY_MODE;
     expect(
       await gw.refundIntent({ paymentId: 'p-1', providerRef: 'mock_pi_p-1', amountCents: 1500, remainingCents: 4200, currency: 'IDR' }),
-    ).toEqual({ succeeded: true, providerRefundRef: 'mock_re_p-1_1500' });
-    // A different partial split of the same intent gets a distinguishable ref.
+    ).toEqual({ succeeded: true, providerRefundRef: 'mock_re_p-1_4200_1500' });
+    // A different partial split of the same intent gets a distinguishable ref…
     const second = await gw.refundIntent({ paymentId: 'p-1', providerRef: 'mock_pi_p-1', amountCents: 900, remainingCents: 2700, currency: 'IDR' });
-    expect(second.providerRefundRef).toBe('mock_re_p-1_900');
+    expect(second.providerRefundRef).toBe('mock_re_p-1_2700_900');
+    // …and so do TWO EQUAL splits: the remainder-before component makes every
+    // refund of one intent unique, which the persisted audit ledger requires.
+    const equalSplit = await gw.refundIntent({ paymentId: 'p-1', providerRef: 'mock_pi_p-1', amountCents: 900, remainingCents: 1800, currency: 'IDR' });
+    expect(equalSplit.providerRefundRef).toBe('mock_re_p-1_1800_900');
+    expect(equalSplit.providerRefundRef).not.toBe(second.providerRefundRef);
   });
 
   it.each([0, -1, 1.5, NaN, Infinity])(
