@@ -32,7 +32,7 @@ export const dataSourceOptions = {
   type: 'postgres' as const,
   url:
     process.env.DATABASE_URL ||
-    'postgresql://foodorder:***@localhost:5432/foodorder',
+    'postgresql://foodorder:foodorder@localhost:5432/foodorder',
   entities: [User, Favorite, DeliveryAddress, RefreshToken, Restaurant, MenuItem, Order, OrderItem, Review, PromoCode, Payment, PaymentRefund],
   // Glob works for ts-node (src) and compiled output (dist) alike.
   migrations: [path.join(__dirname, 'migrations', '*.{ts,js}')],

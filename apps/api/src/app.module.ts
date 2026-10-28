@@ -22,7 +22,7 @@ import { RateLimitModule } from './common/rate-limit/rate-limit.module';
         type: 'postgres',
         url:
           config.get<string>('DATABASE_URL') ||
-          'postgresql://foodorder:***@localhost:5432/foodorder',
+          'postgresql://foodorder:foodorder@localhost:5432/foodorder',
         autoLoadEntities: true,
         // Schema is owned by migrations (see src/database/data-source.ts);
         // pending migrations are applied automatically on boot.
