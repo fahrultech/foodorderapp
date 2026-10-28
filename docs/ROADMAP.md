@@ -34,7 +34,8 @@
 - [x] Promo codes & discount engine (server-side validation, order integration)
 - [x] Delivery addresses book (multiple saved addresses, pick at checkout)
 
-## Phase 4 — Ops & quality
+## Phase 4 — Ops & quality ✅ complete 2026-10-28
+
 - [x] GitHub Actions CI: build + test both apps per push
 - [x] GitHub Actions CD workflow stub (build images, push to registry)
 - [x] API: structured logging (pino) + request-id middleware
@@ -47,7 +48,7 @@
 - [x] DB indexes migration (slug, restaurantId, status, createdAt) + EXPLAIN check (2026-10-26, session 32; slug already covered by its UNIQUE index)
 - [x] Backups: pg_dump scheduled script + restore doc (2026-10-26, session 33; `ops/backup-db.sh` + `ops/restore-db.sh` + `ops/systemd/` timer + `docs/BACKUP.md`, full restore drill green)
 - [x] API: reject malformed uuid route params with 400 via `UuidParam` (ParseUUIDPipe) on all 22 uuid params; service-layer guards kept for direct calls (2026-10-27, session 34; 42-case HTTP spec + live smoke, menu 500→400)
-- [ ] API: repair the sanitizer-corrupted fallback `DATABASE_URL` defaults — `src/database/data-source.ts` + `src/app.module.ts` carry a committed literal `***` as the dev password (discovered 2026-10-28 session 40 via codepoint readback; display had always shown it masked, so it survived review). Dead code in practice (`.env`/compose/CI always provide the URL) but a loud trap when unset. Fix WITHOUT typing the secret into a tool call: a python step that reads the real value from the untracked `.env` at write time and rewrites the two fallbacks; verify by booting the API with DATABASE_URL temporarily unset.
+- [x] API: repair the sanitizer-corrupted fallback `DATABASE_URL` defaults — `src/database/data-source.ts` + `src/app.module.ts` carry a committed literal `***` as the dev password (discovered 2026-10-28 session 40 via codepoint readback; display had always shown it masked, so it survived review). Dead code in practice (`.env`/compose/CI always provide the URL) but a loud trap when unset. Fix WITHOUT typing the secret into a tool call: a python step that reads the real value from the untracked `.env` at write time and rewrites the two fallbacks; verify by booting the API with DATABASE_URL temporarily unset. (2026-10-28, session 41; rewrote both fallbacks from `.env` via python, sha256-verified vs the real URL, fallback boot green with DATABASE_URL unset + no `.env` in cwd; regression guard spec `committed-credentials.spec.ts` fails CI on any masked credential literal in `src/`)
 
 ## Phase 5 — Scale-out ideas (seed list, expand freely)
 - [x] Realtime order feed with WebSocket gateway (Socket.IO) (2026-10-27, session 36; `RealtimeGateway` on /orders namespace, JWT handshake auth, restaurant+user rooms off the shared SSE bus; 9-case socket integration spec + live smoke. Follow-up below: web-side consumer)
@@ -83,6 +84,14 @@
 - [ ] Map view of restaurants (Leaflet)
 - [ ] Unit-of-work: wrap order create in a transaction + stock guard
 - [ ] CI matrix: postgres 15/16 compatibility
+
+## Phase 6 — Hardening & polish (opened 2026-10-28, Phase 4 closed; from the Ops/UX evergreen loops)
+- [ ] API: boot-time config validation (env.schema via class-validator; fail fast on missing JWT_SECRET/DATABASE_URL instead of silent dev fallbacks)
+- [ ] API: supertest-based integration specs for the payments + refunds routes (today covered by service-unit specs + live smoke only)
+- [ ] API: `GET /orders/:id` ownership fix — guests must prove contact-email match, not just know the uuid (id enumeration risk)
+- [ ] Web: storefront empty/loading/error states audit (no-results search, dead restaurant links, offline API banner)
+- [ ] Web: accessibility pass on checkout + dashboard (labels, focus order, aria-live on order status)
+- [ ] Perf: N+1 sweep on `/restaurants` list (menuItemCount subqueries) + verify with query logger + EXPLAIN
 
 ## Completed
 - 2026-10-17 — Phase 0: monorepo scaffold, NestJS API (auth, restaurants, menu, orders, status machine, health), Next.js storefront (browse, detail, cart, checkout, order page), docker compose + Dockerfiles, seed data, jest unit tests, CI-ready scripts.
