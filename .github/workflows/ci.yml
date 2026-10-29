@@ -214,6 +214,10 @@ jobs:
         working-directory: e2e
         run: |
           export DATABASE_URL="postgresql://${CI_DB_USER}@${CI_DB_HOST}:${CI_DB_PORT}/${CI_DB_NAME}"
+          # CI throwaway value — the Playwright webServer boots the API which
+          # now validates JWT_SECRET at startup (env.validation.ts); this is
+          # a non-production ephemeral key for the throwaway CI database only.
+          export JWT_SECRET=ci-e2e-ephemeral-key-not-for-production
           npx playwright test
       - name: Upload Playwright report on failure
         if: failure()
