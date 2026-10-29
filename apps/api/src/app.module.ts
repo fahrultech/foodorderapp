@@ -12,6 +12,7 @@ import { PromosModule } from './promos/promos.module';
 import { PaymentsModule } from './payments/payments.module';
 import { HealthModule } from './health/health.module';
 import { RateLimitModule } from './common/rate-limit/rate-limit.module';
+import { NotificationsModule } from './notifications/notifications.module';
 
 @Module({
   imports: [
@@ -41,6 +42,7 @@ import { RateLimitModule } from './common/rate-limit/rate-limit.module';
     PromosModule,
     PaymentsModule,
     RateLimitModule,
+    NotificationsModule,
   ],
 })
 export class AppModule {}

@@ -25,6 +25,6 @@ import { UsersModule } from '../users/users.module';
   ],
   providers: [OrdersService, OrderEventsService, RealtimeGateway],
   controllers: [OrdersController, RestaurantOrdersController],
-  exports: [OrdersService],
+  exports: [OrdersService, OrderEventsService],
 })
 export class OrdersModule {}
