@@ -23,6 +23,7 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 - Runtime fail-fast probe: `DATABASE_URL="" JWT_SECRET="" node dist/main.js` → exits 1 with `Boot-time configuration validation failed — fix these env vars before starting: DATABASE_URL must be set (...) JWT_SECRET must be set to a strong secret`.
 - Single missing field: `DATABASE_URL="" node dist/main.js` → exits 1 listing only DATABASE_URL.
 - Normal boot: `node dist/main.js` (with real .env) → `GET /api/health` → `{"status":"ok","db":"up"}`.
+- CI: all 4 jobs green on GitHub Actions (run 40863553781, commit 36a391c); required lockfile mirror-URL fix (nodemailer entries from session 45 baked the Tencent mirror) + CI e2e step needed JWT_SECRET exported (new validation catches it at startup).
 
 ---
 
