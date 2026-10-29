@@ -347,8 +347,15 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   default; when ON, EVERY path into `confirmed` — owner portal AND the ADMIN
   backdoor — answers 402 PAYMENT_REQUIRED until a `succeeded` payments row
   exists for that order (existence probe, never a status write from the
-  payment side; `refunded` rows do not satisfy it). Web checkout/pay UI is
-  still pending — see ROADMAP follow-ups.
+  payment side; `refunded` rows do not satisfy it). **Web pay UI is wired**
+  (session 43): `components/PaymentPanel.tsx` + `components/PayButton.tsx`
+  on the order receipt page — one click runs the two documented calls
+  (intent → capture), the paid/fail/pending/refunded views derive purely
+  from `GET /orders/:orderId/payments`, and checkout hands signed-in
+  customers over with `?pay=1` (elevated pay card). Guests see a sign-in
+  hint because every payment route is Bearer-gated; the client re-implements
+  no money rule — all rejections (409 ORDER_ALREADY_PAID / NOT_PAYABLE /
+  ORDER_CANCELLED, 429, 502) surface the API envelope verbatim.
 - **No token revocation list for access tokens** — deliberate: short TTL +
   stateless verification. Re-add a deny-list only if TTL ever grows.
 - **Web session client** (`apps/web/lib/auth.tsx`): the storefront keeps the

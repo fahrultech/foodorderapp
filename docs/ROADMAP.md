@@ -62,7 +62,7 @@
   - [ ] Order-machine gate: owner confirm requires a succeeded payment (behind a feature flag; e2e fixtures need paying steps first)
     - [x] API: `ORDER_CONFIRM_REQUIRES_PAYMENT` flag (default off, fail-open) gating EVERY path into `confirmed` (owner portal `setStatusForRestaurant` + ADMIN `updateStatus`) on a `succeeded` payments row → 402 `PAYMENT_REQUIRED`; existence probe on the `payments` repo (no cross-module service coupling, no status write from the payment side); 22 new specs (576→598) + live smoke 12/12 with flag ON (gated confirm, pay+capture→confirm, admin-backdoor gated, cancel/flow untouched) + flag-OFF regression 200 unpaid (2026-10-28, session 42)
     - [ ] Enable-by-default decision: e2e fixtures + web checkout need paying steps first (web pay button item below)
-  - [ ] Web: pay button on `/checkout` + `/orders/[id]` (consume intent/capture endpoints; receipt shows payment status)
+  - [x] Web: pay button on `/checkout` + `/orders/[id]` (consume intent/capture endpoints; receipt shows payment status) (2026-10-29, session 43; `PaymentPanel` + `PayButton` on the receipt page — intent→capture ladder, paid state server-derived via `GET /orders/:id/payments`, `?pay=1` checkout handoff for signed-in, sign-in hint for guests; e2e `pay-order.spec.ts` 2 tests, suite 9/9 green x2)
 - [ ] Notifications: email confirmations (nodemailer) then push (web-push)
 - [ ] Multi-city rollout config (cities as entities, restaurant scoping by city)
 - [ ] i18n: English + Indonesian locale on storefront (next-intl)

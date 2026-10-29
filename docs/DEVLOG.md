@@ -4,6 +4,70 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
+## 2026-10-29 10:09 — Session 43 — Web pay button: PaymentPanel + PayButton on the order receipt (intent→capture ladder, server-derived paid state)
+
+**Built:** Phase 5 sub-item "Web: pay button on `/checkout` +
+`/orders/[id]` (consume intent/capture endpoints; receipt shows payment
+status)" — done, and with it the last unblocked payments sub-item
+(Stripe/Xendit adapters remain credential-blocked; the enable-by-default
+decision is now un-blocked: paying fixtures exist e2e).
+
+- `lib/payments-types.ts` (new): `PaymentAttempt`/`PaymentStatus` web mirror
+  of the API payment row, re-exported through `@/lib/api` (the single client
+  surface). `api` gains the three calls the panel needs:
+  `createPayment` (POST /payments — whole input is the order id),
+  `capturePayment`, `listOrderPayments`.
+- `components/PayButton.tsx`: one click = intent + capture (the mock settles
+  synchronously; a real adapter drops in behind the same two endpoints).
+  Defers to server truth on every branch: `ORDER_ALREADY_PAID` → treat as
+  paid + refresh; `ORDER_NOT_PAYABLE`/`ORDER_CANCELLED` → refresh (panel
+  re-derives availability); 429/502/404 → API envelope message verbatim.
+  No client money rules, no double-intent path (POST /payments replays a
+  live pending row by design).
+- `components/PaymentPanel.tsx`: the Payment card on the receipt page.
+  Signed-in pulls `GET /orders/:id/payments`; paid badge shows amount +
+  provider + capture time + partial-refund line; pending attempt note says
+  paying resumes it (no second charge); failed-attempt count honest;
+  not-payable order states explain themselves; guests get a sign-in hint
+  (payment is Bearer-gated server-side; guest orders payable by any account
+  — copy, not logic). Session-resilient reads via the shared `authedCall`.
+- Checkout hands signed-in customers over with `?pay=1` → panel renders
+  elevated (emerald ring + "complete your payment" copy). Guests land
+  without it. The `/checkout` receipt moment *is* the order page (checkout
+  redirects), so both roadmap locations are served by one card.
+- Hydration-safe: SSR shell + first client render both show "Loading
+  payment status…" (auth provider starts `loading`); paid/history views
+  appear only after client fetch.
+
+**Verified:**
+- `apps/web npm run build` green (types caught a real bug mid-flight: the
+  auth provider's status is `guest`, not `signedOut`).
+- Live API ladder via curl against the local Postgres/dev seed: intent
+  `pending` 2100 IDR `mock_pi_…` → capture `succeeded` + `succeededAt` →
+  `GET /orders/:id/payments` lists 1 succeeded → replay-after-paid **409**
+  (the exact behavior PayButton branches on).
+- NEW e2e `tests/pay-order.spec.ts` (2 tests): signed-in pays at the
+  receipt → paid badge appears → survives reload (proves server-derived
+  state) → pay button gone; guest receipt shows the sign-in hint, no pay
+  button, no `pay=1`. **Full suite 9/9 green twice consecutively**
+  (exit 0). An intermediate run showed 3 failures — payments rate bucket
+  (10/min/IP) was still draining from the previous run + busy-machine
+  timing on the two live-feed specs; with ≥60 s spacing every test passed
+  twice in a row. Documented the spacing rule in e2e/README.
+- Servers stopped after verification (port 4000/3000 released); no API
+  code, migration, or DTO touched — swagger count stays 47.
+
+**Docs:** ARCHITECTURE payments paragraph flipped from "Web pay UI still
+pending" to wired-with-details; e2e README suite list caught up (was also
+missing the session-37 live-feed specs); ROADMAP item ticked.
+
+**Left for next sessions:** the enable-by-default decision for
+`ORDER_CONFIRM_REQUIRES_PAYMENT` (paying e2e fixtures now exist — decision
+item, not code); supertest HTTP specs for payments/refunds + the gate's
+402 envelope (Phase 6 item); partial-refund receipt line is display-only —
+no customer-facing refund yet (by design, ADMIN route).
+
+
 ## 2026-10-28 19:20 — Session 42 — Order-machine gate: `ORDER_CONFIRM_REQUIRES_PAYMENT` (owner/admin confirm needs a succeeded payment, flag-gated)
 
 **Built:** Phase 5 payments sub-item "Order-machine gate: owner confirm

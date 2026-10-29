@@ -40,6 +40,16 @@ browser download.
   states.
 - `tests/account.spec.ts` — demo login, authenticated header nav, seeded
   `FO-SEED*` orders on `/orders/my`.
+- `tests/live-feed.spec.ts` — the realtime ladder (Socket.IO → SSE → poll):
+  tracking page follows an owner status change over the feed, and the
+  dashboard falls back to SSE when the WebSocket is sabotaged.
+- `tests/pay-order.spec.ts` — the web pay button: a signed-in customer
+  pays at the receipt (intent → capture, mock settles synchronously), the
+  paid badge survives a reload (server truth from
+  `GET /orders/:orderId/payments`), and a guest receipt shows the sign-in
+  hint with no dead pay button. Rate note: the `payments` bucket is
+  10/min/IP — keep ≥60 s between full-suite runs or the second run can
+  spuriously 429 (observed session 43).
 
 Tests share the single dev database and one rate-limit identity per IP, so the
 suite runs serially (`workers: 1`). Guest smoke runs add real `pending` orders
