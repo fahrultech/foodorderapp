@@ -181,7 +181,12 @@ export default function CheckoutPage() {
         ...(appliedPromo ? { promoCode: appliedPromo.code } : {}),
       });
       clear();
-      router.push(`/orders/${order.id}?code=${order.code}`);
+      // ?pay=1: the order page elevates the payment card. Only meaningful for
+      // signed-in customers — payment is JWT-gated server-side, so guests land
+      // on the panel's "sign in to pay" hint instead of a dead button.
+      router.push(
+        `/orders/${order.id}?code=${order.code}${status === 'signedIn' ? '&pay=1' : ''}`,
+      );
     } catch (err: any) {
       setError(err.message || 'Could not place the order');
       setSubmitting(false);

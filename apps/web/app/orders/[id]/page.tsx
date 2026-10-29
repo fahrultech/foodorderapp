@@ -3,6 +3,7 @@ import { api, formatPrice } from '@/lib/api';
 import OrderTimeline from '@/components/OrderTimeline';
 import OrderLiveFeed from '@/components/OrderLiveFeed';
 import RateOrderCard from '@/components/RateOrderCard';
+import PaymentPanel from '@/components/PaymentPanel';
 
 export const dynamic = 'force-dynamic';
 
@@ -20,10 +21,10 @@ export default async function OrderPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ code?: string }>;
+  searchParams: Promise<{ code?: string; pay?: string }>;
 }) {
   const { id } = await params;
-  const { code } = await searchParams;
+  const { code, pay } = await searchParams;
   let order;
   try {
     order = await api.getOrder(id);
@@ -54,6 +55,15 @@ export default async function OrderPage({
           {STATUS_LABEL[order.status] ?? order.status}
         </p>
       </div>
+
+      {/* Phase 5: pay-now affordance + payment receipt on the order page.
+          ?pay=1 is set by checkout for signed-in customers (finish-payment nudge). */}
+      <PaymentPanel
+        orderId={order.id}
+        orderStatus={order.status}
+        totalCents={order.totalCents}
+        highlight={pay === '1'}
+      />
 
       <div className="mt-6 rounded-2xl border border-stone-200 bg-white p-5">
         <div className="flex items-baseline justify-between">

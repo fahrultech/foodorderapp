@@ -1,3 +1,8 @@
+import type { PaymentAttempt } from './payments-types';
+
+/** Re-exported so pages/components keep `@/lib/api` as the single client surface. */
+export type { PaymentAttempt, PaymentStatus } from './payments-types';
+
 export interface Restaurant {
   id: string;
   slug: string;
@@ -447,6 +452,33 @@ export const api = {
   removeFavorite: (accessToken: string, menuItemId: string) =>
     request<{ removed: boolean }>(`/users/me/favorites/${menuItemId}`, {
       method: 'DELETE',
+      headers: bearer(accessToken),
+    }),
+
+  // --- payments (Phase 5 web pay button) ---
+  /**
+   * Create-or-replay a payment intent for an order. JWT-only; amounts are
+   * snapshotted server-side from the order. Idempotent while a pending
+   * attempt is live (same row comes back); a succeeded attempt answers 409
+   * ORDER_ALREADY_PAID; a failed row is terminal — calling again starts a
+   * NEW attempt. `clientSecret` rides along only on a fresh intent; the mock
+   * gateway has no client-side confirmation step, so the web UI ignores it.
+   */
+  createPayment: (accessToken: string, orderId: string) =>
+    request<PaymentAttempt & { clientSecret: string | null }>('/payments', {
+      method: 'POST',
+      headers: bearer(accessToken),
+      body: JSON.stringify({ orderId }),
+    }),
+  /** Settle a pending intent. The mock answers synchronously: succeeded or failed. */
+  capturePayment: (accessToken: string, paymentId: string) =>
+    request<PaymentAttempt>(`/payments/${paymentId}/capture`, {
+      method: 'POST',
+      headers: bearer(accessToken),
+    }),
+  /** Every payment attempt for one order, newest first. Owner-or-guest-payer rules apply. */
+  listOrderPayments: (accessToken: string, orderId: string) =>
+    request<PaymentAttempt[]>(`/orders/${orderId}/payments`, {
       headers: bearer(accessToken),
     }),
 
