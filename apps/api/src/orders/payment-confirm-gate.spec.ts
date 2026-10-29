@@ -84,14 +84,17 @@ function build(opts: {
   return { service, order, findOne, save, exist, config };
 }
 
-describe('confirmGateEnabled — flag parsing', () => {
-  it.each(['1', 'true', 'TRUE', ' yes ', 'On'])('treats %j as ON', (raw) => {
-    expect(confirmGateEnabled(raw)).toBe(true);
-  });
-  it.each([undefined, null, '', '0', 'false', 'no', 'off', 'maybe'])(
-    'treats %j as OFF (fail-open — a typo must not block order flow)',
+describe('confirmGateEnabled — flag parsing (ENABLED BY DEFAULT, explicit opt-out)', () => {
+  it.each([undefined, null, '', '1', 'true', 'TRUE', ' yes ', 'On', 'maybe', 'ture', 'enable'])(
+    'treats %j as ON (unset/garbage keeps the gate on — fail-closed)',
     (raw) => {
-      expect(confirmGateEnabled(raw as string | undefined)).toBe(false);
+      expect(confirmGateEnabled(raw as string | undefined)).toBe(true);
+    },
+  );
+  it.each(['0', 'false', 'FALSE', 'no', 'off', ' Off ', 'NO'])(
+    'treats %j as OFF (the deliberate opt-out spelling only)',
+    (raw) => {
+      expect(confirmGateEnabled(raw)).toBe(false);
     },
   );
 });
@@ -134,8 +137,19 @@ describe('Order-confirm gate — owner portal path', () => {
     });
   });
 
-  it('flag OFF: no payment is consulted at all and confirm works (zero regression)', async () => {
+  it('flag unset (the production default): the gate is ON — unpaid confirm 402s', async () => {
     const { service, save, exist } = build({ paid: false, flag: undefined });
+    const err = await service
+      .setStatusForRestaurant(REST_ID, ORDER_ID, OrderStatus.CONFIRMED, ownerActor)
+      .catch((e) => e);
+    expect(err).toBeInstanceOf(AppException);
+    expect((err as AppException).getStatus()).toBe(HttpStatus.PAYMENT_REQUIRED);
+    expect(save).not.toHaveBeenCalled();
+    expect(exist).toHaveBeenCalledTimes(1);
+  });
+
+  it("explicit opt-out 'off': no payment is consulted at all and confirm works (zero regression)", async () => {
+    const { service, save, exist } = build({ paid: false, flag: 'off' });
     const out: any = await service.setStatusForRestaurant(
       REST_ID, ORDER_ID, OrderStatus.CONFIRMED, ownerActor,
     );

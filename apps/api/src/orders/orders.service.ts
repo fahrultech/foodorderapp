@@ -63,8 +63,9 @@ export class OrdersService {
     private readonly promos: PromosService,
     private readonly addresses: AddressesService,
     // Payment-confirm gate (optional so every pre-gate construction keeps
-    // working): with ORDER_CONFIRM_REQUIRES_PAYMENT off in the spec, the
-    // repo/config are never touched; DI always provides both in the app.
+    // working): unit specs either omit this repo (gate inert by
+    // construction) or pin the flag explicitly; the gate itself is ENABLED
+    // BY DEFAULT (session 44) — DI always provides both in the app.
     @InjectRepository(Payment) private readonly payments?: Repository<Payment>,
     private readonly config?: ConfigService,
   ) {}
@@ -111,11 +112,12 @@ export class OrdersService {
 
   /**
    * Order-machine gate (docs/ROADMAP.md Phase 5, `ORDER_CONFIRM_REQUIRES_
-   * PAYMENT`): when the flag is ON, entering CONFIRMED requires a `succeeded`
-   * payment row on this order — enforced on EVERY path that can confirm
-   * (owner portal and the ADMIN backdoor alike, so the gate cannot be
-   * stepped around). Flag OFF (default) or a construction without the
-   * payments repo (older unit specs) ⇒ inert, zero queries. 402 with a
+   * PAYMENT`, ENABLED BY DEFAULT since session 44): entering CONFIRMED
+   * requires a `succeeded` payment row on this order — enforced on EVERY
+   * path that can confirm (owner portal and the ADMIN backdoor alike, so
+   * the gate cannot be stepped around). Explicit env opt-out
+   * (`ORDER_CONFIRM_REQUIRES_PAYMENT=off` et al.) or a construction without
+   * the payments repo (older unit specs) ⇒ inert, zero queries. 402 with a
    * stable PAYMENT_REQUIRED code; refunds do not un-confirm anything (a
    * `refunded` row never satisfies the gate — money that came back is not
    * payment). Checked after the flow legality, before any mutation.
