@@ -4,6 +4,28 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
+## 2026-10-29 19:10 — Session 46 — Boot-time config validation (fail-fast on missing JWT_SECRET/DATABASE_URL)
+
+**Built:** Phase 6 item "API: boot-time config validation (env.schema via class-validator; fail fast on missing JWT_SECRET/DATABASE_URL instead of silent dev fallbacks)"
+
+- `src/config/env.validation.ts` — `EnvVars` class with class-validator decorators:
+  - `DATABASE_URL` and `JWT_SECRET`: `@IsString() @IsNotEmpty()` — required; clear error messages naming the variable.
+  - `LOG_LEVEL`: `@IsEnum(LogLevel)` — rejects typo'd log levels at boot.
+  - `MOCK_PAY_GATEWAY_MODE` / `MOCK_REFUND_GATEWAY_MODE`: `@IsIn(['succeed','fail'])` — rejects garbage adapter modes.
+  - All remaining env vars (`JWT_ACCESS_TTL`, `SMTP_*`, `RATE_LIMIT_*`, etc.): `@IsOptional() @IsString()` — present but don't fail boot if absent.
+  - `validateEnv()`: uses `plainToInstance` + `validateSync`, collects ALL failing constraints, throws a single human-readable error listing every offending variable.
+- `app.module.ts`: `ConfigModule.forRoot({ isGlobal: true, validate: validateEnv })` — the hook runs before any module initialises.
+- `src/config/env.validation.spec.ts`: 15 unit tests covering: minimal valid config, missing DATABASE_URL (absent + empty), missing JWT_SECRET (absent + empty), both missing, invalid LOG_LEVEL, invalid gateway modes, unknown vars ignored, multi-error listed in one throw, SMTP optional.
+
+**Verified:**
+- `npm run build` → clean (0 errors).
+- `npx jest` → **639/639 green** (49 suites; was 624 before this session).
+- Runtime fail-fast probe: `DATABASE_URL="" JWT_SECRET="" node dist/main.js` → exits 1 with `Boot-time configuration validation failed — fix these env vars before starting: DATABASE_URL must be set (...) JWT_SECRET must be set to a strong secret`.
+- Single missing field: `DATABASE_URL="" node dist/main.js` → exits 1 listing only DATABASE_URL.
+- Normal boot: `node dist/main.js` (with real .env) → `GET /api/health` → `{"status":"ok","db":"up"}`.
+
+---
+
 ## 2026-10-29 15:44 — Session 45 — Email notifications: order-placed confirmation + status-step emails (nodemailer, SMTP-gated)
 
 **Built:** Phase 5 item "Notifications: email confirmations (nodemailer) then push

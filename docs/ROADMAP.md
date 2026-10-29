@@ -89,7 +89,7 @@
 - [ ] CI matrix: postgres 15/16 compatibility
 
 ## Phase 6 — Hardening & polish (opened 2026-10-28, Phase 4 closed; from the Ops/UX evergreen loops)
-- [ ] API: boot-time config validation (env.schema via class-validator; fail fast on missing JWT_SECRET/DATABASE_URL instead of silent dev fallbacks)
+- [x] API: boot-time config validation (env.schema via class-validator; fail fast on missing JWT_SECRET/DATABASE_URL instead of silent dev fallbacks) (2026-10-29, session 46)
 - [ ] API: supertest-based integration specs for the payments + refunds routes (today covered by service-unit specs + live smoke only)
 - [ ] API: `GET /orders/:id` ownership fix — guests must prove contact-email match, not just know the uuid (id enumeration risk)
 - [ ] Web: storefront empty/loading/error states audit (no-results search, dead restaurant links, offline API banner)
