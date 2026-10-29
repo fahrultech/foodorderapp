@@ -42,7 +42,10 @@ browser download.
   `FO-SEED*` orders on `/orders/my`.
 - `tests/live-feed.spec.ts` — the realtime ladder (Socket.IO → SSE → poll):
   tracking page follows an owner status change over the feed, and the
-  dashboard falls back to SSE when the WebSocket is sabotaged.
+  dashboard falls back to SSE when the WebSocket is sabotaged. The customer
+  pays the order over the API ladder (intent → capture) before the owner
+  accepts — the order-machine gate is ON by default, so an unpaid confirm
+  would 402.
 - `tests/pay-order.spec.ts` — the web pay button: a signed-in customer
   pays at the receipt (intent → capture, mock settles synchronously), the
   paid badge survives a reload (server truth from

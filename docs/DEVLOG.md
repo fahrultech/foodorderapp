@@ -4,6 +4,64 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
+## 2026-10-29 13:29 — Session 44 — Enable-by-default decision: order-confirm payment gate now ON (explicit opt-out only)
+
+**Built:** Phase 5 sub-item "Enable-by-default decision: e2e fixtures + web
+checkout need paying steps first" — the decision is made and shipped:
+`ORDER_CONFIRM_REQUIRES_PAYMENT` flips from default-OFF to default-ON.
+Both prerequisites had landed (session 43's web pay button + `?pay=1`
+checkout handoff; paying e2e fixtures), so keeping the gate inert would
+only have preserved confirm-unpaid-orders as the accidental production
+behaviour.
+
+- `payment-confirm-gate.ts` rewritten: ON unless the value is an explicit
+  opt-out spelling `0/false/no/off` (trimmed, case-insensitive); unset,
+  empty, or garbage keeps the gate ON. The failure mode is deliberately
+  inverted from session 42: a typo'd opt-out (e.g. `flase`) must not
+  silently disable a money-integrity gate. No new code paths — the gate
+  itself, its 402 `PAYMENT_REQUIRED` envelope, and the `payments` repo
+  existence probe are exactly as built in session 42.
+- `payment-confirm-gate.spec.ts`: parsing table re-pinned for the new
+  semantics (+`ture`/`maybe`/`enable` ON cases, ` FALSE`/` Off ` OFF cases),
+  new behaviour test "flag unset (production default) → unpaid confirm 402",
+  old fail-open zero-regression test rewritten as "explicit opt-out 'off'".
+  Tests 598→604 (46 suites, all green).
+- `orders.service.ts` comments + `.env.example` (`ORDER_CONFIRM_REQUIRES_
+  PAYMENT=on`) + `docs/ARCHITECTURE.md` gate paragraph updated to the
+  default-ON reality.
+- e2e `live-feed.spec.ts`: new `payOrder()` helper (POST /payments intent →
+  POST /payments/:id/capture, customer token) runs before the owner's
+  confirm PATCH — the suite now exercises the shipped default end to end,
+  which is also what CI's e2e job does (fresh boot, no flag env).
+  Payments bucket cost stays well inside 10/min/IP (2 POSTs from this file).
+- No migration, no DTO, no new route — swagger count unchanged at 47.
+
+**Verified:**
+- `apps/api npm run build` + `npx jest`: 604/604 green.
+- Live smoke A (flag UNSET, new default): 19/19 — unpaid owner confirm 402
+  `PAYMENT_REQUIRED` (+ guest-order confirm 402 too), cancel stays
+  payment-free on a gated order, intent→capture→confirm 200 with
+  `confirmedAt` stamped, post-confirm flow continues, ADMIN backdoor unpaid
+  confirm 402 → paid confirm 200.
+- Live smoke B (API restarted with `ORDER_CONFIRM_REQUIRES_PAYMENT=off`,
+  verified intact in /proc/PID/environ): 6/6 — unpaid confirm 200, no
+  payments consulted. Opt-out escape hatch works.
+- Full e2e suite against fresh reseeded DB with the gate ON by default:
+  9/9 green twice consecutively (exit 0), incl. the live-feed test that now
+  pays before the owner accepts. First attempt showed 1 failure —
+  `account.spec` lost its FO-SEED card past `/orders/my` page 1 because
+  ~21 leftover orders from smoke/e2e runs had accumulated on the demo
+  account (data pollution, not a code regression); wiped + reseeded the
+  disposable dev DB per WORKFLOW and both runs were clean.
+- Servers stopped after verification; no orphan listeners on :4000/:3000.
+
+**Known pitfall recurred (documented in memory, worth restating):** the
+transcript sanitizer rewrote the literal demo password inside the smoke
+script's write payload into `***` on disk — logins 401'd until the value
+was assembled at runtime (`"demo" + "1234"`). The committed e2e specs
+predate this and are unaffected (their literals survived in-repo from
+earlier sessions); no committed file was touched by the corruption.
+
 ## 2026-10-29 10:09 — Session 43 — Web pay button: PaymentPanel + PayButton on the order receipt (intent→capture ladder, server-derived paid state)
 
 **Built:** Phase 5 sub-item "Web: pay button on `/checkout` +

@@ -16,6 +16,12 @@ import { expect, test, type APIRequestContext } from '@playwright/test';
  * Seed-fixed fixtures: owner@foodorder.app / demo@foodorder.app (pw demo1234),
  * Warung Nusantara (min $10, Nasi Goreng Spesial $18.00). Auth rate limit is
  * 10/min/IP — this file costs 2 UI logins + 2 REST logins, well inside it.
+ *
+ * The order-machine gate is ON by default (session 44): an owner confirming
+ * an unpaid order answers 402 PAYMENT_REQUIRED. So the tracking test PAYS
+ * its order over the API ladder (intent -> capture, mock settles
+ * synchronously) before the owner accepts — the payments bucket (10/min/IP)
+ * only sees 2 POSTs from this file.
  */
 
 const API = process.env.E2E_API_URL || 'http://localhost:4000/api';
@@ -57,6 +63,28 @@ async function createOrder(
   });
   expect(res.status(), await res.text()).toBe(201);
   return (await res.json()) as { id: string; code: string };
+}
+
+/**
+ * Pay an order via the documented ladder (POST /payments intent ->
+ * POST /payments/:id/capture). Required before any owner confirm since the
+ * order-machine gate is enabled by default — see file header.
+ */
+async function payOrder(
+  request: APIRequestContext,
+  token: string,
+  orderId: string,
+) {
+  const intent = await request.post(`${API}/payments`, {
+    data: { orderId },
+    headers: { authorization: `Bearer ${token}` },
+  });
+  expect(intent.status(), await intent.text()).toBe(201);
+  const { id: paymentId } = (await intent.json()) as { id: string };
+  const capture = await request.post(`${API}/payments/${paymentId}/capture`, {
+    headers: { authorization: `Bearer ${token}` },
+  });
+  expect(capture.status(), await capture.text()).toBe(200);
 }
 
 test('owner inbox follows the WebSocket feed — a new order lands in seconds', async ({
@@ -111,6 +139,10 @@ test('customer tracking page follows an owner status change over the feed', asyn
   const marker = page.locator('[data-feed-transport]');
   await expect(marker).toHaveAttribute('data-feed-transport', 'ws', { timeout: 10_000 });
   await expect(page.getByText('🕐 Pending — waiting for the restaurant to confirm')).toBeVisible();
+
+  // Pay first: with the order-machine gate ON by default the owner confirm
+  // below would 402 PAYMENT_REQUIRED on an unpaid order.
+  await payOrder(request, customerToken, order.id);
 
   // Owner accepts over REST; the event goes to the customer's own WS room and
   // the page must re-render (router.refresh -> server GET) without any reload.

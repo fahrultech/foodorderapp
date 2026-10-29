@@ -342,12 +342,15 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   The row's cumulative `refundedCents` stays the fast balance check;
   SUM(ledger.amountCents) must equal it. `GET /payments/:id/refunds`
   (ADMIN-only) reads one payment's trail chronologically.
-  Order confirmation is optionally gated on a succeeded payment by the
-  `ORDER_CONFIRM_REQUIRES_PAYMENT` flag (Phase 5 order-machine gate): OFF by
-  default; when ON, EVERY path into `confirmed` — owner portal AND the ADMIN
-  backdoor — answers 402 PAYMENT_REQUIRED until a `succeeded` payments row
-  exists for that order (existence probe, never a status write from the
-  payment side; `refunded` rows do not satisfy it). **Web pay UI is wired**
+  Order confirmation is gated on a succeeded payment by the
+  `ORDER_CONFIRM_REQUIRES_PAYMENT` flag (Phase 5 order-machine gate),
+  ENABLED BY DEFAULT since session 44: every path into `confirmed` — owner
+  portal AND the ADMIN backdoor — answers 402 PAYMENT_REQUIRED until a
+  `succeeded` payments row exists for that order (existence probe, never a
+  status write from the payment side; `refunded` rows do not satisfy it).
+  Only the explicit opt-out spellings 0/false/no/off take the gate out;
+  unset/garbage keeps it ON (a typo'd opt-out must not silently disable a
+  money-integrity gate). **Web pay UI is wired**
   (session 43): `components/PaymentPanel.tsx` + `components/PayButton.tsx`
   on the order receipt page — one click runs the two documented calls
   (intent → capture), the paid/fail/pending/refunded views derive purely
