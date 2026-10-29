@@ -4,6 +4,48 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
+## 2026-10-29 15:44 — Session 45 — Email notifications: order-placed confirmation + status-step emails (nodemailer, SMTP-gated)
+
+**Built:** Phase 5 item "Notifications: email confirmations (nodemailer) then push
+(web-push)" — the email half shipped:
+
+- `src/notifications/mail.service.ts` (`MailService`): thin nodemailer wrapper.
+  Reads `SMTP_HOST` at construction; if unset the service is a no-op (warn log,
+  no crash). Auth block omitted when `SMTP_USER` is absent (relay-without-auth
+  setups). `send()` is fire-and-forget — errors are logged, never thrown.
+- `src/notifications/order-notifications.service.ts`
+  (`OrderNotificationsService`): subscribes to `OrderEventsService` bus on
+  `onModuleInit`. Two paths:
+  - `order.created` → order-confirmation email: itemised receipt with subtotal,
+    promo discount (if any), delivery fee, total (IDR cents formatted);
+  - `order.updated` → status-update email for confirmed/preparing/delivering/
+    completed/cancelled (pending has no update email — the confirmed email *is*
+    the creation mail; pending is an interim state only).
+  - Guest orders silently skipped (no `userId` → no email address; the entity
+    stores `contactPhone`, not `contactEmail`; a `contactEmail` column + migration
+    is deferred to the next notifications follow-up session).
+- `src/notifications/notifications.module.ts`: imports `TypeOrmModule([Order,
+  User])` + `OrdersModule` (which now exports `OrderEventsService`); registered
+  in `AppModule`.
+- `orders.module.ts`: `OrderEventsService` added to `exports` (previously
+  provider-only, nothing outside could inject it).
+- `20 new specs` (604→624): `mail.service.spec.ts` — SMTP disabled no-op,
+  transport construction, sendMail error swallowed, SMTP_SECURE flag, auth
+  omission; `order-notifications.service.spec.ts` — confirmation email content,
+  guest skip, missing-order skip, promo line, every named status in `STATUS_LABEL`
+  produces an email, pending produces no email, guest skip on update.
+- `.env.example`: SMTP vars section added (all commented, opt-in).
+
+**Verified:**
+- `npm run build` → clean (0 errors).
+- `npx jest` → **624/624 green** (48 suites).
+- Runtime boot with `SMTP_HOST` unset: API started, `/api/health` → `{"status":"ok","db":"up"}`;
+  the WARN `SMTP_HOST not set — email notifications disabled` appeared in stderr as expected.
+- Port cleaned up; no orphan listeners.
+
+**Scope note:** web-push notifications remain unchecked on the roadmap item
+(deferred to a later session); the email portion is complete and live.
+
 ## 2026-10-29 13:29 — Session 44 — Enable-by-default decision: order-confirm payment gate now ON (explicit opt-out only)
 
 **Built:** Phase 5 sub-item "Enable-by-default decision: e2e fixtures + web

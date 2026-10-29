@@ -64,6 +64,7 @@
     - [x] Enable-by-default decision: `ORDER_CONFIRM_REQUIRES_PAYMENT` flipped to default-ON — unset/garbage keeps the gate on, only the explicit opt-out `0/false/no/off` takes it out (inverted failure mode: a typo'd opt-out must not silently disable a money-integrity gate); live-feed e2e fixture now pays (intent→capture) before the owner confirm so the suite exercises the shipped default (CI included); gate spec re-pinned (598→604) + live smoke 19/19 default-on & 6/6 opt-out + full e2e 9/9 green x2 on fresh seed (2026-10-29, session 44)
   - [x] Web: pay button on `/checkout` + `/orders/[id]` (consume intent/capture endpoints; receipt shows payment status) (2026-10-29, session 43; `PaymentPanel` + `PayButton` on the receipt page — intent→capture ladder, paid state server-derived via `GET /orders/:id/payments`, `?pay=1` checkout handoff for signed-in, sign-in hint for guests; e2e `pay-order.spec.ts` 2 tests, suite 9/9 green x2)
 - [ ] Notifications: email confirmations (nodemailer) then push (web-push)
+  - [x] Email: `MailService` (nodemailer, SMTP_HOST-gated) + `OrderNotificationsService` (order-placed + status-step emails for authenticated users; guest orders silently skip — no contactEmail on Order entity yet) + 20 specs (2026-10-29, session 45)
 - [ ] Multi-city rollout config (cities as entities, restaurant scoping by city)
 - [ ] i18n: English + Indonesian locale on storefront (next-intl)
 - [ ] Dark mode
