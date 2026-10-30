@@ -90,7 +90,7 @@
 
 ## Phase 6 — Hardening & polish (opened 2026-10-28, Phase 4 closed; from the Ops/UX evergreen loops)
 - [x] API: boot-time config validation (env.schema via class-validator; fail fast on missing JWT_SECRET/DATABASE_URL instead of silent dev fallbacks) (2026-10-29, session 46)
-- [ ] API: supertest-based integration specs for the payments + refunds routes (today covered by service-unit specs + live smoke only)
+- [x] API: supertest-based integration specs for the payments + refunds routes (today covered by service-unit specs + live smoke only) (2026-10-30, session 47; 19-case HTTP spec for RestaurantOrdersController incl. the 402 payment-gate envelope)
 - [ ] API: `GET /orders/:id` ownership fix — guests must prove contact-email match, not just know the uuid (id enumeration risk)
 - [ ] Web: storefront empty/loading/error states audit (no-results search, dead restaurant links, offline API banner)
 - [ ] Web: accessibility pass on checkout + dashboard (labels, focus order, aria-live on order status)

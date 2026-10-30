@@ -4,6 +4,45 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
+## 2026-10-30 10:11 — Session 47 — HTTP integration spec: restaurant-orders status route + 402 payment-gate envelope
+
+**Built:** Phase 6 item "API: supertest-based integration specs for the payments + refunds routes (today covered by service-unit specs + live smoke only)".
+
+On inspection the `payments.controller.spec.ts` (sessions 38–40) already covers the full payments/refunds HTTP surface (20 tests: intent, capture, refund, audit trail, rate-limit bucket, all guards + pipes). The gap named in the roadmap note was specifically "the gate's 402 envelope" — that `AppException(402, 'PAYMENT_REQUIRED')` from `OrdersService.setStatusForRestaurant` renders through `ErrorFormatFilter` as a proper `{error:{code:'PAYMENT_REQUIRED'}}` response over HTTP. No HTTP-level spec existed for `RestaurantOrdersController`.
+
+- `src/orders/restaurant-orders-http.spec.ts` (new, 19 cases): boots the real `RestaurantOrdersController` + `OrderEventsService` on an ephemeral port with PRODUCTION `ValidationPipe` + `ErrorFormatFilter` + REAL `JwtAuthGuard` + REAL `RolesGuard`; `OrdersService` is mocked. Two describe blocks:
+
+  **GET /restaurants/:id/orders (owner inbox — 6 cases):**
+  - anonymous → 401 envelope, service untouched
+  - CUSTOMER → 403 (RolesGuard), service untouched
+  - OWNER + valid uuid → 200, actor forwarded correctly to service
+  - ADMIN bypasses OWNER guard → 200
+  - non-uuid restaurant id → 400 BAD_REQUEST (ParseUUIDPipe) before service
+  - service AppException(404) → 404 standard envelope
+
+  **PATCH /restaurants/:id/orders/:orderId/status (13 cases):**
+  - anonymous → 401 envelope
+  - CUSTOMER → 403 (RolesGuard), service untouched
+  - OWNER + valid uuids + valid status → 200, actor forwarded
+  - ADMIN bypasses OWNER guard → 200
+  - non-uuid `:id` → 400 BAD_REQUEST (ParseUUIDPipe on :id)
+  - non-uuid `:orderId` → 400 BAD_REQUEST (ParseUUIDPipe on :orderId)
+  - junk `?status=gibbering` → 400 BAD_REQUEST (enum validation) with `details` array
+  - missing `?status=` → 400 BAD_REQUEST
+  - **AppException(402, PAYMENT_REQUIRED) → 402 envelope** (the core gap: gate renders through `ErrorFormatFilter`)
+  - ADMIN backdoor also receives 402 from the gate (both confirm paths covered)
+  - AppException(400, BAD_TRANSITION) → 400 envelope
+  - AppException(403, FORBIDDEN) → 403 envelope
+  - AppException(404, NOT_FOUND) → 404 envelope
+
+**Verified:**
+- New spec standalone: `npx jest --testPathPattern='restaurant-orders-http'` → **19/19 green**.
+- `npm run build` → clean (0 errors).
+- `npx jest` (full suite) → **658/658 green** (50 suites; was 639/49).
+- Sanitizer audit: codepoint readback of the new file — zero U+2026, zero `***`.
+
+---
+
 ## 2026-10-29 19:10 — Session 46 — Boot-time config validation (fail-fast on missing JWT_SECRET/DATABASE_URL)
 
 **Built:** Phase 6 item "API: boot-time config validation (env.schema via class-validator; fail fast on missing JWT_SECRET/DATABASE_URL instead of silent dev fallbacks)"
