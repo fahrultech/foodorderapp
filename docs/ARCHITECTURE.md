@@ -135,8 +135,19 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   they have no user id. Push payloads contain only order code/status and a
   same-site receipt URL — no address, phone, item, or payment data. Delivery is
   best-effort and inherits the process-local bus boundary; a durable outbox or
-  broker is future multi-instance work. The API foundation is live; the web
-  service-worker opt-in control remains a separate roadmap increment.
+  broker is future multi-instance work. The web side is now complete:
+  `PushNotificationsProvider` reads the public config only for signed-in users,
+  exposes a header bell, and calls `Notification.requestPermission()` only from
+  that explicit click. A granted browser registers `/sw.js`, subscribes with
+  the VAPID public key, and POSTs only the endpoint + encryption keys; turning
+  the bell off DELETEs the user-scoped row and locally unsubscribes. Sign-out
+  performs that same detach before revoking the auth session, preventing a
+  shared browser from continuing to receive the previous account's orders.
+  Existing subscriptions are silently refreshed/transferred on the next
+  signed-in load without another permission prompt. The service worker shows
+  the API's privacy-minimal payload and focuses or opens its same-site receipt
+  URL on click. Unsupported, server-disabled, and browser-blocked states never
+  request permission and render a disabled control.
 
 - **Owner menu manager** — web `/dashboard/menu` does full dish CRUD on the
   existing owner routes (`POST /restaurants/:id/menu`, `PATCH /menu/items/:id`,

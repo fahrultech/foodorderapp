@@ -53,6 +53,11 @@ browser download.
   hint with no dead pay button. Rate note: the `payments` bucket is
   10/min/IP — keep ≥60 s between full-suite runs or the second run can
   spuriously 429 (observed session 43).
+- `tests/push-notifications.spec.ts` — browser push opt-in/out with mocked
+  PushManager + permission APIs and intercepted notification endpoints:
+  permission is untouched before the explicit bell click, subscribe sends the
+  endpoint/keys contract, opt-out unsubscribes locally, and sign-out detaches
+  an active shared-browser endpoint before the auth session is cleared.
 
 Tests share the single dev database and one rate-limit identity per IP, so the
 suite runs serially (`workers: 1`). Guest smoke runs add real `pending` orders

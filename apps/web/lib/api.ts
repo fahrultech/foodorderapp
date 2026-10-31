@@ -269,6 +269,16 @@ export interface RegisterInput {
   address?: string;
 }
 
+export interface PushConfig {
+  enabled: boolean;
+  publicKey: string | null;
+}
+
+export interface PushSubscriptionInput {
+  endpoint: string;
+  keys: { p256dh: string; auth: string };
+}
+
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api';
 export { API_URL };
 
@@ -480,6 +490,24 @@ export const api = {
   listOrderPayments: (accessToken: string, orderId: string) =>
     request<PaymentAttempt[]>(`/orders/${orderId}/payments`, {
       headers: bearer(accessToken),
+    }),
+
+  // --- browser push notifications ---
+  /** Public capability probe: the VAPID public key is safe browser input. */
+  getPushConfig: () => request<PushConfig>('/notifications/push/config'),
+  /** Register or refresh this browser endpoint for the current JWT subject. */
+  savePushSubscription: (accessToken: string, subscription: PushSubscriptionInput) =>
+    request<{ subscribed: true }>('/notifications/push/subscriptions', {
+      method: 'POST',
+      headers: bearer(accessToken),
+      body: JSON.stringify(subscription),
+    }),
+  /** User-scoped and idempotent; the browser endpoint alone is the lookup key. */
+  removePushSubscription: (accessToken: string, endpoint: string) =>
+    request<{ removed: boolean }>('/notifications/push/subscriptions', {
+      method: 'DELETE',
+      headers: bearer(accessToken),
+      body: JSON.stringify({ endpoint }),
     }),
 
   // --- customer delivery address book ---

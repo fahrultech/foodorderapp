@@ -4,14 +4,18 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useCart } from '@/lib/cart';
 import { useAuth } from '@/lib/auth';
+import { usePushNotifications } from '@/lib/push-notifications';
+import PushNotificationButton from '@/components/PushNotificationButton';
 
 export default function Header() {
   const { count } = useCart();
   const { status, user, logout } = useAuth();
+  const { disconnectBeforeLogout } = usePushNotifications();
   const pathname = usePathname();
   const router = useRouter();
 
   async function signOut() {
+    await disconnectBeforeLogout();
     await logout();
     // Back to a neutral page: history/cart are guest-visible anyway.
     router.push('/');
@@ -85,6 +89,7 @@ export default function Header() {
                 </span>
                 <span className="font-semibold text-stone-800">{user.name}</span>
               </span>
+              <PushNotificationButton />
               <button
                 onClick={signOut}
                 className="rounded-full px-4 py-2 font-semibold text-stone-600 hover:bg-stone-100"

@@ -4,6 +4,45 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
+## 2026-10-31 13:53 — Session 49 — Browser push opt-in UI + service worker
+
+**Built:** completed the remaining Notifications web increment and closed the
+parent Phase 5 item.
+
+- Added `PushNotificationsProvider` and a signed-in header bell. It reads the
+  API's public VAPID config, distinguishes unsupported / server-disabled /
+  browser-blocked states, and requests notification permission only inside the
+  user's enable-button click. A granted browser registers `/sw.js`, subscribes
+  with the public key, and syncs only `{endpoint, keys}` through the existing
+  JWT-scoped API.
+- Opt-out DELETEs the user-scoped API row and always unsubscribes locally (the
+  provider's next 410 also prunes the row if the DELETE was offline). Sign-out
+  runs the same detach before auth logout so a shared browser cannot keep
+  receiving the previous account's order updates. Existing subscriptions are
+  refreshed/transferred on signed-in load without another permission prompt.
+- Added `public/sw.js`: displays the API's privacy-minimal title/body/tag and
+  focuses or opens the same-site order receipt URL on notification click.
+- Added typed web API methods for config/register/remove and a Playwright spec
+  covering gesture-only permission, exact subscription payload, opt-out, and
+  logout cleanup. E2E documentation and architecture notes now describe the
+  completed browser path.
+
+**Verified:**
+- Strict TDD: the new Playwright spec first failed because the notification
+  control did not exist; after implementation it passed standalone.
+- `apps/web npm run build` clean (Next type-check + 12 routes).
+- Full Playwright suite **10/10 green** (57.2s), including the new push spec.
+- Live web smoke: `/` 200 and `/sw.js` 200 `application/javascript`; the served
+  worker contains both `push` and `notificationclick` listeners.
+- Live API smoke against PostgreSQL 16: config 200 (disabled/null key on this
+  unconfigured dev host), login 201, subscribe 200, unsubscribe 200, repeated
+  unsubscribe 200 `{removed:false}` — temporary endpoint removed afterwards.
+
+**Remaining:** real delivery needs deployment HTTPS (or localhost) and a VAPID
+key triplet; those are operational credentials, not missing application code.
+
+---
+
 ## 2026-10-31 10:34 — Session 48 — Browser-push API foundation (VAPID + subscriptions + order fan-out)
 
 **Built:** scoped the remaining Phase 5 notifications item into a complete API
