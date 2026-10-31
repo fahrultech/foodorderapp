@@ -42,6 +42,9 @@ required; multi-city was the next self-contained roadmap increment.
   city 404; updated restaurant moved city scopes; OpenAPI path/schema present.
 - API stopped, port 4000 released, and the database was re-seeded to canonical
   data after the smoke.
+- GitHub Actions run **41183990451** for code commit `fb43391`: all four jobs
+  green (API, web production build, fresh-Postgres migration/seed/drift, and
+  Playwright E2E).
 
 ---
 
