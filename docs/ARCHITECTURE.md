@@ -123,6 +123,21 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   own GET — the feed never carries truth), with 10s refresh polling as the
   fallback and no transport at all for guests or terminal orders.
 
+- **Outbound order notifications** — `OrderNotificationsService` consumes the
+  same process-local `OrderEventsService` bus after order creation/status
+  writes, reloads the canonical order, and fans out independently to email
+  (`MailService`, enabled by `SMTP_HOST`) and browser push (`PushService`,
+  enabled by the complete VAPID subject/public/private triplet). Push delivery
+  addresses live in `push_subscriptions`: one user may own multiple browser
+  endpoints, endpoint re-registration transfers a shared browser to the
+  current JWT subject, unsubscribe is user-scoped/idempotent, and provider
+  404/410 responses prune stale rows. Guest orders skip both channels because
+  they have no user id. Push payloads contain only order code/status and a
+  same-site receipt URL — no address, phone, item, or payment data. Delivery is
+  best-effort and inherits the process-local bus boundary; a durable outbox or
+  broker is future multi-instance work. The API foundation is live; the web
+  service-worker opt-in control remains a separate roadmap increment.
+
 - **Owner menu manager** — web `/dashboard/menu` does full dish CRUD on the
   existing owner routes (`POST /restaurants/:id/menu`, `PATCH /menu/items/:id`,
   `PATCH /menu/items/:id/availability`, `DELETE /menu/items/:id`, all

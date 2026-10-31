@@ -12,6 +12,7 @@ import { Review } from '../reviews/review.entity';
 import { PromoCode } from '../promos/promo-code.entity';
 import { Payment } from '../payments/payment.entity';
 import { PaymentRefund } from '../payments/payment-refund.entity';
+import { PushSubscription } from '../notifications/push-subscription.entity';
 import { InitSchema1792213437047 } from './migrations/1792213437047-InitSchema';
 
 describe('database/data-source', () => {
@@ -20,10 +21,10 @@ describe('database/data-source', () => {
     expect(dataSourceOptions.migrationsRun).toBe(true);
   });
 
-  it('registers exactly the twelve entities and a ts/js migration glob', () => {
-    expect(dataSourceOptions.entities).toHaveLength(12);
+  it('registers exactly the thirteen entities and a ts/js migration glob', () => {
+    expect(dataSourceOptions.entities).toHaveLength(13);
     expect(dataSourceOptions.entities).toEqual(
-      expect.arrayContaining([User, Favorite, DeliveryAddress, RefreshToken, Restaurant, MenuItem, Order, OrderItem, Review, PromoCode, Payment, PaymentRefund]),
+      expect.arrayContaining([User, Favorite, DeliveryAddress, RefreshToken, Restaurant, MenuItem, Order, OrderItem, Review, PromoCode, Payment, PaymentRefund, PushSubscription]),
     );
     expect(dataSourceOptions.migrations).toHaveLength(1);
     expect(dataSourceOptions.migrations[0]).toMatch(/migrations\/\*\.\{ts,js\}$/);

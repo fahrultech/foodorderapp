@@ -53,6 +53,28 @@ export function ApiError(status: number, description: string) {
 }
 
 // ---------------------------------------------------------------------------
+// Notifications
+// ---------------------------------------------------------------------------
+
+export class PushConfigResponse {
+  @ApiProperty({ description: 'True only when the complete VAPID configuration is loaded.' })
+  enabled: boolean;
+
+  @ApiProperty({ type: 'string', nullable: true, description: 'Public VAPID key for PushManager.subscribe; null while disabled.' })
+  publicKey: string | null;
+}
+
+export class PushSubscriptionResponse {
+  @ApiProperty({ example: true })
+  subscribed: boolean;
+}
+
+export class PushUnsubscribeResponse {
+  @ApiProperty({ description: 'Whether a row belonging to the current user was removed.' })
+  removed: boolean;
+}
+
+// ---------------------------------------------------------------------------
 // Health
 // ---------------------------------------------------------------------------
 

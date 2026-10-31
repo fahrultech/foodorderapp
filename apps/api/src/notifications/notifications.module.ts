@@ -5,22 +5,28 @@ import { User } from '../users/user.entity';
 import { OrdersModule } from '../orders/orders.module';
 import { MailService } from './mail.service';
 import { OrderNotificationsService } from './order-notifications.service';
+import { PushSubscription } from './push-subscription.entity';
+import { PushService } from './push.service';
+import { NotificationsController } from './notifications.controller';
+import { AuthModule } from '../auth/auth.module';
 
 /**
- * Handles all outbound email notifications.
+ * Handles outbound email and browser-push notifications.
  *
  * Imports:
  *   - OrdersModule: exposes OrderEventsService (the shared pub/sub bus)
  *     and OrdersService (so subscribers can load full order rows).
- *   - TypeOrmModule.forFeature([Order, User]): direct repo access —
- *     we need the User email which is not on the Order entity itself.
+ *   - TypeOrmModule.forFeature([Order, User, PushSubscription]): direct repo
+ *     access for customer email and persisted browser delivery endpoints.
  */
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Order, User]),
+    TypeOrmModule.forFeature([Order, User, PushSubscription]),
     OrdersModule,
+    AuthModule,
   ],
-  providers: [MailService, OrderNotificationsService],
-  exports: [MailService],
+  controllers: [NotificationsController],
+  providers: [MailService, PushService, OrderNotificationsService],
+  exports: [MailService, PushService],
 })
 export class NotificationsModule {}

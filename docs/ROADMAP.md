@@ -65,6 +65,8 @@
   - [x] Web: pay button on `/checkout` + `/orders/[id]` (consume intent/capture endpoints; receipt shows payment status) (2026-10-29, session 43; `PaymentPanel` + `PayButton` on the receipt page — intent→capture ladder, paid state server-derived via `GET /orders/:id/payments`, `?pay=1` checkout handoff for signed-in, sign-in hint for guests; e2e `pay-order.spec.ts` 2 tests, suite 9/9 green x2)
 - [ ] Notifications: email confirmations (nodemailer) then push (web-push)
   - [x] Email: `MailService` (nodemailer, SMTP_HOST-gated) + `OrderNotificationsService` (order-placed + status-step emails for authenticated users; guest orders silently skip — no contactEmail on Order entity yet) + 20 specs (2026-10-29, session 45)
+  - [x] Push API foundation: `PushService` (VAPID-gated web-push adapter), multi-device `push_subscriptions` table, JWT-scoped subscribe/unsubscribe routes, stale-endpoint cleanup, and order-created/status fan-out from the shared event bus (2026-10-31, session 48)
+  - [ ] Web: service worker + signed-in notification opt-in/out control (permission only after user gesture)
 - [ ] Multi-city rollout config (cities as entities, restaurant scoping by city)
 - [ ] i18n: English + Indonesian locale on storefront (next-intl)
 - [ ] Dark mode

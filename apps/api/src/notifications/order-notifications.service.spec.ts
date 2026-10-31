@@ -6,6 +6,7 @@ import { MailService } from './mail.service';
 import { OrderEventsService, OrderEvent } from '../orders/order-events.service';
 import { Order, OrderStatus } from '../orders/order.entity';
 import { User } from '../users/user.entity';
+import { PushService } from './push.service';
 
 // ── helpers ────────────────────────────────────────────────────────────────
 function makeOrder(overrides: Partial<Order> = {}): Order {
@@ -39,12 +40,14 @@ describe('OrderNotificationsService', () => {
   let svc: OrderNotificationsService;
   let bus: Subject<OrderEvent>;
   let mailSend: jest.Mock;
+  let pushSend: jest.Mock;
   let ordersFindOne: jest.Mock;
   let usersFindOne: jest.Mock;
 
   beforeEach(async () => {
     bus = new Subject<OrderEvent>();
     mailSend = jest.fn().mockResolvedValue(undefined);
+    pushSend = jest.fn().mockResolvedValue(undefined);
     ordersFindOne = jest.fn();
     usersFindOne = jest.fn();
 
@@ -54,6 +57,10 @@ describe('OrderNotificationsService', () => {
         {
           provide: MailService,
           useValue: { send: mailSend, enabled: true },
+        },
+        {
+          provide: PushService,
+          useValue: { sendToUser: pushSend },
         },
         {
           provide: OrderEventsService,
@@ -97,6 +104,12 @@ describe('OrderNotificationsService', () => {
       expect(call.text).toContain('Alice');
       expect(call.text).toContain('Burger Palace');
       expect(call.text).toContain('IDR');
+      expect(pushSend).toHaveBeenCalledWith('user-1', {
+        title: 'Order received — #FO-TEST',
+        body: 'Burger Palace received your order.',
+        url: '/orders/order-1',
+        tag: 'order-order-1',
+      });
     });
 
     it('skips email for guest orders (no userId)', async () => {
@@ -112,6 +125,7 @@ describe('OrderNotificationsService', () => {
 
       await new Promise((r) => setTimeout(r, 10));
       expect(mailSend).not.toHaveBeenCalled();
+      expect(pushSend).not.toHaveBeenCalled();
     });
 
     it('skips email when order is not found', async () => {
@@ -126,6 +140,7 @@ describe('OrderNotificationsService', () => {
 
       await new Promise((r) => setTimeout(r, 10));
       expect(mailSend).not.toHaveBeenCalled();
+      expect(pushSend).not.toHaveBeenCalled();
     });
 
     it('includes promo discount line when applicable', async () => {
@@ -168,6 +183,15 @@ describe('OrderNotificationsService', () => {
       expect(mailSend).toHaveBeenCalledTimes(1);
       const call = mailSend.mock.calls[0][0] as Record<string, unknown>;
       expect(call.text).toContain(expectedText);
+      expect(pushSend).toHaveBeenCalledWith(
+        'user-1',
+        expect.objectContaining({
+          title: expect.stringContaining('FO-TEST'),
+          body: expect.stringContaining(expectedText),
+          url: '/orders/order-1',
+          tag: 'order-order-1',
+        }),
+      );
     });
 
     it('does NOT send email for pending status updates (no label defined)', async () => {
@@ -180,6 +204,7 @@ describe('OrderNotificationsService', () => {
 
       await new Promise((r) => setTimeout(r, 10));
       expect(mailSend).not.toHaveBeenCalled();
+      expect(pushSend).not.toHaveBeenCalled();
     });
 
     it('skips email for guest orders (no userId on updated event)', async () => {
@@ -195,6 +220,7 @@ describe('OrderNotificationsService', () => {
 
       await new Promise((r) => setTimeout(r, 10));
       expect(mailSend).not.toHaveBeenCalled();
+      expect(pushSend).not.toHaveBeenCalled();
     });
   });
 });

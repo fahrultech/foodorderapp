@@ -28,6 +28,7 @@ export const SWAGGER_TAGS = [
   'reviews',
   'promos',
   'payments',
+  'notifications',
 ] as const;
 
 export function buildSwaggerDocumentConfig() {
@@ -77,5 +78,6 @@ export function buildSwaggerDocumentConfig() {
     .addTag('reviews', 'Ratings on completed orders + public restaurant review feed.')
     .addTag('promos', 'Promo-code preview for the cart.')
     .addTag('payments', 'Payment attempts behind the provider abstraction (mock gateway today).')
+    .addTag('notifications', 'Browser push configuration and JWT-scoped subscriptions.')
     .build();
 }

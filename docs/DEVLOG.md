@@ -4,6 +4,50 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
+## 2026-10-31 10:34 — Session 48 — Browser-push API foundation (VAPID + subscriptions + order fan-out)
+
+**Built:** scoped the remaining Phase 5 notifications item into a complete API
+increment; the browser service-worker/opt-in UI is now an explicit follow-up.
+
+- Added `web-push` behind `PushService`. A complete
+  `VAPID_SUBJECT`/`VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY` triplet enables
+  delivery; unset/incomplete config keeps the API healthy and push disabled.
+  `GET /api/notifications/push/config` exposes only `{enabled, publicKey}`.
+- Added migration `AddPushSubscriptions1793413681972` and entity
+  `push_subscriptions`: multiple endpoints per user, globally unique endpoint,
+  user index, and `ON DELETE CASCADE`. Re-registering an endpoint transfers it
+  to the current JWT subject (shared-browser account safety); POST subscribe
+  and DELETE unsubscribe are validated, idempotent, and never accept a user id.
+- Push sends fan out to every subscription, serialize privacy-minimal payloads
+  (order code/status + same-site receipt URL), delete provider-404/410 stale
+  endpoints, and log/swallow transient failures. `OrderNotificationsService`
+  now sends email and push independently from the same `OrderEventsService`
+  event; guest orders still skip both channels.
+- OpenAPI grew 47→50 operations with typed push config/subscribe/unsubscribe
+  responses; env validation, Compose forwarding, `.env.example`, data-source
+  entity registration, and architecture docs were updated. Added `web-push`
+  and `@types/web-push`; repaired the 8 newly mirror-pinned lockfile URLs.
+
+**Verified:**
+- Strict TDD: new push service/DTO/controller tests were observed red before
+  implementation; targeted suites then passed.
+- `npm run build` clean; full Jest **53 suites / 669 tests green** (was
+  50/658; +11 net tests and three suites, with existing suites extended).
+- Migration applied to local PostgreSQL 16 (13 migrations recorded); generated
+  schema-drift check correctly refused with “No changes … found”.
+- Live API smoke: **12 assertions green** — disabled config 200, login, invalid
+  endpoint 400 envelope, subscribe upsert 200 twice, delete true then false,
+  and both new OpenAPI paths/methods present. API was stopped afterwards.
+- `docker compose config` parses. Runner-style cold `npm ci` in a fresh HOME +
+  empty cache installed 699 packages; all 699 lockfile resolved URLs point to
+  `registry.npmjs.org`.
+
+**Remaining:** web service worker and signed-in opt-in/out control (permission
+requested only from a user gesture); real browser delivery needs HTTPS (or
+localhost) plus a generated VAPID pair.
+
+---
+
 ## 2026-10-30 10:11 — Session 47 — HTTP integration spec: restaurant-orders status route + 402 payment-gate envelope
 
 **Built:** Phase 6 item "API: supertest-based integration specs for the payments + refunds routes (today covered by service-unit specs + live smoke only)".

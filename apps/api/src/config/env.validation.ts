@@ -113,6 +113,19 @@ export class EnvVars {
   @IsString()
   SMTP_SECURE?: string;
 
+  // ── Web push (all optional — the complete triplet enables push) ──────────
+  @IsOptional()
+  @IsString()
+  VAPID_SUBJECT?: string;
+
+  @IsOptional()
+  @IsString()
+  VAPID_PUBLIC_KEY?: string;
+
+  @IsOptional()
+  @IsString()
+  VAPID_PRIVATE_KEY?: string;
+
   // ── Rate limiting (all optional) ─────────────────────────────────────────
   @IsOptional()
   @IsString()

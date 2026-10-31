@@ -5,6 +5,7 @@ import { Order, OrderStatus } from '../orders/order.entity';
 import { User } from '../users/user.entity';
 import { OrderEventsService, OrderEvent } from '../orders/order-events.service';
 import { MailService } from './mail.service';
+import { PushService } from './push.service';
 
 /** Human-friendly labels for customer-facing status update emails. */
 const STATUS_LABEL: Partial<Record<OrderStatus, string>> = {
@@ -22,6 +23,7 @@ export class OrderNotificationsService implements OnModuleInit {
   constructor(
     private readonly events: OrderEventsService,
     private readonly mail: MailService,
+    private readonly push: PushService,
     @InjectRepository(Order) private readonly orders: Repository<Order>,
     @InjectRepository(User) private readonly users: Repository<User>,
   ) {}
@@ -66,7 +68,6 @@ export class OrderNotificationsService implements OnModuleInit {
     });
     if (!order) return;
     const to = await this.resolveEmail(order);
-    if (!to) return; // guest order — no email address available
 
     const itemLines = order.items
       .map((i) => `  • ${i.name} × ${i.quantity}  ${formatCents(i.unitPriceCents * i.quantity)}`)
@@ -96,8 +97,18 @@ export class OrderNotificationsService implements OnModuleInit {
       .filter((l) => l !== null)
       .join('\n');
 
-    await this.mail.send({ to, subject, text });
-    this.log.log(`Order-confirm email sent to ${to} for #${order.code}`);
+    await Promise.all([
+      to ? this.mail.send({ to, subject, text }) : Promise.resolve(),
+      order.userId
+        ? this.push.sendToUser(order.userId, {
+            title: `Order received — #${order.code}`,
+            body: `${order.restaurant.name} received your order.`,
+            url: `/orders/${order.id}`,
+            tag: `order-${order.id}`,
+          })
+        : Promise.resolve(),
+    ]);
+    if (to) this.log.log(`Order-confirm email sent to ${to} for #${order.code}`);
   }
 
   private async sendStatusUpdate(orderId: string, status: OrderStatus): Promise<void> {
@@ -110,7 +121,6 @@ export class OrderNotificationsService implements OnModuleInit {
     });
     if (!order) return;
     const to = await this.resolveEmail(order);
-    if (!to) return;
 
     const subject = `${label} — #${order.code}`;
     const text = [
@@ -125,8 +135,18 @@ export class OrderNotificationsService implements OnModuleInit {
         : '',
     ].join('\n');
 
-    await this.mail.send({ to, subject, text });
-    this.log.log(`Status-update email (${status}) sent to ${to} for #${order.code}`);
+    await Promise.all([
+      to ? this.mail.send({ to, subject, text }) : Promise.resolve(),
+      order.userId
+        ? this.push.sendToUser(order.userId, {
+            title: `${label} — #${order.code}`,
+            body: `${order.restaurant.name}: ${label}.`,
+            url: `/orders/${order.id}`,
+            tag: `order-${order.id}`,
+          })
+        : Promise.resolve(),
+    ]);
+    if (to) this.log.log(`Status-update email (${status}) sent to ${to} for #${order.code}`);
   }
 }
 
