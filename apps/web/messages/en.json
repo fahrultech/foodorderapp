@@ -1,0 +1,69 @@
+{
+  "Metadata": {
+    "title": "FoodOrder — order from local restaurants",
+    "description": "Browse restaurants, build your cart and order food for delivery."
+  },
+  "Common": {
+    "minutes": "{count} min",
+    "delivery": "{price} delivery",
+    "minimum": "Min {price}",
+    "minimumOrder": "Min order {price}",
+    "closed": "Closed"
+  },
+  "Header": {
+    "restaurants": "Restaurants",
+    "signIn": "Sign in",
+    "register": "Register",
+    "dashboard": "Dashboard",
+    "saved": "Saved",
+    "addresses": "Addresses",
+    "myOrders": "My orders",
+    "signOut": "Sign out",
+    "cart": "Cart"
+  },
+  "LocaleSwitcher": {
+    "label": "Language",
+    "english": "English",
+    "indonesian": "Bahasa Indonesia"
+  },
+  "Footer": {
+    "tagline": "FoodOrder — built with Next.js, NestJS and PostgreSQL"
+  },
+  "Home": {
+    "title": "Order from local restaurants",
+    "subtitle": "Fresh food from {count} cuisines, delivered to your door.",
+    "many": "many",
+    "searchPlaceholder": "Search restaurants or dishes…",
+    "search": "Search",
+    "clear": "Clear ✕",
+    "apiDownTitle": "API is not reachable",
+    "apiDownBody": "Start the backend (<api>apps/api</api>) or run <docker>docker compose up</docker>, then refresh.",
+    "noResults": "No restaurants match your search."
+  },
+  "Restaurant": {
+    "allRestaurants": "← All restaurants",
+    "reviews": "{count, plural, =1 {# review} other {# reviews}}",
+    "recentReviews": "Recent reviews",
+    "noReviews": "No reviews yet — the {rating}★ score is our platform baseline until diners rate their orders.",
+    "showingReviews": "Showing {shown} of {total} reviews."
+  },
+  "Menu": {
+    "fallbackCategory": "Menu",
+    "searchPlaceholder": "Search this menu — dish, description, category…",
+    "searchLabel": "Search dishes in this menu",
+    "clear": "Clear",
+    "matchCount": "{count} of {total} dishes match “{query}”",
+    "dishCount": "{count, plural, =1 {# dish} other {# dishes}}",
+    "categoriesLabel": "Menu categories",
+    "empty": "This restaurant has no menu items yet.",
+    "noMatchesTitle": "No dishes match your search.",
+    "noMatchesBody": "Try a different name, ingredient, or category.",
+    "clearSearch": "Clear search"
+  },
+  "CartButton": {
+    "unavailable": "Unavailable",
+    "added": "Added ✓",
+    "addWithCount": "Add ({count} in cart)",
+    "add": "Add"
+  }
+}

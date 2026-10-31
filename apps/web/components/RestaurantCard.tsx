@@ -1,8 +1,10 @@
 import Link from 'next/link';
 import type { Restaurant } from '@/lib/api';
 import { formatPrice } from '@/lib/api';
+import { getTranslations } from 'next-intl/server';
 
-export default function RestaurantCard({ restaurant }: { restaurant: Restaurant }) {
+export default async function RestaurantCard({ restaurant }: { restaurant: Restaurant }) {
+  const t = await getTranslations('Common');
   return (
     <Link
       href={`/restaurants/${restaurant.id}`}
@@ -22,7 +24,7 @@ export default function RestaurantCard({ restaurant }: { restaurant: Restaurant 
         )}
         {!restaurant.isOpen && (
           <div className="absolute inset-0 flex items-center justify-center bg-black/50 text-sm font-bold uppercase text-white">
-            Closed
+            {t('closed')}
           </div>
         )}
       </div>
@@ -38,9 +40,9 @@ export default function RestaurantCard({ restaurant }: { restaurant: Restaurant 
           {[restaurant.cuisine, restaurant.city].filter(Boolean).join(' · ')}
         </p>
         <div className="mt-3 flex items-center gap-3 text-xs text-stone-500">
-          <span>⏱ {restaurant.avgPrepMinutes} min</span>
-          <span>🛵 {formatPrice(restaurant.deliveryFeeCents)} delivery</span>
-          <span>Min {formatPrice(restaurant.minOrderCents)}</span>
+          <span>⏱ {t('minutes', { count: restaurant.avgPrepMinutes })}</span>
+          <span>🛵 {t('delivery', { price: formatPrice(restaurant.deliveryFeeCents) })}</span>
+          <span>{t('minimum', { price: formatPrice(restaurant.minOrderCents) })}</span>
         </div>
       </div>
     </Link>

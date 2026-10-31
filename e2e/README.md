@@ -58,6 +58,9 @@ browser download.
   permission is untouched before the explicit bell click, subscribe sends the
   endpoint/keys contract, opt-out unsubscribes locally, and sign-out detaches
   an active shared-browser endpoint before the auth session is cleared.
+- `tests/storefront-i18n.spec.ts` — English defaults, switching to Indonesian
+  updates `<html lang>` plus home/header copy, the cookie survives reload and
+  navigation to a restaurant/menu, and switching back restores English.
 
 Tests share the single dev database and one rate-limit identity per IP, so the
 suite runs serially (`workers: 1`). Guest smoke runs add real `pending` orders

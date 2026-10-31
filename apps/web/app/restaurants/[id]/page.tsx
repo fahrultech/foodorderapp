@@ -3,6 +3,7 @@ import { api, formatPrice } from '@/lib/api';
 import type { RestaurantReviewsPage } from '@/lib/api';
 import MenuBrowser from '@/components/MenuBrowser';
 import Stars from '@/components/Stars';
+import { getTranslations } from 'next-intl/server';
 
 export const dynamic = 'force-dynamic';
 
@@ -12,6 +13,8 @@ export default async function RestaurantPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
+  const t = await getTranslations('Restaurant');
+  const common = await getTranslations('Common');
   let restaurant;
   try {
     restaurant = await api.getRestaurant(id);
@@ -30,7 +33,7 @@ export default async function RestaurantPage({
   return (
     <div>
       <a href="/" className="text-sm font-medium text-brand-600 hover:underline">
-        ← All restaurants
+        {t('allRestaurants')}
       </a>
 
       <section className="mt-4 flex flex-col gap-6 md:flex-row md:items-center">
@@ -51,14 +54,14 @@ export default async function RestaurantPage({
           <div className="mt-4 flex flex-wrap gap-4 text-sm">
             <span className="rounded-full bg-amber-100 px-3 py-1 font-bold text-amber-800">
               ★ {restaurant.rating.toFixed(1)}
-              {restaurant.ratingCount > 0 ? ` · ${restaurant.ratingCount} review${restaurant.ratingCount === 1 ? '' : 's'}` : ''}
+              {restaurant.ratingCount > 0 ? ` · ${t('reviews', { count: restaurant.ratingCount })}` : ''}
             </span>
-            <span className="rounded-full bg-stone-100 px-3 py-1">⏱ ~{restaurant.avgPrepMinutes} min</span>
+            <span className="rounded-full bg-stone-100 px-3 py-1">⏱ ~{common('minutes', { count: restaurant.avgPrepMinutes })}</span>
             <span className="rounded-full bg-stone-100 px-3 py-1">
-              🛵 {formatPrice(restaurant.deliveryFeeCents)} delivery
+              🛵 {common('delivery', { price: formatPrice(restaurant.deliveryFeeCents) })}
             </span>
             <span className="rounded-full bg-stone-100 px-3 py-1">
-              Min order {formatPrice(restaurant.minOrderCents)}
+              {common('minimumOrder', { price: formatPrice(restaurant.minOrderCents) })}
             </span>
           </div>
         </div>
@@ -67,11 +70,10 @@ export default async function RestaurantPage({
       <MenuBrowser restaurant={restaurant} />
 
       <section className="mt-8 rounded-2xl border border-stone-200 bg-white p-5">
-        <h2 className="font-bold">Recent reviews</h2>
+        <h2 className="font-bold">{t('recentReviews')}</h2>
         {!reviews || reviews.total === 0 ? (
           <p className="mt-2 text-sm text-stone-500">
-            No reviews yet — the {restaurant.rating.toFixed(1)}★ score is our platform baseline
-            until diners rate their orders.
+            {t('noReviews', { rating: restaurant.rating.toFixed(1) })}
           </p>
         ) : (
           <>
@@ -91,7 +93,7 @@ export default async function RestaurantPage({
             </ul>
             {reviews.total > reviews.items.length && (
               <p className="mt-3 text-xs text-stone-400">
-                Showing {reviews.items.length} of {reviews.total} reviews.
+                {t('showingReviews', { shown: reviews.items.length, total: reviews.total })}
               </p>
             )}
           </>

@@ -6,8 +6,16 @@ import { useCart } from '@/lib/cart';
 import { useAuth } from '@/lib/auth';
 import { usePushNotifications } from '@/lib/push-notifications';
 import PushNotificationButton from '@/components/PushNotificationButton';
+import LocaleSwitcher from '@/components/LocaleSwitcher';
+import type { AppLocale } from '@/i18n/request';
+import { useTranslations } from 'next-intl';
 
-export default function Header() {
+export default function Header({
+  changeLocaleAction,
+}: {
+  changeLocaleAction: (locale: AppLocale) => Promise<void>;
+}) {
+  const t = useTranslations('Header');
   const { count } = useCart();
   const { status, user, logout } = useAuth();
   const { disconnectBeforeLogout } = usePushNotifications();
@@ -32,7 +40,7 @@ export default function Header() {
             href="/"
             className={pathname === '/' ? 'font-semibold text-brand-600' : 'text-stone-600 hover:text-stone-900'}
           >
-            Restaurants
+            {t('restaurants')}
           </Link>
           {/* 'loading' renders nothing on server AND first client paint -> hydration-safe. */}
           {status === 'loading' && <span className="h-9 w-20 rounded-full bg-stone-100" aria-hidden />}
@@ -42,13 +50,13 @@ export default function Header() {
                 href="/login"
                 className="rounded-full px-4 py-2 font-semibold text-stone-700 hover:bg-stone-100"
               >
-                Sign in
+                {t('signIn')}
               </Link>
               <Link
                 href="/register"
                 className="rounded-full border border-brand-600 px-4 py-2 font-semibold text-brand-600 hover:bg-brand-50"
               >
-                Register
+                {t('register')}
               </Link>
             </>
           )}
@@ -59,26 +67,26 @@ export default function Header() {
                   href="/dashboard"
                   className={pathname.startsWith('/dashboard') ? 'font-semibold text-brand-600' : 'text-stone-600 hover:text-stone-900'}
                 >
-                  Dashboard
+                  {t('dashboard')}
                 </Link>
               )}
               <Link
                 href="/favorites"
                 className={pathname.startsWith('/favorites') ? 'font-semibold text-brand-600' : 'text-stone-600 hover:text-stone-900'}
               >
-                Saved
+                {t('saved')}
               </Link>
               <Link
                 href="/addresses"
                 className={pathname.startsWith('/addresses') ? 'font-semibold text-brand-600' : 'hidden text-stone-600 hover:text-stone-900 lg:inline'}
               >
-                Addresses
+                {t('addresses')}
               </Link>
               <Link
                 href="/orders/my"
                 className={pathname.startsWith('/orders') ? 'font-semibold text-brand-600' : 'text-stone-600 hover:text-stone-900'}
               >
-                My orders
+                {t('myOrders')}
               </Link>
               <span className="hidden items-center gap-1.5 sm:flex" title={user.email}>
                 <span
@@ -94,7 +102,7 @@ export default function Header() {
                 onClick={signOut}
                 className="rounded-full px-4 py-2 font-semibold text-stone-600 hover:bg-stone-100"
               >
-                Sign out
+                {t('signOut')}
               </button>
             </>
           )}
@@ -102,13 +110,14 @@ export default function Header() {
             href="/cart"
             className="relative rounded-full bg-brand-600 px-4 py-2 font-semibold text-white hover:bg-brand-700"
           >
-            Cart
+            {t('cart')}
             {count > 0 && (
               <span className="absolute -right-1 -top-1 flex h-5 min-w-[20px] items-center justify-center rounded-full bg-stone-900 px-1 text-xs font-bold text-white">
                 {count}
               </span>
             )}
           </Link>
+          <LocaleSwitcher changeLocaleAction={changeLocaleAction} />
         </nav>
       </div>
     </header>

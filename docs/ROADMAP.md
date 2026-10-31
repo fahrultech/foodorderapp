@@ -68,7 +68,7 @@
   - [x] Push API foundation: `PushService` (VAPID-gated web-push adapter), multi-device `push_subscriptions` table, JWT-scoped subscribe/unsubscribe routes, stale-endpoint cleanup, and order-created/status fan-out from the shared event bus (2026-10-31, session 48)
   - [x] Web: service worker + signed-in notification opt-in/out control (permission only after user gesture) (2026-10-31, session 49; logout detaches the browser endpoint)
 - [x] Multi-city rollout config (cities as entities, restaurant scoping by city) (2026-10-31, session 50; city registry + migration/backfill + public API + owner writes + slug/name filtering)
-- [ ] i18n: English + Indonesian locale on storefront (next-intl)
+- [x] i18n: English + Indonesian locale on storefront (next-intl) (2026-10-31, session 51; cookie-persisted EN/ID switch, localized home + restaurant/menu surfaces, metadata/header/footer, Playwright persistence coverage)
 - [ ] Dark mode
 - [ ] Admin panel (users, restaurants, orders oversight)
 - [ ] Analytics dashboard for owners (revenue, peak hours — SQL aggregates)

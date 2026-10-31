@@ -4,6 +4,41 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
+## 2026-10-31 18:18 — Session 51 — English/Indonesian storefront localization
+
+**Built:** completed the next unblocked Phase 5 item with `next-intl@4.14.9`.
+
+- Added request-scoped `en`/`id` message catalogs and the official
+  no-locale-routing integration. English is the fallback; unknown locale cookie
+  values cannot select arbitrary message imports.
+- Added an EN/ID header switch backed by a validated server action and a
+  one-year HTTP-only, same-site cookie. Existing URLs stay unchanged; the active
+  request locale drives `<html lang>`, localized metadata, and the shared
+  client provider.
+- Localized the customer storefront surface: shared header/footer, home hero,
+  search/filter/empty/offline states, restaurant cards, restaurant facts and
+  review copy, menu search/count/empty states, and add-to-cart labels. Product,
+  cuisine, restaurant, and category names remain API-owned content.
+- Added Playwright coverage for English default, Indonesian switching, cookie
+  persistence across reload/navigation, restaurant/menu translations, and the
+  switch back to English. Architecture and E2E docs now record the contract.
+- Added `next-intl`; repaired every newly installed lockfile URL to
+  `registry.npmjs.org` after the host npm mirror rewrote them.
+
+**Verified:**
+- Strict TDD: the new Playwright spec first failed waiting for the missing
+  “Bahasa Indonesia” control, then passed after implementation.
+- `apps/web npm run build` clean (Next.js type-check + 12 routes).
+- Full Playwright suite **11/11 green**; the new test exercises both locales in
+  the production build against the live PostgreSQL-backed API.
+- Runner-style cold `npm ci` in a fresh HOME/cache installed 147 packages and
+  resolved `next-intl=4.14.9`; all app/e2e lockfile URLs are
+  `registry.npmjs.org` with no masked strings or U+2026 corruption.
+- Dev database re-seeded to its canonical fixture state after E2E; ports 3000
+  and 4000 are released.
+
+---
+
 ## 2026-10-31 16:12 — Session 50 — Multi-city registry + restaurant scoping
 
 **Built:** completed the top unblocked Phase 5 item. The Stripe and Xendit

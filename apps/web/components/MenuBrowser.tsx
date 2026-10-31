@@ -5,6 +5,7 @@ import type { MenuItem, Restaurant } from '@/lib/api';
 import { formatPrice } from '@/lib/api';
 import AddToCartButton from '@/components/AddToCartButton';
 import FavoriteButton from '@/components/FavoriteButton';
+import { useTranslations } from 'next-intl';
 
 interface DishGroup {
   /** Original category position — keeps anchor ids stable while filtering. */
@@ -23,6 +24,8 @@ function matches(item: MenuItem, q: string): boolean {
 }
 
 export default function MenuBrowser({ restaurant }: { restaurant: Restaurant }) {
+  const t = useTranslations('Menu');
+  const common = useTranslations('Common');
   const menu = useMemo(() => restaurant.menuItems ?? [], [restaurant]);
   const [query, setQuery] = useState('');
 
@@ -30,7 +33,7 @@ export default function MenuBrowser({ restaurant }: { restaurant: Restaurant }) 
   const groups = useMemo<DishGroup[]>(() => {
     const byName = new Map<string, MenuItem[]>();
     for (const item of menu) {
-      const cat = item.category || 'Menu';
+      const cat = item.category || t('fallbackCategory');
       const bucket = byName.get(cat);
       if (bucket) bucket.push(item);
       else byName.set(cat, [item]);
@@ -40,7 +43,7 @@ export default function MenuBrowser({ restaurant }: { restaurant: Restaurant }) 
       name,
       items,
     }));
-  }, [menu]);
+  }, [menu, t]);
 
   const q = query.trim().toLowerCase();
   const visible = q
@@ -63,8 +66,8 @@ export default function MenuBrowser({ restaurant }: { restaurant: Restaurant }) 
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => e.key === 'Escape' && setQuery('')}
-            placeholder="Search this menu — dish, description, category…"
-            aria-label="Search dishes in this menu"
+            placeholder={t('searchPlaceholder')}
+            aria-label={t('searchLabel')}
             className="w-full max-w-md rounded-xl border border-stone-300 bg-white py-2 pl-9 pr-16 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
           />
           {q && (
@@ -72,17 +75,17 @@ export default function MenuBrowser({ restaurant }: { restaurant: Restaurant }) 
               onClick={() => setQuery('')}
               className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg px-2 py-1 text-xs font-semibold text-stone-500 hover:bg-stone-100 hover:text-stone-800"
             >
-              Clear
+              {t('clear')}
             </button>
           )}
         </div>
         <p aria-live="polite" className="mt-1 text-xs text-stone-500">
           {q
-            ? `${matchCount} of ${menu.length} dishes match “${query.trim()}”`
-            : `${menu.length} dishes`}
+            ? t('matchCount', { count: matchCount, total: menu.length, query: query.trim() })
+            : t('dishCount', { count: menu.length })}
         </p>
         {visible.length > 1 && (
-          <nav aria-label="Menu categories" className="mt-2 flex flex-wrap gap-2">
+          <nav aria-label={t('categoriesLabel')} className="mt-2 flex flex-wrap gap-2">
             {visible.map((g) => (
               <a
                 key={g.anchorId}
@@ -97,19 +100,19 @@ export default function MenuBrowser({ restaurant }: { restaurant: Restaurant }) 
       </div>
 
       {menu.length === 0 && (
-        <p className="text-stone-500">This restaurant has no menu items yet.</p>
+        <p className="text-stone-500">{t('empty')}</p>
       )}
       {menu.length > 0 && visible.length === 0 && (
         <div className="rounded-2xl border border-dashed border-stone-300 bg-stone-50 p-10 text-center">
-          <p className="text-lg font-semibold text-stone-700">No dishes match your search.</p>
+          <p className="text-lg font-semibold text-stone-700">{t('noMatchesTitle')}</p>
           <p className="mt-1 text-sm text-stone-500">
-            Try a different name, ingredient, or category.
+            {t('noMatchesBody')}
           </p>
           <button
             onClick={() => setQuery('')}
             className="mt-4 rounded-xl bg-stone-900 px-4 py-2 text-sm font-semibold text-white hover:bg-stone-700"
           >
-            Clear search
+            {t('clearSearch')}
           </button>
         </div>
       )}
@@ -126,7 +129,7 @@ export default function MenuBrowser({ restaurant }: { restaurant: Restaurant }) 
                     {item.description && (
                       <p className="mt-0.5 truncate text-sm text-stone-500">{item.description}</p>
                     )}
-                    <p className="mt-1 text-sm text-stone-400">⏱ {item.prepMinutes} min</p>
+                    <p className="mt-1 text-sm text-stone-400">⏱ {common('minutes', { count: item.prepMinutes })}</p>
                   </div>
                   <div className="text-right">
                     <p className="font-bold">{formatPrice(item.priceCents)}</p>

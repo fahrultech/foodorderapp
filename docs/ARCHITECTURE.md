@@ -29,6 +29,15 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   the full menu in `GET /restaurants/:id`; `MenuBrowser` filters it in memory
   (name/description/category, case-insensitive) instead of adding a per-keystroke
   API. Category anchor ids are positional (`cat-<i>`) and stable while filtering.
+- **Storefront localization uses `next-intl` without locale-prefixed routes** —
+  English (`en`) is the safe default and Indonesian (`id`) is selected from the
+  shared header. A server action validates the requested locale and stores it in
+  an HTTP-only, same-site cookie; `i18n/request.ts` rejects unknown cookie values
+  back to English. This preserves every existing URL, cart link, callback, and
+  SEO route while localizing metadata, shared header/footer, restaurant browse
+  cards, restaurant detail/reviews, menu search states, and add-to-cart labels.
+  The root `NextIntlClientProvider` gives client islands the same request locale
+  as server components, and `<html lang>` follows the active choice.
 - **Order status machine** — transitions validated server-side
   (`pending→confirmed→preparing→delivering→completed`, cancellable through preparing).
   `POST /orders/:id/cancel` lets the *customer* use exactly that machine edge

@@ -1,0 +1,69 @@
+{
+  "Metadata": {
+    "title": "FoodOrder — pesan dari restoran lokal",
+    "description": "Jelajahi restoran, isi keranjang, dan pesan makanan untuk diantar."
+  },
+  "Common": {
+    "minutes": "{count} mnt",
+    "delivery": "Ongkir {price}",
+    "minimum": "Min {price}",
+    "minimumOrder": "Pesanan min {price}",
+    "closed": "Tutup"
+  },
+  "Header": {
+    "restaurants": "Restoran",
+    "signIn": "Masuk",
+    "register": "Daftar",
+    "dashboard": "Dasbor",
+    "saved": "Tersimpan",
+    "addresses": "Alamat",
+    "myOrders": "Pesanan saya",
+    "signOut": "Keluar",
+    "cart": "Keranjang"
+  },
+  "LocaleSwitcher": {
+    "label": "Bahasa",
+    "english": "English",
+    "indonesian": "Bahasa Indonesia"
+  },
+  "Footer": {
+    "tagline": "FoodOrder — dibuat dengan Next.js, NestJS, dan PostgreSQL"
+  },
+  "Home": {
+    "title": "Pesan dari restoran lokal",
+    "subtitle": "Makanan segar dari {count} jenis kuliner, diantar ke rumah Anda.",
+    "many": "beragam",
+    "searchPlaceholder": "Cari restoran atau hidangan…",
+    "search": "Cari",
+    "clear": "Hapus ✕",
+    "apiDownTitle": "API tidak dapat dijangkau",
+    "apiDownBody": "Jalankan backend (<api>apps/api</api>) atau <docker>docker compose up</docker>, lalu muat ulang.",
+    "noResults": "Tidak ada restoran yang cocok dengan pencarian Anda."
+  },
+  "Restaurant": {
+    "allRestaurants": "← Semua restoran",
+    "reviews": "{count} ulasan",
+    "recentReviews": "Ulasan terbaru",
+    "noReviews": "Belum ada ulasan — skor {rating}★ adalah nilai awal platform sampai pelanggan memberi penilaian.",
+    "showingReviews": "Menampilkan {shown} dari {total} ulasan."
+  },
+  "Menu": {
+    "fallbackCategory": "Menu",
+    "searchPlaceholder": "Cari menu — hidangan, deskripsi, kategori…",
+    "searchLabel": "Cari hidangan di menu ini",
+    "clear": "Hapus",
+    "matchCount": "{count} dari {total} hidangan cocok dengan “{query}”",
+    "dishCount": "{count} hidangan",
+    "categoriesLabel": "Kategori menu",
+    "empty": "Restoran ini belum memiliki menu.",
+    "noMatchesTitle": "Tidak ada hidangan yang cocok.",
+    "noMatchesBody": "Coba nama, bahan, atau kategori lain.",
+    "clearSearch": "Hapus pencarian"
+  },
+  "CartButton": {
+    "unavailable": "Tidak tersedia",
+    "added": "Ditambahkan ✓",
+    "addWithCount": "Tambah ({count} di keranjang)",
+    "add": "Tambah"
+  }
+}

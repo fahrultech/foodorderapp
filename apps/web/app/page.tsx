@@ -1,5 +1,6 @@
 import { api } from '@/lib/api';
 import RestaurantCard from '@/components/RestaurantCard';
+import { getTranslations } from 'next-intl/server';
 
 export const dynamic = 'force-dynamic';
 
@@ -9,6 +10,7 @@ export default async function HomePage({
   searchParams: Promise<{ q?: string; cuisine?: string }>;
 }) {
   const { q, cuisine } = await searchParams;
+  const t = await getTranslations('Home');
 
   let restaurants: Awaited<ReturnType<typeof api.listRestaurants>>['items'] = [];
   let cuisines: string[] = [];
@@ -28,10 +30,10 @@ export default async function HomePage({
     <div>
       <section className="mb-8">
         <h1 className="text-3xl font-extrabold tracking-tight">
-          Order from local restaurants
+          {t('title')}
         </h1>
         <p className="mt-2 text-stone-500">
-          Fresh food from {cuisines.length || 'many'} cuisines, delivered to your door.
+          {t('subtitle', { count: cuisines.length || t('many') })}
         </p>
       </section>
 
@@ -39,11 +41,11 @@ export default async function HomePage({
         <input
           name="q"
           defaultValue={q || ''}
-          placeholder="Search restaurants or dishes…"
+          placeholder={t('searchPlaceholder')}
           className="w-full max-w-md rounded-xl border border-stone-300 bg-white px-4 py-2.5 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
         />
         <button className="rounded-xl bg-stone-900 px-5 py-2.5 text-sm font-semibold text-white hover:bg-stone-700">
-          Search
+          {t('search')}
         </button>
       </form>
 
@@ -67,7 +69,7 @@ export default async function HomePage({
           })}
           {(cuisine || q) && (
             <a href="/" className="rounded-full px-4 py-1.5 text-sm font-medium text-stone-500 hover:text-stone-900">
-              Clear ✕
+              {t('clear')}
             </a>
           )}
         </div>
@@ -75,15 +77,17 @@ export default async function HomePage({
 
       {apiDown ? (
         <div className="rounded-2xl border border-dashed border-stone-300 bg-white p-10 text-center text-stone-500">
-          <p className="text-lg font-semibold text-stone-700">API is not reachable</p>
+          <p className="text-lg font-semibold text-stone-700">{t('apiDownTitle')}</p>
           <p className="mt-2 text-sm">
-            Start the backend (<code className="rounded bg-stone-100 px-1">apps/api</code>) or run{' '}
-            <code className="rounded bg-stone-100 px-1">docker compose up</code>, then refresh.
+            {t.rich('apiDownBody', {
+              api: () => <code className="rounded bg-stone-100 px-1">apps/api</code>,
+              docker: () => <code className="rounded bg-stone-100 px-1">docker compose up</code>,
+            })}
           </p>
         </div>
       ) : restaurants.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-stone-300 bg-white p-10 text-center text-stone-500">
-          No restaurants match your search.
+          {t('noResults')}
         </div>
       ) : (
         <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
