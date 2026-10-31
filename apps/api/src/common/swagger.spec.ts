@@ -40,6 +40,8 @@ import { FavoritesService } from '../users/favorites.service';
 import { AddressesService } from '../users/addresses.service';
 import { NotificationsController } from '../notifications/notifications.controller';
 import { PushService } from '../notifications/push.service';
+import { CitiesController } from '../cities/cities.controller';
+import { CitiesService } from '../cities/cities.service';
 
 /**
  * Guards the document against drifting from the actual route surface:
@@ -65,6 +67,7 @@ const CONTROLLERS = [
   PaymentsController,
   OrderPaymentsController,
   NotificationsController,
+  CitiesController,
 ];
 
 const empty = () => ({});
@@ -83,6 +86,7 @@ const mockedProviders = [
   { provide: PromosService, useValue: empty() },
   { provide: PaymentsService, useValue: empty() },
   { provide: PushService, useValue: empty() },
+  { provide: CitiesService, useValue: empty() },
   { provide: DataSource, useValue: { query: async () => [] } },
   { provide: JwtService, useValue: empty() },
   { provide: SlidingWindowLogStore, useValue: empty() },
@@ -144,6 +148,7 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['/users/me/addresses/{id}', 'patch'],
       ['/users/me/addresses/{id}', 'delete'],
       ['/users/me/addresses/{id}/default', 'post'],
+      ['/cities', 'get'],
       ['/restaurants', 'get'],
       ['/restaurants', 'post'],
       ['/restaurants/meta/cuisines', 'get'],
@@ -283,6 +288,7 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['/users/me/addresses/{id}', 'patch', 200, 'ref:AddressItemResponse'],
       ['/users/me/addresses/{id}', 'delete', 200, 'ref:AddressRemoveResponse'],
       ['/users/me/addresses/{id}/default', 'post', 200, 'ref:AddressDefaultResponse'],
+      ['/cities', 'get', 200, 'array:CityResponse'],
       ['/restaurants', 'get', 200, 'ref:PaginatedRestaurantsResponse'],
       ['/restaurants', 'post', 201, 'ref:RestaurantResponse'],
       ['/restaurants/meta/cuisines', 'get', 200, 'strArray'],
@@ -319,7 +325,7 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['/notifications/push/subscriptions', 'post', 200, 'ref:PushSubscriptionResponse'],
       ['/notifications/push/subscriptions', 'delete', 200, 'ref:PushUnsubscribeResponse'],
     ];
-    expect(SUCCESS.length).toBe(50);
+    expect(SUCCESS.length).toBe(51);
     for (const [path, method, code, kind] of SUCCESS) {
       const res = doc.paths[P(path)]?.[method]?.responses?.[String(code)];
       if (!res) throw new Error(`${method} ${path}: no ${code} response documented`);
@@ -533,6 +539,10 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       items: { $ref: '#/components/schemas/MenuItemResponse' },
     });
     expect(props('RestaurantResponse').ownerId).toMatchObject({ type: 'string', format: 'uuid', nullable: true });
+    expect(props('RestaurantResponse').cityId).toMatchObject({ type: 'string', format: 'uuid', nullable: true });
+    expect(Object.keys(props('CityResponse')).sort()).toEqual(
+      ['createdAt', 'id', 'isActive', 'name', 'slug', 'updatedAt'].sort(),
+    );
 
     // Payment rows: terminal-ish lifecycle enum, nullable gateway fields,
     // and clientSecret NOT required (only the fresh-intent 201 carries it).

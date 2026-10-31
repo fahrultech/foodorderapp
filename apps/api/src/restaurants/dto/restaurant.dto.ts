@@ -4,6 +4,7 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
+  IsUUID,
   Matches,
   Max,
   MaxLength,
@@ -46,6 +47,15 @@ export class CreateRestaurantDto {
   @IsString()
   @MaxLength(60)
   city?: string;
+
+  @ApiPropertyOptional({
+    type: 'string',
+    format: 'uuid',
+    description: 'Active city registry id. Preferred over the legacy free-form `city` field.',
+  })
+  @IsOptional()
+  @IsUUID('4')
+  cityId?: string;
 
   @ApiPropertyOptional({ maxLength: 300 })
   @IsOptional()
@@ -110,6 +120,15 @@ export class UpdateRestaurantDto {
   @IsString()
   @MaxLength(60)
   city?: string;
+
+  @ApiPropertyOptional({
+    type: 'string',
+    format: 'uuid',
+    description: 'Active city registry id. Updates the display city name atomically.',
+  })
+  @IsOptional()
+  @IsUUID('4')
+  cityId?: string;
 
   @ApiPropertyOptional({ maxLength: 300 })
   @IsOptional()

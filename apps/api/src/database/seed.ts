@@ -9,6 +9,7 @@ import { DeliveryAddress } from '../users/delivery-address.entity';
 import { Review } from '../reviews/review.entity';
 import { PromoCode, PromoDiscountType } from '../promos/promo-code.entity';
 import { AppDataSource } from './data-source';
+import { City } from '../cities/city.entity';
 
 const restaurants = [
   {
@@ -118,10 +119,11 @@ async function main() {
   // explicitly even though the users FK cascade would clear it — a seeded DB
   // must never keep live sessions from a previous run.
   await dataSource.query(
-    'TRUNCATE TABLE user_favorites, delivery_addresses, reviews, order_items, orders, promo_codes, menu_items, restaurants, refresh_tokens, users RESTART IDENTITY CASCADE',
+    'TRUNCATE TABLE user_favorites, delivery_addresses, reviews, order_items, orders, promo_codes, menu_items, restaurants, cities, refresh_tokens, users RESTART IDENTITY CASCADE',
   );
 
   const restaurantRepo = dataSource.getRepository(Restaurant);
+  const cityRepo = dataSource.getRepository(City);
   const menuRepo = dataSource.getRepository(MenuItem);
   const orderRepo = dataSource.getRepository(Order);
 
@@ -147,6 +149,20 @@ async function main() {
   );
   console.log('Seeded users: demo@foodorder.app / owner@foodorder.app (password: demo1234)');
 
+  const cityNames = [...new Set(restaurants.map((restaurant) => restaurant.city))].sort();
+  const cityByName = new Map<string, City>();
+  for (const name of cityNames) {
+    const city = await cityRepo.save(
+      cityRepo.create({
+        name,
+        slug: name.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+        isActive: true,
+      }),
+    );
+    cityByName.set(name, city);
+    console.log(`  + city ${city.name}`);
+  }
+
   const created: { restaurant: Restaurant; items: MenuItem[] }[] = [];
   for (const r of restaurants) {
     const restaurant = await restaurantRepo.save(
@@ -155,6 +171,7 @@ async function main() {
         name: r.name,
         cuisine: r.cuisine,
         city: r.city,
+        cityId: cityByName.get(r.city)!.id,
         description: r.description,
         imageUrl: r.imageUrl,
         rating: r.rating,

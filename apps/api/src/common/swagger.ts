@@ -22,6 +22,7 @@ export const SWAGGER_TAGS = [
   'health',
   'auth',
   'users',
+  'cities',
   'restaurants',
   'menu',
   'orders',
@@ -72,6 +73,7 @@ export function buildSwaggerDocumentConfig() {
     .addTag('health', 'Liveness/readiness probe (used by Docker healthchecks).')
     .addTag('auth', 'Register, login, refresh-token rotation, logout, session identity.')
     .addTag('users', 'Self-service profile, favorites, delivery-address book (JWT-scoped).')
+    .addTag('cities', 'Active delivery-city registry for storefront scoping.')
     .addTag('restaurants', 'Public browse/search + owner onboarding and edits.')
     .addTag('menu', 'Public dish listing + owner dish CRUD.')
     .addTag('orders', 'Checkout (guest allowed), order history, cancellation, status machine.')

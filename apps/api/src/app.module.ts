@@ -14,6 +14,7 @@ import { PaymentsModule } from './payments/payments.module';
 import { HealthModule } from './health/health.module';
 import { RateLimitModule } from './common/rate-limit/rate-limit.module';
 import { NotificationsModule } from './notifications/notifications.module';
+import { CitiesModule } from './cities/cities.module';
 
 @Module({
   imports: [
@@ -36,6 +37,7 @@ import { NotificationsModule } from './notifications/notifications.module';
     HealthModule,
     AuthModule,
     UsersModule,
+    CitiesModule,
     RestaurantsModule,
     MenuModule,
     OrdersModule,

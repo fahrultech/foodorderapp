@@ -55,8 +55,8 @@
 - [x] Web: dashboard/order-tracking consume the WS feed (SSE stays the fallback) (2026-10-27, session 37; `useOrderFeed` hook + transport ladder WS→SSE→poll, tracking page got its first live path; stale-debounce-closure bug found+fixed; 3 new e2e specs incl. WS-sabotage SSE-fallback test, suite 7/7 green x2)
 - [ ] Payment abstraction (mock gateway → Stripe/Xendit adapters behind one interface)
   - [x] API core: `PaymentGateway` interface + `MockPaymentGateway` behind DI (PAYMENT_PROVIDER, boot fail-fast) + `payments` entity/migration + `POST /payments`, `POST /payments/:id/capture`, `GET /orders/:orderId/payments` + `payments` rate bucket + 46 new specs; live smokes incl. fail-mode and cancelled-order branches (2026-10-27, session 38)
-  - [ ] Stripe adapter implementing `PaymentGateway` (+ webhook verification endpoint, clientSecret-driven confirm) — needs API keys; keep mock as CI/dev default
-  - [ ] Xendit adapter (same interface + registry entry)
+  - [ ] 🔒 Stripe adapter implementing `PaymentGateway` (+ webhook verification endpoint, clientSecret-driven confirm) — needs API keys; keep mock as CI/dev default
+  - [ ] 🔒 Xendit adapter (same interface + registry entry) — needs API keys
   - [x] Refund flow: `refunded` status + gateway `refundIntent` + ADMIN route + partial amounts — API: `PaymentRefundGateway` optional add-on + `supportsRefunds()` probe (mock implements it, independent `MOCK_REFUND_GATEWAY_MODE=fail` knob) + `refundedCents`/`refundedAt` + `refunded` status (migration w/ CHECK) + `POST /payments/:id/refund` ADMIN route w/ CAS on `refundedCents` (partial accumulates, full → terminal; capture refuses refunded rows; repay-after-refund opens a NEW attempt) + 36 new tests (524→560) + live smoke 28/28 incl. declined-refund branch (2026-10-28, session 39)
     - [x] Refund audit trail: per-refund rows (provider refund refs + amounts + acting admin) instead of a single accumulated `refundedCents` — `payment_refunds` append-only ledger (migration + CHECK + composite index; `refundedAfterCents` running balance; acting admin id FK SET NULL + JWT email snapshot) written in the SAME transaction as the CAS balance update + `GET /payments/:id/refunds` ADMIN route + mock refs made collision-free (`mock_re_<pid>_<remaining>_<cents>` — equal partials now get distinct provider ids) + 13 new specs (560→573) + live smoke 35/35 incl. equal-partial and DB constraint probes (2026-10-28, session 40)
   - [x] Order-machine gate: owner confirm requires a succeeded payment (API flag + spec/live-smoke 2026-10-28 session 42; enable-by-default decision shipped 2026-10-29 session 44 — see sub-items)
@@ -67,7 +67,7 @@
   - [x] Email: `MailService` (nodemailer, SMTP_HOST-gated) + `OrderNotificationsService` (order-placed + status-step emails for authenticated users; guest orders silently skip — no contactEmail on Order entity yet) + 20 specs (2026-10-29, session 45)
   - [x] Push API foundation: `PushService` (VAPID-gated web-push adapter), multi-device `push_subscriptions` table, JWT-scoped subscribe/unsubscribe routes, stale-endpoint cleanup, and order-created/status fan-out from the shared event bus (2026-10-31, session 48)
   - [x] Web: service worker + signed-in notification opt-in/out control (permission only after user gesture) (2026-10-31, session 49; logout detaches the browser endpoint)
-- [ ] Multi-city rollout config (cities as entities, restaurant scoping by city)
+- [x] Multi-city rollout config (cities as entities, restaurant scoping by city) (2026-10-31, session 50; city registry + migration/backfill + public API + owner writes + slug/name filtering)
 - [ ] i18n: English + Indonesian locale on storefront (next-intl)
 - [ ] Dark mode
 - [ ] Admin panel (users, restaurants, orders oversight)

@@ -3,6 +3,7 @@ import {
   CreateDateColumn,
   Entity,
   Index,
+  JoinColumn,
   ManyToOne,
   OneToMany,
   PrimaryGeneratedColumn,
@@ -10,6 +11,7 @@ import {
 } from 'typeorm';
 import { MenuItem } from '../menu/menu-item.entity';
 import { User } from '../users/user.entity';
+import { City } from '../cities/city.entity';
 
 @Entity('restaurants')
 export class Restaurant {
@@ -38,6 +40,18 @@ export class Restaurant {
 
   @Column({ nullable: true })
   city: string;
+
+  /** Registry-backed city scope; `city` remains the read-friendly name snapshot. */
+  @Index('IDX_restaurants_cityId')
+  @Column({ type: 'uuid', nullable: true })
+  cityId: string | null;
+
+  @ManyToOne(() => City, (city) => city.restaurants, {
+    onDelete: 'SET NULL',
+    nullable: true,
+  })
+  @JoinColumn({ name: 'cityId' })
+  cityEntity: City | null;
 
   @Column({ nullable: true })
   address: string;

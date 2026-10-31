@@ -9,6 +9,7 @@ import { Restaurant } from './restaurant.entity';
 import { CreateRestaurantDto, UpdateRestaurantDto } from './dto/restaurant.dto';
 import { UserRole } from '../users/user.entity';
 import { isUuid } from '../common/uuid';
+import { City } from '../cities/city.entity';
 
 export interface RestaurantQuery {
   search?: string;
@@ -24,6 +25,8 @@ export class RestaurantsService {
   constructor(
     @InjectRepository(Restaurant)
     private readonly repo: Repository<Restaurant>,
+    @InjectRepository(City)
+    private readonly cityRepo: Repository<City>,
   ) {}
 
   async findAll(q: RestaurantQuery) {
@@ -41,7 +44,12 @@ export class RestaurantsService {
       );
     }
     if (q.cuisine) qb.andWhere('LOWER(r.cuisine) = :cuisine', { cuisine: q.cuisine.toLowerCase() });
-    if (q.city) qb.andWhere('LOWER(r.city) = :city', { city: q.city.toLowerCase() });
+    if (q.city) {
+      qb.leftJoin('r.cityEntity', 'city').andWhere(
+        '(LOWER(city.slug) = :city OR LOWER(city.name) = :city OR (r.cityId IS NULL AND LOWER(r.city) = :city))',
+        { city: q.city.toLowerCase() },
+      );
+    }
 
     switch (q.sort) {
       case 'deliveryFee':
@@ -73,7 +81,7 @@ export class RestaurantsService {
     return this.repo.find({ order: { name: 'ASC' } });
   }
 
-  /** Slugify a name and make it unique by appending -2, -3… on collision. */
+  /** Slugify a name and make it unique by appending -2, -3, etc. on collision. */
   async uniqueSlug(base: string): Promise<string> {
     const cleaned =
       base
@@ -96,12 +104,17 @@ export class RestaurantsService {
     dto: CreateRestaurantDto,
   ): Promise<Restaurant> {
     const slug = dto.slug ? await this.uniqueSlug(dto.slug) : await this.uniqueSlug(dto.name);
+    const city = dto.cityId
+      ? await this.cityRepo.findOne({ where: { id: dto.cityId, isActive: true } })
+      : null;
+    if (dto.cityId && !city) throw new NotFoundException('City not found or inactive');
     const restaurant = this.repo.create({
       slug,
       name: dto.name,
       description: dto.description ?? null as any,
       cuisine: dto.cuisine ?? null as any,
-      city: dto.city ?? null as any,
+      city: city?.name ?? dto.city ?? null as any,
+      cityId: city?.id ?? null,
       address: dto.address ?? null as any,
       imageUrl: dto.imageUrl ?? null as any,
       deliveryFeeCents: dto.deliveryFeeCents ?? 0,
@@ -132,7 +145,17 @@ export class RestaurantsService {
     if (dto.name !== undefined) patch.name = dto.name;
     if (dto.description !== undefined) patch.description = dto.description as any;
     if (dto.cuisine !== undefined) patch.cuisine = dto.cuisine as any;
-    if (dto.city !== undefined) patch.city = dto.city as any;
+    if (dto.cityId !== undefined) {
+      const city = await this.cityRepo.findOne({
+        where: { id: dto.cityId, isActive: true },
+      });
+      if (!city) throw new NotFoundException('City not found or inactive');
+      patch.cityId = city.id;
+      patch.city = city.name;
+    } else if (dto.city !== undefined) {
+      patch.city = dto.city as any;
+      patch.cityId = null;
+    }
     if (dto.address !== undefined) patch.address = dto.address as any;
     if (dto.imageUrl !== undefined) patch.imageUrl = dto.imageUrl as any;
     if (dto.deliveryFeeCents !== undefined) patch.deliveryFeeCents = dto.deliveryFeeCents;

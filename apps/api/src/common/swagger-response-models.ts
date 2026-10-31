@@ -154,6 +154,26 @@ export class LogoutResponse {
 // Restaurants & menu (wire = TypeORM entity JSON; unloaded relations absent)
 // ---------------------------------------------------------------------------
 
+export class CityResponse {
+  @ApiProperty({ type: 'string', format: 'uuid' })
+  id: string;
+
+  @ApiProperty({ example: 'jakarta' })
+  slug: string;
+
+  @ApiProperty({ example: 'Jakarta' })
+  name: string;
+
+  @ApiProperty({ example: true, description: 'Always true on the public active-city endpoint.' })
+  isActive: boolean;
+
+  @ApiProperty({ type: 'string', format: 'date-time' })
+  createdAt: string;
+
+  @ApiProperty({ type: 'string', format: 'date-time' })
+  updatedAt: string;
+}
+
 export class RestaurantResponse {
   @ApiProperty({ type: 'string', format: 'uuid' })
   id: string;
@@ -180,6 +200,14 @@ export class RestaurantResponse {
 
   @ApiProperty({ type: 'string', nullable: true, example: 'Jakarta' })
   city: string | null;
+
+  @ApiProperty({
+    type: 'string',
+    format: 'uuid',
+    nullable: true,
+    description: 'Registry city id used for multi-city scoping.',
+  })
+  cityId: string | null;
 
   @ApiProperty({ type: 'string', nullable: true })
   address: string | null;

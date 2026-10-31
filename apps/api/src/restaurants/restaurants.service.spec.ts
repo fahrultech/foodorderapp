@@ -27,7 +27,21 @@ function build(existing: Restaurant[] = [fakeRestaurant()]) {
   const create = jest.fn((x: any) => x);
   const save = jest.fn(async (x: any) => ({ ...fakeRestaurant(), ...x }));
   const repo: any = { findOne, find, create, save };
-  return { findOne, find, create, save, repo, service: new RestaurantsService(repo) };
+  const cityFindOne = jest.fn(async ({ where }: any) =>
+    where.id === '33333333-3333-4333-8333-333333333333'
+      ? { id: where.id, name: 'Jakarta', slug: 'jakarta', isActive: true }
+      : null,
+  );
+  const cityRepo: any = { findOne: cityFindOne };
+  return {
+    findOne,
+    find,
+    create,
+    save,
+    cityFindOne,
+    repo,
+    service: new RestaurantsService(repo, cityRepo),
+  };
 }
 
 describe('RestaurantsService — owner CRUD', () => {
@@ -84,6 +98,27 @@ describe('RestaurantsService — owner CRUD', () => {
       const { service, create } = build([]);
       await service.createForOwner('u1', { name: 'Solo' } as any);
       expect(create.mock.calls[0][0].ownerId).toBe('u1');
+    });
+
+    it('resolves cityId through the active city registry and stores its display name', async () => {
+      const { service, create, cityFindOne } = build([]);
+      const cityId = '33333333-3333-4333-8333-333333333333';
+
+      await service.createForOwner('u1', { name: 'City Resto', cityId } as any);
+
+      expect(cityFindOne).toHaveBeenCalledWith({ where: { id: cityId, isActive: true } });
+      expect(create.mock.calls[0][0]).toMatchObject({ cityId, city: 'Jakarta' });
+    });
+
+    it('rejects an unknown or inactive cityId', async () => {
+      const { service, create } = build([]);
+      await expect(
+        service.createForOwner('u1', {
+          name: 'Nowhere',
+          cityId: '44444444-4444-4444-8444-444444444444',
+        } as any),
+      ).rejects.toBeInstanceOf(NotFoundException);
+      expect(create).not.toHaveBeenCalled();
     });
   });
 
@@ -148,6 +183,33 @@ describe('RestaurantsService — owner CRUD', () => {
       const saved = save.mock.calls[0][0];
       expect(saved.name).toBe('Renamed');
       expect(saved.rating).toBeUndefined();
+    });
+
+    it('updates cityId and the city display snapshot together', async () => {
+      const { service, save } = build([fakeRestaurant({ ownerId: 'u1' })]);
+      const cityId = '33333333-3333-4333-8333-333333333333';
+
+      await service.updateOwned('11111111-1111-4111-8111-111111111111', owner, {
+        cityId,
+      } as any);
+
+      expect(save.mock.calls[0][0]).toMatchObject({ cityId, city: 'Jakarta' });
+    });
+
+    it('clears a stale registry link when a legacy client updates the city text', async () => {
+      const { service, save } = build([
+        fakeRestaurant({
+          ownerId: 'u1',
+          cityId: '33333333-3333-4333-8333-333333333333',
+          city: 'Jakarta',
+        }),
+      ]);
+
+      await service.updateOwned('11111111-1111-4111-8111-111111111111', owner, {
+        city: 'Medan',
+      } as any);
+
+      expect(save.mock.calls[0][0]).toMatchObject({ cityId: null, city: 'Medan' });
     });
   });
 });

@@ -4,6 +4,47 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
+## 2026-10-31 16:12 — Session 50 — Multi-city registry + restaurant scoping
+
+**Built:** completed the top unblocked Phase 5 item. The Stripe and Xendit
+adapter sub-items are now explicitly marked 🔒 because real provider keys are
+required; multi-city was the next self-contained roadmap increment.
+
+- Added the `cities` entity/module and public `GET /api/cities`, returning only
+  active cities alphabetically. OpenAPI now has 51 operations and a typed
+  `CityResponse`.
+- Added nullable/indexed `restaurants.cityId` with `ON DELETE SET NULL`; the
+  generated migration creates the registry, backfills distinct existing city
+  names with stable slugs, links existing restaurants, then adds the FK.
+- Owner create/update DTOs accept validated UUID `cityId`. The service resolves
+  only active cities, rejects unknown/inactive ids with 404, and writes the FK
+  plus the existing read-friendly `city` name snapshot together. The legacy
+  free-form `city` field stays compatible for older clients.
+- Restaurant browsing now scopes `?city=` by registry slug or name,
+  case-insensitively, with a text fallback only for legacy null-FK rows.
+- Seed now creates Bandung/Jakarta/Surabaya first and assigns all six seeded
+  restaurants to registry rows. Data-source/entity registration and
+  architecture docs were updated.
+
+**Verified:**
+- Strict TDD: four targeted suites first failed on missing city modules and the
+  missing second repository; the legacy-city consistency regression also failed
+  red before its fix. Targeted suites finished **33/33**.
+- `npm run build` clean; full Jest **54 suites / 675 tests green**.
+- Migration applied to PostgreSQL 16 (14 migrations recorded), seed completed,
+  and schema-drift generation correctly refused with “No changes … found”.
+- Fresh-DB migration drill: the previous 13 migrations were applied, mixed
+  ` Jakarta `/`jakarta` legacy rows plus `München` were inserted, then the new
+  migration collapsed case/whitespace variants to two cities and linked all
+  3/3 restaurants (slugs `jakarta,m-nchen`); throwaway DB dropped afterwards.
+- Live API smoke **10/10**: sorted city registry; Jakarta slug and Bandung name
+  filters; owner login; create/update by cityId; malformed UUID 400; unknown
+  city 404; updated restaurant moved city scopes; OpenAPI path/schema present.
+- API stopped, port 4000 released, and the database was re-seeded to canonical
+  data after the smoke.
+
+---
+
 ## 2026-10-31 13:53 — Session 49 — Browser push opt-in UI + service worker
 
 **Built:** completed the remaining Notifications web increment and closed the
