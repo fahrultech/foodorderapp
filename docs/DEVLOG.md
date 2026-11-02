@@ -4,6 +4,43 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
+## 2026-11-02 16:26 — Session 54 — Owner revenue and peak-hour analytics
+
+**Built:** completed the next unblocked Phase 5 item with an owner-scoped SQL
+analytics endpoint and portal page.
+
+- Added `GET /api/restaurants/:id/orders/analytics`, guarded by the same real
+  JWT + OWNER role checks and service ownership recheck as the order inbox;
+  ADMIN keeps the established bypass. The endpoint aggregates only completed
+  orders, returning all-time `grossRevenueCents`, completed count, exactly 24
+  UTC `createdAt`-hour demand buckets, and a deterministic busiest hour (earliest
+  wins ties; null when empty). Money remains integer cents and no migration was
+  needed.
+- Added typed OpenAPI models and route coverage for success, malformed UUID,
+  unauthenticated, wrong-role/foreign-owner, and unknown-restaurant responses.
+  The generated API document now contains 53 operations.
+- Added `/dashboard/analytics` with restaurant switching, revenue/order/peak
+  summary cards, an accessible hourly table with demand bars, and signed-out,
+  wrong-role, no-restaurant, loading, retry, and empty-data states. The shared
+  owner portal tabs and typed web API client now expose the page.
+- Added Playwright coverage for the seeded owner/Warung result and all 24 hourly
+  rows; architecture and E2E documentation record the aggregate semantics.
+
+**Verified:**
+- Strict TDD: API service tests first failed on the missing method, HTTP tests
+  first received 404, and the Playwright spec first failed on the missing page.
+- `apps/api npm run build` clean; full Jest **56 suites / 685 tests green**.
+- `apps/web npm run build` clean (Next.js type-check + 14 routes, including
+  `/dashboard/analytics`).
+- Full PostgreSQL-backed Playwright suite **15/15 green**; the database was
+  re-seeded to the canonical fixture afterwards.
+- Live curl-equivalent smoke against the built API: owner analytics 200 for
+  Warung with **7300 cents / 3 completed orders / 24 buckets**, earliest peak
+  derivation matched the buckets; anonymous access returned 401 and the new
+  Swagger path was present. API stopped afterwards.
+
+---
+
 ## 2026-11-02 14:38 — Session 53 — ADMIN platform oversight
 
 **Built:** completed the next unblocked Phase 5 item with a read-only admin

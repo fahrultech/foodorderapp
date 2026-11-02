@@ -16,7 +16,12 @@ import {
   ApiQuery,
   ApiTags,
 } from '@nestjs/swagger';
-import { ApiError, OrderResponse, OwnerInboxResponse } from '../common/swagger-response-models';
+import {
+  ApiError,
+  OrderResponse,
+  OwnerAnalyticsResponse,
+  OwnerInboxResponse,
+} from '../common/swagger-response-models';
 import { Observable, filter, map, merge, of, timer } from 'rxjs';
 import { OrdersService } from './orders.service';
 import {
@@ -48,6 +53,28 @@ export class RestaurantOrdersController {
     private readonly service: OrdersService,
     private readonly events: OrderEventsService,
   ) {}
+
+  @Get('analytics')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.OWNER)
+  @ApiBearerAuth()
+  @ApiParam({ name: 'id', schema: { type: 'string', format: 'uuid' } })
+  @ApiOperation({
+    summary: 'Owner analytics: completed revenue and hourly demand',
+    description:
+      'OWNER required (admins bypass). All-time COMPLETED orders only. Demand buckets use the UTC createdAt hour; the earliest hour wins peak ties.',
+  })
+  @ApiOkResponse({ type: OwnerAnalyticsResponse })
+  @ApiError(400, 'Malformed (non-UUID) restaurant id.')
+  @ApiError(401, 'Missing/invalid/expired access token.')
+  @ApiError(403, 'Valid token but role is not OWNER, or the restaurant belongs to another owner (admins bypass).')
+  @ApiError(404, 'Unknown restaurant id.')
+  analytics(
+    @UuidParam('id') id: string,
+    @CurrentUser() user: any,
+  ) {
+    return this.service.analyticsForRestaurant(id, { sub: user.sub, role: user.role });
+  }
 
   @Get()
   @UseGuards(JwtAuthGuard, RolesGuard)

@@ -377,6 +377,143 @@ describe('OrdersService.findForRestaurant — owner orders inbox', () => {
   });
 });
 
+describe('OrdersService.analyticsForRestaurant — completed-order SQL aggregates', () => {
+  const REST_ID = '11111111-1111-4111-8111-111111111111';
+  const ownerActor = { sub: OWNER_ID, role: UserRole.OWNER };
+
+  function buildAnalytics(
+    summary: { grossRevenueCents: string; completedOrderCount: string },
+    rows: Array<{ hourUtc: string; completedOrderCount: string }>,
+    ownerId: string | null = OWNER_ID,
+  ) {
+    const queryBuilders = [
+      {
+        select: jest.fn().mockReturnThis(), addSelect: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(), andWhere: jest.fn().mockReturnThis(),
+        getRawOne: jest.fn(async () => summary),
+      },
+      {
+        select: jest.fn().mockReturnThis(), addSelect: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(), andWhere: jest.fn().mockReturnThis(),
+        groupBy: jest.fn().mockReturnThis(), orderBy: jest.fn().mockReturnThis(),
+        getRawMany: jest.fn(async () => rows),
+      },
+    ];
+    const createQueryBuilder = jest
+      .fn()
+      .mockReturnValueOnce(queryBuilders[0])
+      .mockReturnValueOnce(queryBuilders[1]);
+    const restaurants = {
+      findOne: jest.fn(async () => ({ id: REST_ID, ownerId })),
+    } as unknown as RestaurantsService;
+    const service = new OrdersService(
+      { createQueryBuilder } as unknown as Repository<Order>,
+      {} as MenuService,
+      restaurants,
+      fakeEvents(),
+      fakePromos(),
+      fakeAddresses(),
+    );
+    return { service, createQueryBuilder, queryBuilders };
+  }
+
+  it('returns all-time completed revenue and 24 UTC demand buckets with the earliest peak', async () => {
+    const summaryQb = {
+      select: jest.fn().mockReturnThis(),
+      addSelect: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      getRawOne: jest.fn(async () => ({ grossRevenueCents: '7200', completedOrderCount: '4' })),
+    };
+    const hourlyQb = {
+      select: jest.fn().mockReturnThis(),
+      addSelect: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      groupBy: jest.fn().mockReturnThis(),
+      orderBy: jest.fn().mockReturnThis(),
+      getRawMany: jest.fn(async () => [
+        { hourUtc: '9', completedOrderCount: '2' },
+        { hourUtc: '18', completedOrderCount: '2' },
+      ]),
+    };
+    const createQueryBuilder = jest
+      .fn()
+      .mockReturnValueOnce(summaryQb)
+      .mockReturnValueOnce(hourlyQb);
+    const restaurants = {
+      findOne: jest.fn(async () => ({ id: REST_ID, ownerId: OWNER_ID })),
+    } as unknown as RestaurantsService;
+    const service = new OrdersService(
+      { createQueryBuilder } as unknown as Repository<Order>,
+      {} as MenuService,
+      restaurants,
+      fakeEvents(),
+      fakePromos(),
+      fakeAddresses(),
+    );
+
+    const out = await service.analyticsForRestaurant(REST_ID, ownerActor);
+
+    expect(out).toMatchObject({
+      grossRevenueCents: 7200,
+      completedOrderCount: 4,
+      peakHourUtc: 9,
+    });
+    expect(out.hourly).toHaveLength(24);
+    expect(out.hourly[0]).toEqual({ hourUtc: 0, completedOrderCount: 0 });
+    expect(out.hourly[9]).toEqual({ hourUtc: 9, completedOrderCount: 2 });
+    expect(out.hourly[18]).toEqual({ hourUtc: 18, completedOrderCount: 2 });
+    expect(summaryQb.andWhere).toHaveBeenCalledWith('o.status = :status', {
+      status: OrderStatus.COMPLETED,
+    });
+    expect(hourlyQb.andWhere).toHaveBeenCalledWith('o.status = :status', {
+      status: OrderStatus.COMPLETED,
+    });
+  });
+
+  it('returns integer zeroes, 24 empty buckets, and a null peak when there are no completed orders', async () => {
+    const { service } = buildAnalytics(
+      { grossRevenueCents: '0', completedOrderCount: '0' },
+      [],
+    );
+    const out = await service.analyticsForRestaurant(REST_ID, ownerActor);
+    expect(out).toEqual({
+      grossRevenueCents: 0,
+      completedOrderCount: 0,
+      peakHourUtc: null,
+      hourly: Array.from({ length: 24 }, (_, hourUtc) => ({
+        hourUtc,
+        completedOrderCount: 0,
+      })),
+    });
+  });
+
+  it('rechecks ownership before aggregates and lets admins bypass ownership', async () => {
+    const foreign = buildAnalytics(
+      { grossRevenueCents: '0', completedOrderCount: '0' },
+      [],
+      INTRUDER_ID,
+    );
+    await expect(
+      foreign.service.analyticsForRestaurant(REST_ID, ownerActor),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(foreign.createQueryBuilder).not.toHaveBeenCalled();
+
+    const admin = buildAnalytics(
+      { grossRevenueCents: '500', completedOrderCount: '1' },
+      [{ hourUtc: '4', completedOrderCount: '1' }],
+      null,
+    );
+    await expect(
+      admin.service.analyticsForRestaurant(REST_ID, {
+        sub: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+        role: UserRole.ADMIN,
+      }),
+    ).resolves.toMatchObject({ grossRevenueCents: 500, peakHourUtc: 4 });
+  });
+});
+
 describe('OrdersService.setStatusForRestaurant — owner status actions', () => {
   const REST_ID = '11111111-1111-4111-8111-111111111111';
   const OTHER_REST = '22222222-2222-4222-8222-222222222222';

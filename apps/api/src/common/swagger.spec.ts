@@ -172,6 +172,7 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['/orders/{id}/next-statuses', 'get'],
       ['/orders/{id}/status', 'patch'],
       ['/restaurants/{id}/orders', 'get'],
+      ['/restaurants/{id}/orders/analytics', 'get'],
       ['/restaurants/{id}/orders/{orderId}/status', 'patch'],
       ['/restaurants/{id}/orders/stream', 'get'],
       ['/restaurants/{id}/reviews', 'get'],
@@ -215,6 +216,7 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['/orders/ops/cancel-stale', 'post'],
       ['/orders/{id}/status', 'patch'],
       ['/restaurants/{id}/orders', 'get'],
+      ['/restaurants/{id}/orders/analytics', 'get'],
       ['/restaurants/{id}/orders/stream', 'get'],
       ['/reviews', 'post'],
       ['/menu/items/{id}', 'delete'],
@@ -314,6 +316,7 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['/orders/{id}/next-statuses', 'get', 200, 'ref:NextStatusesResponse'],
       ['/orders/{id}/status', 'patch', 200, 'ref:OrderResponse'],
       ['/restaurants/{id}/orders', 'get', 200, 'ref:OwnerInboxResponse'],
+      ['/restaurants/{id}/orders/analytics', 'get', 200, 'ref:OwnerAnalyticsResponse'],
       ['/restaurants/{id}/orders/{orderId}/status', 'patch', 200, 'ref:OrderResponse'],
       ['/restaurants/{id}/orders/stream', 'get', 200, 'sse'],
       ['/restaurants/{id}/reviews', 'get', 200, 'ref:ReviewFeedResponse'],
@@ -332,7 +335,7 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['/notifications/push/subscriptions', 'delete', 200, 'ref:PushUnsubscribeResponse'],
       ['/admin/overview', 'get', 200, 'ref:AdminOverviewResponse'],
     ];
-    expect(SUCCESS.length).toBe(52);
+    expect(SUCCESS.length).toBe(53);
     for (const [path, method, code, kind] of SUCCESS) {
       const res = doc.paths[P(path)]?.[method]?.responses?.[String(code)];
       if (!res) throw new Error(`${method} ${path}: no ${code} response documented`);
@@ -395,6 +398,7 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['/orders/{id}/next-statuses', 'get', [400, 404]],
       ['/orders/{id}/status', 'patch', [400, 401, 403, 404]],
       ['/restaurants/{id}/orders', 'get', [400, 401, 403, 404]],
+      ['/restaurants/{id}/orders/analytics', 'get', [400, 401, 403, 404]],
       ['/restaurants/{id}/orders/{orderId}/status', 'patch', [400, 401, 403, 404]],
       ['/restaurants/{id}/orders/stream', 'get', [400, 401, 403, 404]],
       ['/restaurants/{id}/reviews', 'get', [400, 404]],
@@ -500,6 +504,27 @@ describe('OpenAPI document (generated from the real controllers)', () => {
     expect(Object.keys(props('OrderStatusCountsResponse')).sort()).toEqual(
       ['cancelled', 'completed', 'confirmed', 'delivering', 'pending', 'preparing'],
     );
+    expect(required('OwnerAnalyticsResponse').sort()).toEqual(
+      ['completedOrderCount', 'grossRevenueCents', 'hourly', 'peakHourUtc'].sort(),
+    );
+    expect(props('OwnerAnalyticsResponse').grossRevenueCents.type).toBe('integer');
+    expect(props('OwnerAnalyticsResponse').completedOrderCount.type).toBe('integer');
+    expect(props('OwnerAnalyticsResponse').peakHourUtc).toMatchObject({
+      type: 'integer',
+      nullable: true,
+      minimum: 0,
+      maximum: 23,
+    });
+    expect(props('OwnerAnalyticsResponse').hourly).toMatchObject({
+      type: 'array',
+      items: { $ref: '#/components/schemas/OwnerAnalyticsHourResponse' },
+    });
+    expect(props('OwnerAnalyticsHourResponse').hourUtc).toMatchObject({
+      type: 'integer',
+      minimum: 0,
+      maximum: 23,
+    });
+    expect(props('OwnerAnalyticsHourResponse').completedOrderCount.type).toBe('integer');
     // enum + isArray emits an INLINE enum array (values, not a $ref — fine
     // as long as they match the shared OrderStatus component exactly):
     expect(props('NextStatusesResponse').next.type).toBe('array');

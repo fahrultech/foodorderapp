@@ -326,6 +326,69 @@ export class OrdersService {
   }
 
   /**
+   * Owner analytics for one restaurant. Only completed orders contribute:
+   * revenue is the sum of the server-computed order total, and demand is
+   * grouped by the UTC hour in which the order was created. The database does
+   * the aggregate work; the service only fills missing hours and resolves the
+   * deterministic earliest-hour tie for the peak.
+   */
+  async analyticsForRestaurant(
+    restaurantId: string,
+    actor: { sub: string; role: UserRole },
+  ) {
+    await this.getOwnedRestaurant(restaurantId, actor);
+
+    const completed = { status: OrderStatus.COMPLETED };
+    const summary = await this.orders
+      .createQueryBuilder('o')
+      .select('COALESCE(SUM(o.totalCents), 0)', 'grossRevenueCents')
+      .addSelect('COUNT(*)', 'completedOrderCount')
+      .where('o.restaurantId = :restaurantId', { restaurantId })
+      .andWhere('o.status = :status', completed)
+      .getRawOne<{ grossRevenueCents: string; completedOrderCount: string }>();
+
+    const hourExpression = 'EXTRACT(HOUR FROM o.createdAt)::int';
+    const rows = await this.orders
+      .createQueryBuilder('o')
+      .select(hourExpression, 'hourUtc')
+      .addSelect('COUNT(*)', 'completedOrderCount')
+      .where('o.restaurantId = :restaurantId', { restaurantId })
+      .andWhere('o.status = :status', completed)
+      .groupBy(hourExpression)
+      .orderBy(hourExpression, 'ASC')
+      .getRawMany<{ hourUtc: string; completedOrderCount: string }>();
+
+    const hourly = Array.from({ length: 24 }, (_, hourUtc) => ({
+      hourUtc,
+      completedOrderCount: 0,
+    }));
+    for (const row of rows) {
+      const hourUtc = Number(row.hourUtc);
+      if (Number.isInteger(hourUtc) && hourUtc >= 0 && hourUtc < 24) {
+        hourly[hourUtc].completedOrderCount = Number(row.completedOrderCount) || 0;
+      }
+    }
+
+    let peakHourUtc: number | null = null;
+    for (const bucket of hourly) {
+      if (
+        bucket.completedOrderCount > 0 &&
+        (peakHourUtc === null ||
+          bucket.completedOrderCount > hourly[peakHourUtc].completedOrderCount)
+      ) {
+        peakHourUtc = bucket.hourUtc;
+      }
+    }
+
+    return {
+      grossRevenueCents: Number(summary?.grossRevenueCents) || 0,
+      completedOrderCount: Number(summary?.completedOrderCount) || 0,
+      peakHourUtc,
+      hourly,
+    };
+  }
+
+  /**
    * Shared ownership gate for the owner portal routes: unknown/malformed
    * restaurant -> 404; someone else's restaurant -> 403 (admins bypass).
    * Same semantics findForRestaurant has always had.

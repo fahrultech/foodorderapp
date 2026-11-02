@@ -444,6 +444,37 @@ export class OwnerInboxResponse extends PaginatedOrdersResponse {
   counts: OrderStatusCountsResponse;
 }
 
+export class OwnerAnalyticsHourResponse {
+  @ApiProperty({ type: 'integer', minimum: 0, maximum: 23, description: 'UTC hour of day.' })
+  hourUtc: number;
+
+  @ApiProperty({ type: 'integer', minimum: 0, description: 'Completed orders created during this UTC hour.' })
+  completedOrderCount: number;
+}
+
+export class OwnerAnalyticsResponse {
+  @ApiProperty({ type: 'integer', minimum: 0, description: 'All-time sum of totalCents for completed orders.' })
+  grossRevenueCents: number;
+
+  @ApiProperty({ type: 'integer', minimum: 0, description: 'All-time completed-order count.' })
+  completedOrderCount: number;
+
+  @ApiProperty({
+    type: 'integer',
+    minimum: 0,
+    maximum: 23,
+    nullable: true,
+    description: 'UTC hour with the most completed orders; earliest hour wins ties; null when empty.',
+  })
+  peakHourUtc: number | null;
+
+  @ApiProperty({
+    type: () => [OwnerAnalyticsHourResponse],
+    description: 'Exactly 24 UTC demand buckets, ordered hour 0 through 23.',
+  })
+  hourly: OwnerAnalyticsHourResponse[];
+}
+
 export class NextStatusesResponse {
   @ApiProperty({
     enum: OrderStatus,

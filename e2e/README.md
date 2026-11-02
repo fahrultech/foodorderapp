@@ -1,8 +1,8 @@
 # E2E smoke suite (Playwright)
 
 Browser-level smoke of the customer path: **browse → cart → checkout → order
-page**, plus checkout guardrails, signed-in account flows, owner realtime paths,
-and the ADMIN-only platform overview.
+page**, plus checkout guardrails, signed-in account flows, owner realtime and
+analytics paths, and the ADMIN-only platform overview.
 
 ## Prerequisites
 
@@ -45,6 +45,10 @@ browser download.
   platform totals and recent users/restaurants/orders render from the guarded
   overview API; the owner account gets neither the admin nav entry nor page
   access.
+- `tests/owner-analytics.spec.ts` — owner login opens
+  `/dashboard/analytics`, selects the seeded Warung restaurant, renders the
+  completed-order gross revenue/count and busiest UTC hour, and exposes all 24
+  hourly demand rows in an accessible table.
 - `tests/live-feed.spec.ts` — the realtime ladder (Socket.IO → SSE → poll):
   tracking page follows an owner status change over the feed, and the
   dashboard falls back to SSE when the WebSocket is sabotaged. The customer

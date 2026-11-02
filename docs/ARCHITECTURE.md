@@ -96,6 +96,17 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   dropped when the view (restaurant / filter / page) changed mid-flight, and
   a sync that started before a successful status action is discarded so the
   card never regresses.
+- **Owner analytics are completed-order SQL aggregates** —
+  `GET /restaurants/:id/orders/analytics` uses the same JWT + OWNER role guard
+  and service-side ownership check as the inbox (admins bypass both owner-role
+  restrictions in the established way). Only `completed` orders contribute:
+  `grossRevenueCents` is the all-time sum of the server-priced `totalCents`, and
+  demand is grouped by the UTC hour of `createdAt`. The response always carries
+  24 ordered hour buckets; the busiest hour is deterministic (earliest wins a
+  tie) and null for an empty cohort. This is fulfilled-order gross revenue, not
+  payment settlement after refunds. The web `/dashboard/analytics` page lets an
+  owner switch restaurants and renders revenue, completed count, busiest hour,
+  and an accessible hourly table; API authorization remains authoritative.
 - **Order stream (SSE)** — `GET /restaurants/:id/orders/stream` streams
   `hello` (once), `order.created` / `order.updated` (trigger-only payload
   `{orderId, code, status}` — data truth always comes from the inbox GET),

@@ -4,8 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
 /**
- * Section switcher shared by the two owner-portal pages (`/dashboard` order
- * inbox and `/dashboard/menu`). Server-side guards still apply on every API
+ * Section switcher shared by the owner-portal pages. Server-side guards still apply on every API
  * call — this is navigation polish, not access control.
  */
 export default function PortalTabs() {
@@ -13,6 +12,11 @@ export default function PortalTabs() {
   const tabs = [
     { href: '/dashboard', label: '📥 Orders', active: pathname === '/dashboard' },
     { href: '/dashboard/menu', label: '🍳 Menu', active: pathname.startsWith('/dashboard/menu') },
+    {
+      href: '/dashboard/analytics',
+      label: '📊 Analytics',
+      active: pathname.startsWith('/dashboard/analytics'),
+    },
   ];
   return (
     <nav className="mt-4 flex gap-2" aria-label="Portal sections">

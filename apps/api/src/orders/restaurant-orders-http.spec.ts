@@ -72,6 +72,15 @@ const sampleOrder: Partial<Order> = {
 function buildApp(svcOverrides: Partial<Record<keyof OrdersService, jest.Mock>> = {}) {
   const svc = {
     findForRestaurant: jest.fn(async () => ({ data: [sampleOrder], total: 1 })),
+    analyticsForRestaurant: jest.fn(async () => ({
+      grossRevenueCents: 7200,
+      completedOrderCount: 4,
+      peakHourUtc: 9,
+      hourly: Array.from({ length: 24 }, (_, hourUtc) => ({
+        hourUtc,
+        completedOrderCount: hourUtc === 9 ? 2 : 0,
+      })),
+    })),
     setStatusForRestaurant: jest.fn(async () => ({
       ...sampleOrder,
       status: OrderStatus.CONFIRMED,
@@ -115,9 +124,74 @@ async function boot(svcOverrides?: Partial<Record<keyof OrdersService, jest.Mock
 
 type MockSvc = {
   findForRestaurant: jest.Mock;
+  analyticsForRestaurant: jest.Mock;
   setStatusForRestaurant: jest.Mock;
   assertStreamAccess: jest.Mock;
 };
+
+describe('GET /restaurants/:id/orders/analytics — owner analytics guards', () => {
+  let app: INestApplication;
+  let svc: MockSvc;
+  let ownerToken: string;
+  let adminToken: string;
+  let custToken: string;
+
+  beforeAll(async () => {
+    const result = await boot();
+    app = result.app;
+    svc = result.svc as unknown as MockSvc;
+    ownerToken = result.ownerToken;
+    adminToken = result.adminToken;
+    custToken = result.custToken;
+  });
+  afterAll(() => app.close());
+  beforeEach(() => svc.analyticsForRestaurant.mockClear());
+
+  it('OWNER receives analytics and the service rechecks ownership with the actor', async () => {
+    const res = await httpReq(app, 'GET', `/api/restaurants/${REST_ID}/orders/analytics`, {
+      token: ownerToken,
+    });
+    expect(res.status).toBe(HttpStatus.OK);
+    expect(res.json).toMatchObject({
+      grossRevenueCents: 7200,
+      completedOrderCount: 4,
+      peakHourUtc: 9,
+    });
+    expect(res.json.hourly).toHaveLength(24);
+    expect(svc.analyticsForRestaurant).toHaveBeenCalledWith(
+      REST_ID,
+      expect.objectContaining({ sub: OWNER_ID, role: UserRole.OWNER }),
+    );
+  });
+
+  it('ADMIN bypasses the OWNER role guard', async () => {
+    const res = await httpReq(app, 'GET', `/api/restaurants/${REST_ID}/orders/analytics`, {
+      token: adminToken,
+    });
+    expect(res.status).toBe(HttpStatus.OK);
+  });
+
+  it('rejects anonymous, customer, and malformed-id requests before the service', async () => {
+    expect(
+      (await httpReq(app, 'GET', `/api/restaurants/${REST_ID}/orders/analytics`)).status,
+    ).toBe(HttpStatus.UNAUTHORIZED);
+    expect(
+      (
+        await httpReq(app, 'GET', `/api/restaurants/${REST_ID}/orders/analytics`, {
+          token: custToken,
+        })
+      ).status,
+    ).toBe(HttpStatus.FORBIDDEN);
+    expect(
+      (
+        await httpReq(app, 'GET', '/api/restaurants/not-a-uuid/orders/analytics', {
+          token: ownerToken,
+        })
+      ).status,
+    ).toBe(HttpStatus.BAD_REQUEST);
+    expect(svc.analyticsForRestaurant).not.toHaveBeenCalled();
+  });
+});
 
 // ---------------------------------------------------------------------------
 // GET /api/restaurants/:id/orders — owner inbox

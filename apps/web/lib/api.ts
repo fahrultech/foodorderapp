@@ -156,6 +156,16 @@ export interface RestaurantOrdersPage extends MyOrdersPage {
   counts: Record<OrderStatus, number>;
 }
 
+export interface RestaurantAnalytics {
+  grossRevenueCents: number;
+  completedOrderCount: number;
+  peakHourUtc: number | null;
+  hourly: Array<{
+    hourUtc: number;
+    completedOrderCount: number;
+  }>;
+}
+
 /**
  * One hearted dish — `GET /users/me/favorites` row. Dish fields flattened
  * with the owning restaurant's identity (see FavoritesService.toFavoriteDish).
@@ -421,6 +431,11 @@ export const api = {
       { headers: bearer(accessToken) },
     );
   },
+  /** All-time completed-order revenue and UTC hourly demand for an owned restaurant. */
+  getRestaurantAnalytics: (accessToken: string, restaurantId: string) =>
+    request<RestaurantAnalytics>(`/restaurants/${restaurantId}/orders/analytics`, {
+      headers: bearer(accessToken),
+    }),
   /**
    * Owner status action — PATCH /restaurants/:rid/orders/:oid/status?status=.
    * Server enforces: JWT + owner role + the restaurant belongs to the caller
