@@ -61,6 +61,10 @@ browser download.
 - `tests/storefront-i18n.spec.ts` — English defaults, switching to Indonesian
   updates `<html lang>` plus home/header copy, the cookie survives reload and
   navigation to a restaurant/menu, and switching back restores English.
+- `tests/dark-mode.spec.ts` — light defaults, the accessible header toggle
+  switches the server-rendered root and visible storefront palette, the theme
+  survives navigation/reload through its cookie, and switching back restores
+  the light palette.
 
 Tests share the single dev database and one rate-limit identity per IP, so the
 suite runs serially (`workers: 1`). Guest smoke runs add real `pending` orders

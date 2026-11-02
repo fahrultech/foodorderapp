@@ -69,7 +69,7 @@
   - [x] Web: service worker + signed-in notification opt-in/out control (permission only after user gesture) (2026-10-31, session 49; logout detaches the browser endpoint)
 - [x] Multi-city rollout config (cities as entities, restaurant scoping by city) (2026-10-31, session 50; city registry + migration/backfill + public API + owner writes + slug/name filtering)
 - [x] i18n: English + Indonesian locale on storefront (next-intl) (2026-10-31, session 51; cookie-persisted EN/ID switch, localized home + restaurant/menu surfaces, metadata/header/footer, Playwright persistence coverage)
-- [ ] Dark mode
+- [x] Dark mode (2026-11-02, session 52; server-rendered cookie preference, accessible localized toggle, full storefront palette + Playwright persistence coverage)
 - [ ] Admin panel (users, restaurants, orders oversight)
 - [ ] Analytics dashboard for owners (revenue, peak hours — SQL aggregates)
 - [ ] Image upload for menu items (S3-compatible, presigned PUT)

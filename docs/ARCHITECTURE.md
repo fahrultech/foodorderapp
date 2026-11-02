@@ -38,6 +38,13 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   cards, restaurant detail/reviews, menu search states, and add-to-cart labels.
   The root `NextIntlClientProvider` gives client islands the same request locale
   as server components, and `<html lang>` follows the active choice.
+- **Dark mode is server-selected and cookie-persisted** — the shared header
+  submits a validated `light|dark` server action, storing the preference in an
+  HTTP-only, same-site cookie. Root layout renders `data-theme` and `color-scheme`
+  on the first response, so reloads and navigation do not flash the wrong theme.
+  A global compatibility layer remaps the storefront's existing stone/pastel
+  Tailwind utilities under the dark root, keeping cards, forms, status notices,
+  and portal pages readable without client-side theme hydration.
 - **Order status machine** — transitions validated server-side
   (`pending→confirmed→preparing→delivering→completed`, cancellable through preparing).
   `POST /orders/:id/cancel` lets the *customer* use exactly that machine edge

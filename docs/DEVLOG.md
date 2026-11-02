@@ -4,6 +4,41 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
+## 2026-11-02 11:14 — Session 52 — Cookie-persisted dark mode
+
+**Built:** completed the top unblocked Phase 5 item.
+
+- Added an accessible moon/sun theme control to the shared header, with English
+  and Indonesian labels. The client submits only the next `light|dark` value;
+  the root server action validates it and persists it in a one-year HTTP-only,
+  same-site cookie.
+- Root layout now renders `data-theme` and the dark class on the first response.
+  There is no localStorage hydration race or wrong-theme flash across reloads,
+  server navigation, or signed-in/customer/owner pages.
+- Added a dark compatibility palette for the storefront's existing Tailwind
+  stone and status-color utilities, covering backgrounds, cards, forms,
+  borders, muted text, hover states, validation notices, and order badges.
+  Native controls receive the matching `color-scheme`; reduced-motion users do
+  not get the palette transition.
+- Added `dark-mode.spec.ts` and documented the theme contract in architecture
+  and E2E docs.
+
+**Verified:**
+- Strict TDD: the new Playwright spec first failed because `<html>` had no
+  `data-theme`; it passed after implementation.
+- `apps/web npm run build` clean (Next.js type-check + 12 routes).
+- Full Playwright suite **12/12 green**, including computed palette assertions,
+  accessible toggle names, navigation/reload persistence, payment, realtime,
+  push, and i18n regressions.
+- Live production smoke: default and `theme=dark` requests both returned 200
+  SSR HTML with the correct root marker and matching toggle label; API health
+  reported `db:"up"` and the home page fetched the live restaurant/cuisine APIs.
+- Dev database re-seeded to the canonical 10-order fixture after E2E; ports
+  3000 and 4000 released. Touched-file sanitizer audit found no masked strings;
+  the only U+2026 characters are pre-existing intentional translated ellipses.
+
+---
+
 ## 2026-10-31 18:18 — Session 51 — English/Indonesian storefront localization
 
 **Built:** completed the next unblocked Phase 5 item with `next-intl@4.14.9`.

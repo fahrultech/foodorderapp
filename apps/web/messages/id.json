@@ -26,6 +26,10 @@
     "english": "English",
     "indonesian": "Bahasa Indonesia"
   },
+  "ThemeSwitcher": {
+    "useDark": "Gunakan tema gelap",
+    "useLight": "Gunakan tema terang"
+  },
   "Footer": {
     "tagline": "FoodOrder — dibuat dengan Next.js, NestJS, dan PostgreSQL"
   },

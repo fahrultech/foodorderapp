@@ -26,6 +26,10 @@
     "english": "English",
     "indonesian": "Bahasa Indonesia"
   },
+  "ThemeSwitcher": {
+    "useDark": "Use dark theme",
+    "useLight": "Use light theme"
+  },
   "Footer": {
     "tagline": "FoodOrder — built with Next.js, NestJS and PostgreSQL"
   },

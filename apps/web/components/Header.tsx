@@ -7,13 +7,18 @@ import { useAuth } from '@/lib/auth';
 import { usePushNotifications } from '@/lib/push-notifications';
 import PushNotificationButton from '@/components/PushNotificationButton';
 import LocaleSwitcher from '@/components/LocaleSwitcher';
+import ThemeSwitcher, { type AppTheme } from '@/components/ThemeSwitcher';
 import type { AppLocale } from '@/i18n/request';
 import { useTranslations } from 'next-intl';
 
 export default function Header({
+  theme,
   changeLocaleAction,
+  changeThemeAction,
 }: {
+  theme: AppTheme;
   changeLocaleAction: (locale: AppLocale) => Promise<void>;
+  changeThemeAction: (theme: AppTheme) => Promise<void>;
 }) {
   const t = useTranslations('Header');
   const { count } = useCart();
@@ -117,6 +122,7 @@ export default function Header({
               </span>
             )}
           </Link>
+          <ThemeSwitcher theme={theme} changeThemeAction={changeThemeAction} />
           <LocaleSwitcher changeLocaleAction={changeLocaleAction} />
         </nav>
       </div>
