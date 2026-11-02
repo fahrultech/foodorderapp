@@ -15,6 +15,7 @@ import { HealthModule } from './health/health.module';
 import { RateLimitModule } from './common/rate-limit/rate-limit.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { CitiesModule } from './cities/cities.module';
+import { AdminModule } from './admin/admin.module';
 
 @Module({
   imports: [
@@ -46,6 +47,7 @@ import { CitiesModule } from './cities/cities.module';
     PaymentsModule,
     RateLimitModule,
     NotificationsModule,
+    AdminModule,
   ],
 })
 export class AppModule {}

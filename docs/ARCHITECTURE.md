@@ -65,6 +65,14 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   max 50) and `GET /restaurants` share the `{items,total,page,limit}` envelope;
   `/orders/my` rows load `restaurant` + `items` relations so the web history
   page renders full cards in one request.
+- **Admin oversight is read-only and server-gated** — `GET /admin/overview` is
+  protected by `JwtAuthGuard + RolesGuard @Roles(ADMIN)` and returns aggregate
+  user/restaurant/order counts plus bounded newest rows (10 users, 10
+  restaurants, 20 orders). `AdminService` maps accounts through `toSafeUser`,
+  so password hashes never enter the response; order money remains integer
+  cents. The web `/admin` route repeats the role gate for UX, exposes summary
+  cards and three oversight tables, and the shared header only advertises it to
+  admin sessions. API authorization remains authoritative for direct requests.
 - **Owner inbox scoping** — `GET /restaurants/:id/orders` (same query DTO +
   envelope, plus a per-status `counts` map computed over ALL statuses so the
   dashboard tabs stay accurate while filtered) is guarded by

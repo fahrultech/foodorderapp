@@ -4,6 +4,48 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
+## 2026-11-02 14:38 — Session 53 — ADMIN platform oversight
+
+**Built:** completed the next unblocked Phase 5 item with a read-only admin
+panel covering users, restaurants, and orders.
+
+- Added `AdminModule` with `GET /api/admin/overview`, guarded by the real
+  access-token and ADMIN role guards. The response combines platform totals,
+  per-role/per-order-status counts, and bounded newest rows (10 users, 10
+  restaurants, 20 orders); users are mapped through `toSafeUser`, so password
+  hashes never enter the wire shape.
+- Added typed OpenAPI response models and registered the admin controller in the
+  route/auth/success/error/schema drift suite. The document now has 52
+  operations and an `admin` tag.
+- Added `/admin`: summary cards and responsive recent-user, restaurant, and
+  order tables. The header link is rendered only for admin sessions; guest and
+  non-admin direct navigation get an access-required state, while the API stays
+  the authoritative gate.
+- Seed now creates `admin@foodorder.app` alongside the existing demo accounts,
+  reusing the seed hash. Added Playwright coverage for the admin happy path and
+  owner denial, plus architecture/E2E documentation.
+
+**Verified:**
+- Strict TDD: service and HTTP specs first failed on the missing admin service /
+  controller; the Playwright spec first failed on the missing nav/page. Targeted
+  admin + Swagger suites finished **13/13 green**.
+- `apps/api npm run build` clean; full Jest **56 suites / 679 tests green**.
+- `apps/web npm run build` clean (Next.js type-check + 13 routes, including
+  `/admin`).
+- Full Playwright suite **14/14 green** against the reseeded PostgreSQL-backed
+  production builds. The first focused run found a test-fixture naming mistake
+  (`Warung Budi` vs the actual seeded `Warung Nusantara`); corrected in the
+  test, not the application.
+- Live curl smoke: anonymous overview 401 `UNAUTHORIZED`, owner 403 `FORBIDDEN`,
+  admin 200 with counts **3 users / 6 restaurants / 10 orders**, bounded recent
+  arrays, and no `passwordHash`; `/api/docs-json` exposes the route with
+  `AdminOverviewResponse`. API stopped and DB re-seeded to canonical state.
+- Sanitizer audit found no masked strings in touched files; the only U+2026
+  characters are pre-existing intentional UI/money ellipses in `lib/api.ts`
+  and the locale message catalogs.
+
+---
+
 ## 2026-11-02 11:14 — Session 52 — Cookie-persisted dark mode
 
 **Built:** completed the top unblocked Phase 5 item.

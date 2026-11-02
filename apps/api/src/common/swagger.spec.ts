@@ -42,6 +42,8 @@ import { NotificationsController } from '../notifications/notifications.controll
 import { PushService } from '../notifications/push.service';
 import { CitiesController } from '../cities/cities.controller';
 import { CitiesService } from '../cities/cities.service';
+import { AdminController } from '../admin/admin.controller';
+import { AdminService } from '../admin/admin.service';
 
 /**
  * Guards the document against drifting from the actual route surface:
@@ -68,6 +70,7 @@ const CONTROLLERS = [
   OrderPaymentsController,
   NotificationsController,
   CitiesController,
+  AdminController,
 ];
 
 const empty = () => ({});
@@ -87,6 +90,7 @@ const mockedProviders = [
   { provide: PaymentsService, useValue: empty() },
   { provide: PushService, useValue: empty() },
   { provide: CitiesService, useValue: empty() },
+  { provide: AdminService, useValue: empty() },
   { provide: DataSource, useValue: { query: async () => [] } },
   { provide: JwtService, useValue: empty() },
   { provide: SlidingWindowLogStore, useValue: empty() },
@@ -184,6 +188,7 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['/notifications/push/config', 'get'],
       ['/notifications/push/subscriptions', 'post'],
       ['/notifications/push/subscriptions', 'delete'],
+      ['/admin/overview', 'get'],
     ];
     for (const [path, method] of expected) {
       expect(doc.paths[P(path)]?.[method]).toBeDefined();
@@ -220,6 +225,7 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['/orders/{orderId}/payments', 'get'],
       ['/notifications/push/subscriptions', 'post'],
       ['/notifications/push/subscriptions', 'delete'],
+      ['/admin/overview', 'get'],
     ] as Array<[string, string]>) {
       const op = doc.paths[P(path)]?.[method];
       const security = op.security ?? [];
@@ -324,8 +330,9 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['/notifications/push/config', 'get', 200, 'ref:PushConfigResponse'],
       ['/notifications/push/subscriptions', 'post', 200, 'ref:PushSubscriptionResponse'],
       ['/notifications/push/subscriptions', 'delete', 200, 'ref:PushUnsubscribeResponse'],
+      ['/admin/overview', 'get', 200, 'ref:AdminOverviewResponse'],
     ];
-    expect(SUCCESS.length).toBe(51);
+    expect(SUCCESS.length).toBe(52);
     for (const [path, method, code, kind] of SUCCESS) {
       const res = doc.paths[P(path)]?.[method]?.responses?.[String(code)];
       if (!res) throw new Error(`${method} ${path}: no ${code} response documented`);
@@ -403,6 +410,7 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['/orders/{orderId}/payments', 'get', [400, 401, 404]],
       ['/notifications/push/subscriptions', 'post', [400, 401]],
       ['/notifications/push/subscriptions', 'delete', [400, 401]],
+      ['/admin/overview', 'get', [401, 403]],
     ];
     for (const [path, method, codes] of ERRORS) {
       const responses = doc.paths[P(path)]?.[method]?.responses ?? {};
@@ -465,6 +473,7 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['PromoValidResponse', 'discountCents'],
       ['PaymentResponse', 'amountCents'],
       ['PaymentResponse', 'refundedCents'],
+      ['AdminOrderRowResponse', 'totalCents'],
     ] as Array<[string, string]>) {
       if (props(name)[field]?.type !== 'integer') throw new Error(`${name}.${field} must be integer cents`);
     }

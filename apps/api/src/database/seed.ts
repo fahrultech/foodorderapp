@@ -147,7 +147,15 @@ async function main() {
       role: UserRole.OWNER,
     }),
   );
-  console.log('Seeded users: demo@foodorder.app / owner@foodorder.app (password: demo1234)');
+  await userRepo.save(
+    userRepo.create({
+      email: 'admin@foodorder.app',
+      name: 'Platform Admin',
+      passwordHash,
+      role: UserRole.ADMIN,
+    }),
+  );
+  console.log('Seeded users: demo@foodorder.app / owner@foodorder.app / admin@foodorder.app (password: demo1234)');
 
   const cityNames = [...new Set(restaurants.map((restaurant) => restaurant.city))].sort();
   const cityByName = new Map<string, City>();

@@ -70,7 +70,7 @@
 - [x] Multi-city rollout config (cities as entities, restaurant scoping by city) (2026-10-31, session 50; city registry + migration/backfill + public API + owner writes + slug/name filtering)
 - [x] i18n: English + Indonesian locale on storefront (next-intl) (2026-10-31, session 51; cookie-persisted EN/ID switch, localized home + restaurant/menu surfaces, metadata/header/footer, Playwright persistence coverage)
 - [x] Dark mode (2026-11-02, session 52; server-rendered cookie preference, accessible localized toggle, full storefront palette + Playwright persistence coverage)
-- [ ] Admin panel (users, restaurants, orders oversight)
+- [x] Admin panel (users, restaurants, orders oversight) (2026-11-02, session 53; ADMIN-only read-only overview API + web tables, safe-user mapping, aggregate/status counts, seeded admin fixture, 14-test E2E suite)
 - [ ] Analytics dashboard for owners (revenue, peak hours — SQL aggregates)
 - [ ] Image upload for menu items (S3-compatible, presigned PUT)
 - [ ] Kitchen display system view (tablet-friendly prep board)

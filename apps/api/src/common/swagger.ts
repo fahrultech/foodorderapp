@@ -30,6 +30,7 @@ export const SWAGGER_TAGS = [
   'promos',
   'payments',
   'notifications',
+  'admin',
 ] as const;
 
 export function buildSwaggerDocumentConfig() {
@@ -81,5 +82,6 @@ export function buildSwaggerDocumentConfig() {
     .addTag('promos', 'Promo-code preview for the cart.')
     .addTag('payments', 'Payment attempts behind the provider abstraction (mock gateway today).')
     .addTag('notifications', 'Browser push configuration and JWT-scoped subscriptions.')
+    .addTag('admin', 'ADMIN-only read-only platform oversight.')
     .build();
 }

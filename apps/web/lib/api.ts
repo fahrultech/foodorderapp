@@ -279,6 +279,37 @@ export interface PushSubscriptionInput {
   keys: { p256dh: string; auth: string };
 }
 
+export interface AdminOverview {
+  counts: {
+    users: Record<'total' | 'customer' | 'owner' | 'admin', number>;
+    restaurants: Record<'total' | 'open', number>;
+    orders: Record<'total' | OrderStatus, number>;
+  };
+  recentUsers: SafeUser[];
+  recentRestaurants: Array<{
+    id: string;
+    slug: string;
+    name: string;
+    ownerId: string | null;
+    ownerName: string | null;
+    city: string | null;
+    isOpen: boolean;
+    rating: number;
+    createdAt: string;
+  }>;
+  recentOrders: Array<{
+    id: string;
+    code: string;
+    status: OrderStatus;
+    totalCents: number;
+    customerName: string;
+    userId: string | null;
+    restaurantId: string;
+    restaurantName: string | null;
+    createdAt: string;
+  }>;
+}
+
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api';
 export { API_URL };
 
@@ -360,6 +391,12 @@ export const api = {
   /** Self-cancel while the status machine allows it (pending/confirmed/preparing). */
   cancelOrder: (accessToken: string, id: string) =>
     request<Order>(`/orders/${id}/cancel`, { method: 'POST', headers: bearer(accessToken) }),
+
+  // --- admin oversight ---
+  /** Read-only platform totals plus newest users, restaurants and orders. ADMIN only. */
+  adminOverview: (accessToken: string) =>
+    request<AdminOverview>('/admin/overview', { headers: bearer(accessToken) }),
+
   // --- owner portal ---
   /** Restaurants owned by the signed-in owner (GET /restaurants/mine). */
   listMyRestaurants: (accessToken: string) =>
