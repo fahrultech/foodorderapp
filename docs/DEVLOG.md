@@ -42,7 +42,13 @@ leaving the parent roadmap item open for its web portal/live-feed follow-up.
 - Live built-API smoke **11/11**: health/db, all four role logins, seeded assignment,
   driver-scoped inbox, exact-role 403 for ADMIN, non-driver assignment 400,
   unassign/reassign, driver preparing→delivering→completed timestamps, malformed
-  UUID 400, and all three OpenAPI paths. The database was re-seeded afterwards.
+  UUID 400, and all three OpenAPI paths.
+- The first GitHub CI run exposed the seed contract outside the API: the admin
+  Playwright fixture still expected three users, and the admin card omitted the
+  new driver count. A focused browser test reproduced the failure, then the web
+  API type/card and assertion were updated. Web production build is clean and the
+  full PostgreSQL-backed Playwright suite is **15/15 green**. The database was
+  re-seeded to the canonical fixture afterwards.
 
 ---
 

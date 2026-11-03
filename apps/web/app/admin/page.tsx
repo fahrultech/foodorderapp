@@ -128,7 +128,7 @@ export default function AdminPage() {
             <CountCard
               label="Users"
               value={data.counts.users.total}
-              detail={`${data.counts.users.customer} customers · ${data.counts.users.owner} owners · ${data.counts.users.admin} admins`}
+              detail={`${data.counts.users.customer} customers · ${data.counts.users.owner} owners · ${data.counts.users.driver} drivers · ${data.counts.users.admin} admins`}
               testId="admin-count-users"
             />
             <CountCard

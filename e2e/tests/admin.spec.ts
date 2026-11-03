@@ -11,7 +11,8 @@ test('admin can open the platform overview', async ({ page }) => {
   await page.getByRole('link', { name: 'Admin' }).click();
 
   await expect(page.getByRole('heading', { level: 1, name: 'Admin overview' })).toBeVisible();
-  await expect(page.getByTestId('admin-count-users')).toContainText('3');
+  await expect(page.getByTestId('admin-count-users')).toContainText('4');
+  await expect(page.getByTestId('admin-count-users')).toContainText('1 drivers');
   await expect(page.getByTestId('admin-count-restaurants')).toContainText('6');
   await expect(page.getByTestId('admin-count-orders')).toContainText('10');
   await expect(page.getByRole('heading', { level: 2, name: 'Recent users' })).toBeVisible();

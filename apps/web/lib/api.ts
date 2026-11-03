@@ -299,7 +299,7 @@ export interface PushSubscriptionInput {
 
 export interface AdminOverview {
   counts: {
-    users: Record<'total' | 'customer' | 'owner' | 'admin', number>;
+    users: Record<'total' | 'customer' | 'owner' | 'driver' | 'admin', number>;
     restaurants: Record<'total' | 'open', number>;
     orders: Record<'total' | OrderStatus, number>;
   };
