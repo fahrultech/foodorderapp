@@ -10,6 +10,7 @@ export enum UserRole {
   CUSTOMER = 'customer',
   OWNER = 'owner',
   ADMIN = 'admin',
+  DRIVER = 'driver',
 }
 
 @Entity('users')

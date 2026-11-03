@@ -52,6 +52,21 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   leaked); restaurant-side progression goes through the owner-scoped
   `PATCH /restaurants/:id/orders/:orderId/status` route, and the generic
   `PATCH /orders/:id/status` path is admin-only (it used to be open).
+- **Driver assignment is a separate, exact-role API boundary** — users may carry
+  the `driver` role, while orders keep a nullable indexed `driverId` FK to users
+  (`ON DELETE SET NULL`). Owners (or admins through the established owner-route
+  bypass) assign or clear a DRIVER-role account with
+  `PATCH /restaurants/:id/orders/:orderId/driver`; restaurant ownership and
+  order path scoping are rechecked server-side, and completed/cancelled orders
+  are immutable. Drivers use `GET /driver/orders` with the standard status/page/
+  limit query contract, always scoped to the verified JWT subject. The exact-role
+  `DriverOnlyGuard` deliberately does **not** grant the normal admin bypass.
+  `PATCH /driver/orders/:id/status` exposes only `preparing→delivering` and
+  `delivering→completed`; missing and foreign assignments share the same 404,
+  while illegal transitions are 400. Assignment and driver status writes publish
+  the existing trigger-only `order.updated` event so current restaurant/customer
+  live consumers refetch canonical state; a driver-specific web portal/feed is
+  intentionally the remaining roadmap sub-item.
 - **Status-step timestamps** — the order entity carries write-once
   `confirmedAt`/`preparingAt`/`deliveringAt`/`completedAt`/`cancelledAt` columns
   stamped by `OrdersService.applyStatus` on first entry into each step (every

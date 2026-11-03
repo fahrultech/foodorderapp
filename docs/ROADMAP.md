@@ -75,6 +75,8 @@
 - [x] Image upload for menu items (S3-compatible, presigned PUT) (2026-11-03, session 55; owner-scoped 5-minute presigns, 5 MiB MIME validation, direct browser PUT + menu PATCH, 15-test E2E suite)
 - [x] Kitchen display system view (tablet-friendly prep board) (2026-11-03, session 56; live three-lane owner board, oldest-first cards, touch status actions, 15-test E2E suite)
 - [ ] Driver/courier role + assignment flow
+  - [x] API foundation: DRIVER role + nullable indexed order assignment (FK SET NULL), owner/admin assign/unassign endpoint, exact-driver inbox/status routes, migration/OpenAPI/seed/tests (2026-11-03, session 57)
+  - [ ] Web: driver portal + live assignment/status feed
 - [x] Scheduled cron: auto-cancel stale pending orders (2026-10-27, session 35; shared `stale-order-sweep` + ADMIN HTTP route + `ops/cancel-stale.sh` systemd/cron runner, STALE_ORDER_MINUTES/BATCH env, DRY_RUN; 469 tests green + live smoke)
 - [ ] PWA: installable storefront + offline cart
 - [ ] A/B-friendly feature flags table + helper

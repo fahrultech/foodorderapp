@@ -4,6 +4,48 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
+## 2026-11-03 17:48 — Session 57 — Driver assignment API foundation
+
+**Built:** completed the API half of the top Phase 5 driver/courier item while
+leaving the parent roadmap item open for its web portal/live-feed follow-up.
+
+- Added the exact `driver` user role and a nullable indexed `orders.driverId`
+  relation with `ON DELETE SET NULL`. The committed migration extends the
+  existing PostgreSQL role enum idempotently, then adds the order column/index/FK;
+  its down path deliberately leaves the enum value in place.
+- Added owner/admin `PATCH /restaurants/:id/orders/:orderId/driver` with a
+  fully decorated `{driverId: uuid|null}` body, ownership + path scoping,
+  DRIVER-role target validation, terminal-order immutability, and normal
+  `order.updated` publication after assignment/unassignment.
+- Added exact-DRIVER `GET /driver/orders` (JWT-subject assignment scope with
+  status/paging) and `PATCH /driver/orders/:id/status`, limited to
+  preparing→delivering and delivering→completed. Unknown and foreign assignments
+  share 404; illegal transitions answer 400. Admin does not bypass this boundary.
+- OpenAPI now documents 57 operations, driver role/response fields/auth/errors;
+  the UUID route sweep covers all new path params. Seed creates a demo driver and
+  assigns FO-SEED3. Admin API counts now include drivers. Architecture, README,
+  and roadmap sub-items record the API/web split.
+
+**Verified:**
+- Strict TDD RED evidence: schema spec first failed on the missing migration and
+  role; DTO spec failed on its missing module; service/HTTP specs failed on the
+  missing methods/controller; seed and admin specs failed on absent fixtures/counts;
+  Swagger failed on absent `driverId` response schema and undeclared driver tag.
+- Focused driver/schema/DTO/HTTP/OpenAPI/admin/seed tests green; expanded UUID
+  sweep **58/58** and related order/auth tests green.
+- Full API Jest suite **62 suites / 738 tests green** and production build clean.
+- PostgreSQL 16 migration applied as the 15th migration; the seed completed with
+  four users and FO-SEED3 assigned to the demo driver. A schema-drift probe first
+  exposed an entity/migration FK-name mismatch; a failing metadata regression was
+  added, `@JoinColumn` now pins the committed constraint name, and the final
+  `migration:generate` correctly refused with “No changes in database schema”.
+- Live built-API smoke **11/11**: health/db, all four role logins, seeded assignment,
+  driver-scoped inbox, exact-role 403 for ADMIN, non-driver assignment 400,
+  unassign/reassign, driver preparing→delivering→completed timestamps, malformed
+  UUID 400, and all three OpenAPI paths. The database was re-seeded afterwards.
+
+---
+
 ## 2026-11-03 16:10 — Session 56 — Tablet kitchen display
 
 **Built:** completed the next unblocked Phase 5 item as a web-only projection

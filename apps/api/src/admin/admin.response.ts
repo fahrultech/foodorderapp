@@ -7,6 +7,7 @@ export class AdminUserCountsResponse {
   @ApiProperty({ type: 'integer' }) customer: number;
   @ApiProperty({ type: 'integer' }) owner: number;
   @ApiProperty({ type: 'integer' }) admin: number;
+  @ApiProperty({ type: 'integer' }) driver: number;
 }
 
 export class AdminRestaurantCountsResponse {

@@ -25,7 +25,8 @@ describe('AdminService', () => {
 
   it('returns platform counts and recent safe oversight rows', async () => {
     users.count
-      .mockResolvedValueOnce(3)
+      .mockResolvedValueOnce(4)
+      .mockResolvedValueOnce(1)
       .mockResolvedValueOnce(1)
       .mockResolvedValueOnce(1)
       .mockResolvedValueOnce(1);
@@ -82,7 +83,7 @@ describe('AdminService', () => {
     const result = await service.overview();
 
     expect(result.counts).toEqual({
-      users: { total: 3, customer: 1, owner: 1, admin: 1 },
+      users: { total: 4, customer: 1, owner: 1, admin: 1, driver: 1 },
       restaurants: { total: 6, open: 5 },
       orders: {
         total: 10,

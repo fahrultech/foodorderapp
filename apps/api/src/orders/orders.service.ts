@@ -25,6 +25,7 @@ import { RestaurantsService } from '../restaurants/restaurants.service';
 import { OrderEventsService } from './order-events.service';
 import { PromosService, normalizePromoCode } from '../promos/promos.service';
 import { AddressesService } from '../users/addresses.service';
+import { UsersService } from '../users/users.service';
 import { isUuid } from '../common/uuid';
 import {
   runStaleOrderSweep,
@@ -68,6 +69,7 @@ export class OrdersService {
     // BY DEFAULT (session 44) — DI always provides both in the app.
     @InjectRepository(Payment) private readonly payments?: Repository<Payment>,
     private readonly config?: ConfigService,
+    private readonly users?: UsersService,
   ) {}
 
   /**
@@ -287,6 +289,23 @@ export class OrdersService {
     return { items, total, page, limit };
   }
 
+  /** Driver inbox: the JWT subject is the assignment scope, never a query input. */
+  async findForDriver(driverId: string, q: ListMyOrdersDto = {}) {
+    const page = Math.max(1, Number(q.page) || 1);
+    const limit = Math.min(MAX_PAGE_SIZE, Math.max(1, Number(q.limit) || DEFAULT_PAGE_SIZE));
+    const where: FindOptionsWhere<Order> = { driverId };
+    if (q.status) where.status = q.status;
+
+    const [items, total] = await this.orders.findAndCount({
+      where,
+      relations: { restaurant: true, items: true },
+      order: { createdAt: 'DESC' },
+      skip: (page - 1) * limit,
+      take: limit,
+    });
+    return { items, total, page, limit };
+  }
+
   /**
    * Owner-facing orders inbox for one restaurant (Phase 2 portal). Scoping is
    * enforced server-side: only the restaurant's owner may list its orders
@@ -450,6 +469,63 @@ export class OrdersService {
       );
     }
     await this.assertConfirmGate(order, status);
+    this.applyStatus(order, status);
+    const saved = await this.orders.save(order);
+    this.emit('order.updated', saved);
+    return saved;
+  }
+
+  /** Owner/admin assignment action; terminal orders are immutable. */
+  async assignDriverForRestaurant(
+    restaurantId: string,
+    orderId: string,
+    driverId: string | null,
+    actor: { sub: string; role: UserRole },
+  ) {
+    await this.getOwnedRestaurant(restaurantId, actor);
+    if (!isUuid(orderId)) throw new NotFoundException('Order not found');
+
+    const order = await this.orders.findOne({
+      where: { id: orderId },
+      relations: { items: true, restaurant: true },
+    });
+    if (!order || order.restaurantId !== restaurantId) {
+      throw new NotFoundException('Order not found');
+    }
+    if ([OrderStatus.COMPLETED, OrderStatus.CANCELLED].includes(order.status)) {
+      throw new BadRequestException(`Cannot change driver for ${order.status} order`);
+    }
+    if (driverId !== null) {
+      const driver = await this.users?.findById(driverId);
+      if (!driver || driver.role !== UserRole.DRIVER) {
+        throw new BadRequestException('Driver not found');
+      }
+    }
+
+    order.driverId = driverId;
+    const saved = await this.orders.save(order);
+    this.emit('order.updated', saved);
+    return saved;
+  }
+
+  /** Assigned drivers own only the final two forward edges of the status flow. */
+  async setStatusForDriver(id: string, status: OrderStatus, driverId: string) {
+    if (!isUuid(id)) throw new NotFoundException('Order not found');
+    const order = await this.orders.findOne({
+      where: { id, driverId },
+      relations: { items: true, restaurant: true },
+    });
+    if (!order) throw new NotFoundException('Order not found');
+
+    const allowed =
+      (order.status === OrderStatus.PREPARING && status === OrderStatus.DELIVERING) ||
+      (order.status === OrderStatus.DELIVERING && status === OrderStatus.COMPLETED);
+    if (!allowed) {
+      throw new BadRequestException(
+        `Cannot move assigned order from ${order.status} to ${status}`,
+      );
+    }
+
     this.applyStatus(order, status);
     const saved = await this.orders.save(order);
     this.emit('order.updated', saved);

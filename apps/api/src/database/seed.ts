@@ -155,7 +155,15 @@ async function main() {
       role: UserRole.ADMIN,
     }),
   );
-  console.log('Seeded users: demo@foodorder.app / owner@foodorder.app / admin@foodorder.app (password: demo1234)');
+  const demoDriver = await userRepo.save(
+    userRepo.create({
+      email: 'driver@foodorder.app',
+      name: 'Demo Driver',
+      passwordHash,
+      role: UserRole.DRIVER,
+    }),
+  );
+  console.log('Seeded users: demo@foodorder.app / owner@foodorder.app / admin@foodorder.app / driver@foodorder.app (password: demo1234)');
 
   const cityNames = [...new Set(restaurants.map((restaurant) => restaurant.city))].sort();
   const cityByName = new Map<string, City>();
@@ -284,6 +292,7 @@ async function main() {
     deliveryAddress: string;
     note?: string;
     userId?: string;
+    driverId?: string;
     lines: [number, number][]; // [menu index, quantity]
     promoCode?: string; // must pass the same gates the API enforces
   }> = [
@@ -303,6 +312,7 @@ async function main() {
       slug: 'warung-nusantara', code: 'FO-SEED3', status: OrderStatus.PREPARING,
       customerName: 'Budi Hartono', contactPhone: '+62 821 3333 4444',
       deliveryAddress: 'Kompleks Melati Blok C4, Jakarta', lines: [[3, 1], [0, 1]],
+      driverId: demoDriver.id,
     },
     {
       slug: 'warung-nusantara', code: 'FO-SEED4', status: OrderStatus.COMPLETED,
@@ -397,6 +407,7 @@ async function main() {
         code: spec.code,
         restaurantId: entry.restaurant.id,
         userId: spec.userId ?? null as any,
+        driverId: spec.driverId ?? null,
         customerName: spec.customerName,
         contactPhone: spec.contactPhone,
         deliveryAddress: spec.deliveryAddress,

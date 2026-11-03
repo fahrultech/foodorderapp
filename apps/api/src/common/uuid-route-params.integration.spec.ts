@@ -14,6 +14,7 @@ import { MenuItemsController } from '../menu/menu-items.controller';
 import { MenuService } from '../menu/menu.service';
 import { OrdersController } from '../orders/orders.controller';
 import { RestaurantOrdersController } from '../orders/restaurant-orders.controller';
+import { DriverOrdersController } from '../orders/driver-orders.controller';
 import { OrdersService } from '../orders/orders.service';
 import { OrderEventsService } from '../orders/order-events.service';
 import { PromosController } from '../promos/promos.controller';
@@ -31,6 +32,7 @@ import { AddressesService } from '../users/addresses.service';
 
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { RolesGuard } from './roles.guard';
+import { DriverOnlyGuard } from './driver-only.guard';
 import { OptionalJwtAuthGuard } from './optional-jwt-auth.guard';
 import { SseJwtAuthGuard } from './sse-jwt-auth.guard';
 import { RateLimitGuard } from './rate-limit/rate-limit.guard';
@@ -81,6 +83,9 @@ function mocks() {
       updateStatus: jest.fn(async () => ({ id: 'x' })),
       findForRestaurant: jest.fn(async () => ({ items: [], total: 0 })),
       setStatusForRestaurant: jest.fn(async () => ({ id: 'x' })),
+      assignDriverForRestaurant: jest.fn(async () => ({ id: 'x' })),
+      setStatusForDriver: jest.fn(async () => ({ id: 'x' })),
+      findForDriver: jest.fn(async () => ({ items: [], total: 0 })),
       assertStreamAccess: jest.fn(async () => ({ id: 'x' })),
       create: jest.fn(async () => ({ id: 'x' })),
     } as unknown as OrdersService,
@@ -133,6 +138,7 @@ const CONTROLLERS = [
   MenuItemsController,
   OrdersController,
   RestaurantOrdersController,
+  DriverOrdersController,
   PromosController,
   RestaurantsController,
   RestaurantReviewsController,
@@ -223,6 +229,8 @@ describe('uuid route params — ParseUUIDPipe sweep (live HTTP, production pipes
       .useValue(openGuard)
       .overrideGuard(RolesGuard)
       .useValue(openGuard)
+      .overrideGuard(DriverOnlyGuard)
+      .useValue(openGuard)
       .overrideGuard(OptionalJwtAuthGuard)
       .useValue(openGuard)
       .overrideGuard(SseJwtAuthGuard)
@@ -261,6 +269,11 @@ describe('uuid route params — ParseUUIDPipe sweep (live HTTP, production pipes
     ['POST', (id) => `/api/orders/${id}/cancel`, m.orders.cancel as jest.Mock],
     ['PATCH', (id) => `/api/orders/${id}/status?status=confirmed`, m.orders.updateStatus as jest.Mock],
     ['GET', (id) => `/api/restaurants/${id}/orders`, m.orders.findForRestaurant as jest.Mock],
+    ['PATCH', (id) => `/api/restaurants/${id}/orders/${VALID}/driver`, m.orders.assignDriverForRestaurant as jest.Mock,
+      { driverId: null }],
+    ['PATCH', (id) => `/api/restaurants/${VALID}/orders/${id}/driver`, m.orders.assignDriverForRestaurant as jest.Mock,
+      { driverId: null }],
+    ['PATCH', (id) => `/api/driver/orders/${id}/status?status=delivering`, m.orders.setStatusForDriver as jest.Mock],
     ['GET', (id) => `/api/restaurants/${id}/orders/stream`, m.orders.assertStreamAccess as jest.Mock],
     ['GET', (id) => `/api/restaurants/${id}/reviews`, m.reviews.listForRestaurant as jest.Mock],
     ['PATCH', (id) => `/api/reviews/${id}`, m.reviews.update as jest.Mock, { rating: 5 }],

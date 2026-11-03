@@ -3,6 +3,7 @@ import {
   CreateDateColumn,
   Entity,
   Index,
+  JoinColumn,
   ManyToOne,
   OneToMany,
   PrimaryGeneratedColumn,
@@ -32,6 +33,7 @@ export enum OrderStatus {
 @Index('IDX_orders_userId_createdAt', ['userId', 'createdAt'])
 @Index('IDX_orders_restaurantId_createdAt', ['restaurantId', 'createdAt'])
 @Index('IDX_orders_restaurantId_status', ['restaurantId', 'status'])
+@Index('IDX_orders_driverId', ['driverId'])
 @Entity('orders')
 export class Order {
   @PrimaryGeneratedColumn('uuid')
@@ -52,6 +54,16 @@ export class Order {
 
   @Column()
   restaurantId: string;
+
+  @ManyToOne(() => User, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({
+    name: 'driverId',
+    foreignKeyConstraintName: 'FK_orders_driverId_users_id',
+  })
+  driver: User | null;
+
+  @Column({ nullable: true })
+  driverId: string | null;
 
   @Column({ type: 'enum', enum: OrderStatus, default: OrderStatus.PENDING })
   status: OrderStatus;

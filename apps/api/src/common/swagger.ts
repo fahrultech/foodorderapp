@@ -26,6 +26,7 @@ export const SWAGGER_TAGS = [
   'restaurants',
   'menu',
   'orders',
+  'driver',
   'reviews',
   'promos',
   'payments',
@@ -46,8 +47,9 @@ export function buildSwaggerDocumentConfig() {
         '(click *Authorize* above). Access tokens are short-lived; mint a new',
         'one with `POST /auth/refresh`.',
         '',
-        '**Roles** — owner/admin routes additionally require the role carried',
-        'inside the token (`customer` | `owner` | `admin`).',
+        '**Roles** — protected routes use the role carried inside the token',
+        '(`customer` | `owner` | `admin` | `driver`). Admin bypasses owner-role',
+        'routes, but driver endpoints require the exact driver role.',
         '',
         '**Money** — every amount is an integer number of cents.',
         '',
@@ -78,6 +80,7 @@ export function buildSwaggerDocumentConfig() {
     .addTag('restaurants', 'Public browse/search + owner onboarding and edits.')
     .addTag('menu', 'Public dish listing + owner dish CRUD.')
     .addTag('orders', 'Checkout (guest allowed), order history, cancellation, status machine.')
+    .addTag('driver', 'DRIVER-only assigned-order inbox and delivery status actions.')
     .addTag('reviews', 'Ratings on completed orders + public restaurant review feed.')
     .addTag('promos', 'Promo-code preview for the cart.')
     .addTag('payments', 'Payment attempts behind the provider abstraction (mock gateway today).')

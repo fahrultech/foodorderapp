@@ -24,6 +24,7 @@ export class AdminService {
       customers,
       owners,
       admins,
+      drivers,
       restaurantTotal,
       openRestaurants,
       orderTotal,
@@ -41,6 +42,7 @@ export class AdminService {
       this.users.count({ where: { role: UserRole.CUSTOMER } }),
       this.users.count({ where: { role: UserRole.OWNER } }),
       this.users.count({ where: { role: UserRole.ADMIN } }),
+      this.users.count({ where: { role: UserRole.DRIVER } }),
       this.restaurants.count(),
       this.restaurants.count({ where: { isOpen: true } }),
       this.orders.count(),
@@ -79,7 +81,13 @@ export class AdminService {
 
     return {
       counts: {
-        users: { total: userTotal, customer: customers, owner: owners, admin: admins },
+        users: {
+          total: userTotal,
+          customer: customers,
+          owner: owners,
+          admin: admins,
+          driver: drivers,
+        },
         restaurants: { total: restaurantTotal, open: openRestaurants },
         orders: {
           total: orderTotal,

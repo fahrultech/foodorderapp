@@ -27,8 +27,10 @@ Seed the demo data (restaurants, menus, demo users):
 docker compose exec api npm run seed
 ```
 
-Demo logins: `demo@foodorder.app` / `demo1234` (customer) and
-`owner@foodorder.app` / `demo1234` (owns Warung Nusantara + Seoul Street).
+Demo logins all use `demo1234`: `demo@foodorder.app` (customer),
+`owner@foodorder.app` (owns Warung Nusantara + Seoul Street),
+`admin@foodorder.app` (platform admin), and `driver@foodorder.app` (driver with
+seeded PREPARING order `FO-SEED3`).
 
 Accounts work end-to-end on the storefront: `/login` and `/register` sign you
 in (session kept in the browser, refreshed automatically), and the header shows
@@ -88,6 +90,9 @@ NEXT_PUBLIC_API_URL=http://localhost:4000/api npm run dev
 | GET | `/api/restaurants/:id/orders` | Owner orders inbox (Bearer, owner role) — `?status=&page=&limit=`, returns `{items,total,page,limit,counts}`; ownership enforced server-side (403 for foreign restaurants, admins bypass) |
 | GET | `/api/restaurants/:id/orders/stream` | SSE live order stream (owner role; Bearer header **or** `?access_token=` for EventSource) — `hello` / `order.created` / `order.updated` / `ping` events; trigger-only payloads, same ownership rules as the inbox |
 | PATCH | `/api/restaurants/:id/orders/:orderId/status?status=` | Owner status action (Bearer, owner role) — accept / start / deliver / complete / cancel; 404 if the order lives under another restaurant, 400 for non-`STATUS_FLOW` moves or junk status values |
+| PATCH | `/api/restaurants/:id/orders/:orderId/driver` | Owner/admin assignment action — body `{driverId: uuid|null}`; target must have DRIVER role, null unassigns, terminal orders reject changes |
+| GET | `/api/driver/orders` | Exact DRIVER role — my assigned orders with `?status=&page=&limit=`; scope is always JWT subject |
+| PATCH | `/api/driver/orders/:id/status?status=` | Exact DRIVER role — assigned-order `preparing→delivering→completed` only; unknown/foreign assignment 404 |
 | POST | `/api/restaurants/:restaurantId/menu` | Add dish (owner) |
 | PATCH | `/api/menu/items/:id` | Edit dish (owner) |
 | PATCH | `/api/menu/items/:id/availability` | Toggle availability (owner) |

@@ -363,6 +363,14 @@ export class OrderResponse {
   @ApiProperty({ type: 'string', format: 'uuid' })
   restaurantId: string;
 
+  @ApiProperty({
+    type: 'string',
+    format: 'uuid',
+    nullable: true,
+    description: 'Assigned DRIVER-role user id; null while unassigned.',
+  })
+  driverId: string | null;
+
   @ApiProperty({ enum: OrderStatus })
   status: OrderStatus;
 

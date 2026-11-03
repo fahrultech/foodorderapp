@@ -24,6 +24,7 @@ import { MenuItemsController } from '../menu/menu-items.controller';
 import { MenuService } from '../menu/menu.service';
 import { OrdersController } from '../orders/orders.controller';
 import { RestaurantOrdersController } from '../orders/restaurant-orders.controller';
+import { DriverOrdersController } from '../orders/driver-orders.controller';
 import { OrdersService } from '../orders/orders.service';
 import { OrderEventsService } from '../orders/order-events.service';
 import { PromosController } from '../promos/promos.controller';
@@ -61,6 +62,7 @@ const CONTROLLERS = [
   MenuItemsController,
   OrdersController,
   RestaurantOrdersController,
+  DriverOrdersController,
   PromosController,
   RestaurantsController,
   RestaurantReviewsController,
@@ -175,7 +177,10 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['/restaurants/{id}/orders', 'get'],
       ['/restaurants/{id}/orders/analytics', 'get'],
       ['/restaurants/{id}/orders/{orderId}/status', 'patch'],
+      ['/restaurants/{id}/orders/{orderId}/driver', 'patch'],
       ['/restaurants/{id}/orders/stream', 'get'],
+      ['/driver/orders', 'get'],
+      ['/driver/orders/{id}/status', 'patch'],
       ['/restaurants/{id}/reviews', 'get'],
       ['/reviews', 'post'],
       ['/reviews/my', 'get'],
@@ -219,6 +224,9 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['/restaurants/{id}/orders', 'get'],
       ['/restaurants/{id}/orders/analytics', 'get'],
       ['/restaurants/{id}/orders/stream', 'get'],
+      ['/restaurants/{id}/orders/{orderId}/driver', 'patch'],
+      ['/driver/orders', 'get'],
+      ['/driver/orders/{id}/status', 'patch'],
       ['/reviews', 'post'],
       ['/menu/items/{id}', 'delete'],
       ['/menu/items/{id}/image-upload', 'post'],
@@ -271,6 +279,12 @@ describe('OpenAPI document (generated from the real controllers)', () => {
     expect((schemas['CreateMenuImageUploadDto'] as any)?.properties).toMatchObject({
       contentType: { enum: ['image/jpeg', 'image/png', 'image/webp', 'image/avif'] },
       sizeBytes: { type: 'integer', minimum: 1, maximum: 5242880 },
+    });
+    expect(schemas['AssignDriverDto']).toMatchObject({ required: ['driverId'] });
+    expect((schemas['AssignDriverDto'] as any)?.properties?.driverId).toMatchObject({
+      type: 'string',
+      format: 'uuid',
+      nullable: true,
     });
     // The status enum is a shared component with all 6 values:
     expect(schemas['OrderStatus']).toMatchObject({
@@ -328,7 +342,10 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['/restaurants/{id}/orders', 'get', 200, 'ref:OwnerInboxResponse'],
       ['/restaurants/{id}/orders/analytics', 'get', 200, 'ref:OwnerAnalyticsResponse'],
       ['/restaurants/{id}/orders/{orderId}/status', 'patch', 200, 'ref:OrderResponse'],
+      ['/restaurants/{id}/orders/{orderId}/driver', 'patch', 200, 'ref:OrderResponse'],
       ['/restaurants/{id}/orders/stream', 'get', 200, 'sse'],
+      ['/driver/orders', 'get', 200, 'ref:PaginatedOrdersResponse'],
+      ['/driver/orders/{id}/status', 'patch', 200, 'ref:OrderResponse'],
       ['/restaurants/{id}/reviews', 'get', 200, 'ref:ReviewFeedResponse'],
       ['/reviews', 'post', 201, 'ref:ReviewWriteResponse'],
       ['/reviews/my', 'get', 200, 'ref:ReviewListResponse'],
@@ -345,7 +362,7 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['/notifications/push/subscriptions', 'delete', 200, 'ref:PushUnsubscribeResponse'],
       ['/admin/overview', 'get', 200, 'ref:AdminOverviewResponse'],
     ];
-    expect(SUCCESS.length).toBe(54);
+    expect(SUCCESS.length).toBe(57);
     for (const [path, method, code, kind] of SUCCESS) {
       const res = doc.paths[P(path)]?.[method]?.responses?.[String(code)];
       if (!res) throw new Error(`${method} ${path}: no ${code} response documented`);
@@ -411,7 +428,10 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['/restaurants/{id}/orders', 'get', [400, 401, 403, 404]],
       ['/restaurants/{id}/orders/analytics', 'get', [400, 401, 403, 404]],
       ['/restaurants/{id}/orders/{orderId}/status', 'patch', [400, 401, 403, 404]],
+      ['/restaurants/{id}/orders/{orderId}/driver', 'patch', [400, 401, 403, 404]],
       ['/restaurants/{id}/orders/stream', 'get', [400, 401, 403, 404]],
+      ['/driver/orders', 'get', [400, 401, 403]],
+      ['/driver/orders/{id}/status', 'patch', [400, 401, 403, 404]],
       ['/restaurants/{id}/reviews', 'get', [400, 404]],
       ['/reviews', 'post', [400, 401, 404, 409]],
       ['/reviews/my', 'get', [401]],
@@ -468,7 +488,7 @@ describe('OpenAPI document (generated from the real controllers)', () => {
     expect(Object.keys(props('SafeUserResponse')).sort()).toEqual(
       ['address', 'createdAt', 'email', 'id', 'name', 'phone', 'role', 'updatedAt'].sort(),
     );
-    expect(props('SafeUserResponse').role.enum).toEqual(['customer', 'owner', 'admin']);
+    expect(props('SafeUserResponse').role.enum).toEqual(['customer', 'owner', 'admin', 'driver']);
 
     // Session: token pair + nested safe user; money-free integer expiry.
     expect(refOf(props('SessionResponse').user)).toBe('#/components/schemas/SafeUserResponse');
@@ -501,6 +521,11 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       expect(props('OrderResponse')[f].nullable).toBe(true);
       expect(props('OrderResponse')[f].type).toBe('string');
     }
+    expect(props('OrderResponse').driverId).toMatchObject({
+      type: 'string',
+      format: 'uuid',
+      nullable: true,
+    });
     expect(props('OrderResponse').items).toMatchObject({
       type: 'array',
       items: { $ref: '#/components/schemas/OrderItemResponse' },

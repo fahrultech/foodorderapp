@@ -1,5 +1,6 @@
 import {
   Controller,
+  Body,
   Get,
   MessageEvent,
   Patch,
@@ -30,6 +31,7 @@ import {
 } from './order-events.service';
 import { ListMyOrdersDto } from './dto/list-my-orders.dto';
 import { SetOrderStatusDto } from './dto/set-order-status.dto';
+import { AssignDriverDto } from './dto/assign-driver.dto';
 import { JwtAuthGuard } from '../common/jwt-auth.guard';
 import { SseJwtAuthGuard } from '../common/sse-jwt-auth.guard';
 import { RolesGuard } from '../common/roles.guard';
@@ -93,6 +95,37 @@ export class RestaurantOrdersController {
     @Query() query: ListMyOrdersDto,
   ) {
     return this.service.findForRestaurant(id, { sub: user.sub, role: user.role }, query);
+  }
+
+  /** Owner/admin assigns or clears a courier on a nonterminal scoped order. */
+  @Patch(':orderId/driver')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.OWNER)
+  @ApiBearerAuth()
+  @ApiParam({ name: 'id', schema: { type: 'string', format: 'uuid' } })
+  @ApiParam({ name: 'orderId', schema: { type: 'string', format: 'uuid' } })
+  @ApiOperation({
+    summary: 'Owner: assign or unassign a driver',
+    description:
+      'OWNER required (admins bypass). Body driverId must identify a DRIVER-role user; explicit null unassigns. Completed/cancelled orders cannot change assignment.',
+  })
+  @ApiOkResponse({ type: OrderResponse })
+  @ApiError(400, 'Malformed path id/body, target is not a DRIVER, or order is terminal.')
+  @ApiError(401, 'Missing/invalid/expired access token.')
+  @ApiError(403, 'Valid token but role is not OWNER, or restaurant belongs to another owner (admins bypass).')
+  @ApiError(404, 'Unknown restaurant/order, or order does not belong to the path restaurant.')
+  assignDriver(
+    @UuidParam('id') id: string,
+    @UuidParam('orderId') orderId: string,
+    @CurrentUser() user: any,
+    @Body() dto: AssignDriverDto,
+  ) {
+    return this.service.assignDriverForRestaurant(
+      id,
+      orderId,
+      dto.driverId,
+      { sub: user.sub, role: user.role },
+    );
   }
 
   /**
