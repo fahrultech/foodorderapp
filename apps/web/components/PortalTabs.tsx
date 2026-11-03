@@ -11,6 +11,11 @@ export default function PortalTabs() {
   const pathname = usePathname();
   const tabs = [
     { href: '/dashboard', label: '📥 Orders', active: pathname === '/dashboard' },
+    {
+      href: '/dashboard/kitchen',
+      label: '👨‍🍳 Kitchen',
+      active: pathname.startsWith('/dashboard/kitchen'),
+    },
     { href: '/dashboard/menu', label: '🍳 Menu', active: pathname.startsWith('/dashboard/menu') },
     {
       href: '/dashboard/analytics',

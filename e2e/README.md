@@ -1,8 +1,8 @@
 # E2E smoke suite (Playwright)
 
 Browser-level smoke of the customer path: **browse → cart → checkout → order
-page**, plus checkout guardrails, signed-in account flows, owner realtime and
-analytics paths, and the ADMIN-only platform overview.
+page**, plus checkout guardrails, signed-in account flows, owner realtime,
+analytics and kitchen paths, and the ADMIN-only platform overview.
 
 ## Prerequisites
 
@@ -52,13 +52,20 @@ browser download.
   the menu edit dialog, requests a presigned upload with the exact MIME
   type/byte size, PUTs the file bytes and required header directly to intercepted
   object storage, and saves the returned public URL through the existing
-  menu-item PATCH.
+  menu-item PATCH. That same owner session then opens the 1024×768 prep board:
+  a guest order is created, paid and accepted through the real API, arrives
+  over the restaurant WebSocket room, shows item quantities and its kitchen
+  note, then moves Queued → Preparing → Out for delivery → completed through
+  the large board actions. Lane totals move with the card and completion
+  removes it; a second order arriving while the first action response is held
+  proves that busy-period push wake-ups are flushed after the action.
 - `tests/live-feed.spec.ts` — the realtime ladder (Socket.IO → SSE → poll):
   tracking page follows an owner status change over the feed, and the
   dashboard falls back to SSE when the WebSocket is sabotaged. The customer
   pays the order over the API ladder (intent → capture) before the owner
   accepts — the order-machine gate is ON by default, so an unpaid confirm
   would 402.
+
 - `tests/pay-order.spec.ts` — the web pay button: a signed-in customer
   pays at the receipt (intent → capture, mock settles synchronously), the
   paid badge survives a reload (server truth from

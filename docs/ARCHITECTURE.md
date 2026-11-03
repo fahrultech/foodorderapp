@@ -84,18 +84,26 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   (`OrdersService.setStatusForRestaurant`): same guard + ownership check,
   then the order must live under the path's restaurant (else 404 — a foreign
   order id gives no information) and the move must be a `STATUS_FLOW` edge.
-  The inbox is LIVE with two cooperating transports:
-  **SSE push (primary)** — the page subscribes to
-  `GET /restaurants/:id/orders/stream` (see next bullet) and each
+  The inbox is LIVE through the Socket.IO restaurant room, with the SSE stream
+  as its push fallback and a 10s poll as the final safety net. Every
   `order.created` / `order.updated` event fires one debounced silent refetch
   (`PUSH_SYNC_DEBOUNCE_MS` in `lib/live-sync.ts` coalesces bursts; a wake-up
   arriving while hidden/busy is remembered and flushed when the gate opens).
-  **10s poll (fallback)** — the interval tick keeps running but goes idle
-  whenever the stream is connected (`shouldPoll` gained the `pushUp` term);
-  if the stream drops, ticks resume within one interval. Responses are
+  Polling idles while either push transport is connected. Responses are
   dropped when the view (restaurant / filter / page) changed mid-flight, and
   a sync that started before a successful status action is discarded so the
   card never regresses.
+- **Kitchen display is an active-order projection of the owner inbox** — the
+  tablet-friendly web `/dashboard/kitchen` route reads the same guarded inbox
+  endpoint in three parallel status slices (up to 50 each), sorts oldest first,
+  and maps `confirmed` → Queued, `preparing` → Preparing, and `delivering` → Out
+  for delivery. Large single-tap actions advance only the legal forward edge;
+  completion removes the card. Pending acceptance/cancellation remains in the
+  full Orders inbox, so unpaid or unaccepted work never appears on the prep
+  board. The existing Socket.IO restaurant room wakes debounced board refetches;
+  a wake-up received while an action is in flight is remembered and flushed
+  afterwards, a 10s poll covers feed outages, and stale pre-action responses
+  are discarded.
 - **Owner analytics are completed-order SQL aggregates** —
   `GET /restaurants/:id/orders/analytics` uses the same JWT + OWNER role guard
   and service-side ownership check as the inbox (admins bypass both owner-role

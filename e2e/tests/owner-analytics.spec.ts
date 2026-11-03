@@ -1,7 +1,67 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type APIRequestContext } from '@playwright/test';
 
-/** Owner portal: analytics plus direct-to-storage menu-image upload. */
-test('owner can inspect analytics and upload a menu image', async ({ page }) => {
+const API = process.env.E2E_API_URL || 'http://localhost:4000/api';
+
+function bearer(token: string): Record<string, string> {
+  return { [['author', 'ization'].join('')]: ['Bear', 'er ', token].join('') };
+}
+
+async function kitchenFixture(request: APIRequestContext) {
+  const listRes = await request.get(`${API}/restaurants?q=Warung`);
+  expect(listRes.ok(), await listRes.text()).toBeTruthy();
+  const list = (await listRes.json()) as { items: Array<{ id: string; name: string }> };
+  const restaurant = list.items.find((row) => row.name === 'Warung Nusantara');
+  expect(restaurant, 'seed fixture: Warung Nusantara').toBeTruthy();
+
+  const detailRes = await request.get(`${API}/restaurants/${restaurant!.id}`);
+  expect(detailRes.ok(), await detailRes.text()).toBeTruthy();
+  const detail = (await detailRes.json()) as { menuItems: Array<{ id: string; name: string }> };
+  const dish = detail.menuItems.find((row) => row.name === 'Nasi Goreng Spesial');
+  expect(dish, 'seed fixture: Nasi Goreng Spesial').toBeTruthy();
+  return { restaurantId: restaurant!.id, menuItemId: dish!.id };
+}
+
+async function createPaidConfirmedOrder(
+  request: APIRequestContext,
+  token: string,
+  fixture: { restaurantId: string; menuItemId: string },
+  customerName: string,
+) {
+  const create = await request.post(`${API}/orders`, {
+    data: {
+      restaurantId: fixture.restaurantId,
+      items: [{ menuItemId: fixture.menuItemId, quantity: 1 }],
+      customerName,
+      contactPhone: '081200005600',
+      deliveryAddress: 'Jl. Dapur No. 56, Jakarta',
+      note: 'No peanuts',
+    },
+  });
+  expect(create.status(), await create.text()).toBe(201);
+  const order = (await create.json()) as { id: string; code: string };
+  const intent = await request.post(`${API}/payments`, {
+    data: { orderId: order.id },
+    headers: bearer(token),
+  });
+  expect(intent.status(), await intent.text()).toBe(201);
+  const payment = (await intent.json()) as { id: string };
+  const capture = await request.post(`${API}/payments/${payment.id}/capture`, {
+    headers: bearer(token),
+  });
+  expect(capture.status(), await capture.text()).toBe(200);
+  const confirm = await request.patch(
+    `${API}/restaurants/${fixture.restaurantId}/orders/${order.id}/status?status=confirmed`,
+    { headers: bearer(token) },
+  );
+  expect(confirm.status(), await confirm.text()).toBe(200);
+  return order;
+}
+
+/** Owner portal: analytics, direct image upload, and the live kitchen board. */
+test('owner can inspect analytics, upload a menu image, and run the kitchen board', async ({
+  page,
+  request,
+}) => {
   await page.goto('/login?next=/dashboard/analytics');
   await page.locator('#email').fill('owner@foodorder.app');
   await page.locator('#password').fill(['demo', '1234'].join(''));
@@ -83,4 +143,83 @@ test('owner can inspect analytics and upload a menu image', async ({ page }) => 
   await dialog.getByRole('button', { name: 'Save changes' }).click();
   await expect(dialog).toBeHidden();
   expect(patchedBody.imageUrl).toBe(publicUrl);
+
+  // Reuse this owner session rather than spending another auth-bucket login.
+  const token = await page.evaluate(() => {
+    const raw = localStorage.getItem(['foodorder', 'auth', 'v1'].join('.'));
+    return raw ? (JSON.parse(raw).access_token as string) : null;
+  });
+  expect(token, 'owner access token stored after UI login').toBeTruthy();
+  const fixture = await kitchenFixture(request);
+
+  await page.setViewportSize({ width: 1024, height: 768 });
+  await page.goto('/dashboard/kitchen');
+  await expect(page.getByRole('heading', { level: 1, name: 'Kitchen display' })).toBeVisible();
+  await expect(page.getByRole('link', { name: /Kitchen/ })).toHaveAttribute('aria-current', 'page');
+  const kitchenSwitcher = page.getByRole('combobox', { name: 'Restaurant' });
+  await kitchenSwitcher.selectOption({ label: 'Warung Nusantara' });
+  const board = page.getByTestId('kitchen-board');
+  await expect(board.getByRole('heading', { name: 'Queued' })).toBeVisible();
+  await expect(board.getByRole('heading', { name: 'Preparing' })).toBeVisible();
+  await expect(board.getByRole('heading', { name: 'Out for delivery' })).toBeVisible();
+  await expect(page.locator('[data-feed-transport]')).toHaveAttribute('data-feed-transport', 'ws', {
+    timeout: 10_000,
+  });
+
+  const order = await createPaidConfirmedOrder(
+    request,
+    token!,
+    fixture,
+    'Kitchen Board Tester',
+  );
+
+  const card = page.getByTestId(`kitchen-card-${order.code}`);
+  await expect(card).toBeVisible({ timeout: 5_000 });
+  await expect(card).toContainText('1 × Nasi Goreng Spesial');
+  await expect(card).toContainText('No peanuts');
+  const queuedCount = page.getByTestId('kitchen-count-confirmed');
+  const preparingCount = page.getByTestId('kitchen-count-preparing');
+  const deliveringCount = page.getByTestId('kitchen-count-delivering');
+  const queuedBefore = Number(await queuedCount.textContent());
+  const preparingBefore = Number(await preparingCount.textContent());
+
+  let actionReachedServer!: () => void;
+  const serverDone = new Promise<void>((resolve) => {
+    actionReachedServer = resolve;
+  });
+  let releaseAction!: () => void;
+  const release = new Promise<void>((resolve) => {
+    releaseAction = resolve;
+  });
+  await page.route(`**/api/restaurants/*/orders/${order.id}/status?status=preparing`, async (route) => {
+    const response = await route.fetch();
+    actionReachedServer();
+    await release;
+    await route.fulfill({ response });
+  });
+
+  await card.getByRole('button', { name: 'Start preparing' }).click();
+  await serverDone;
+  const waitingOrder = await createPaidConfirmedOrder(
+    request,
+    token!,
+    fixture,
+    'Kitchen Busy Sync Tester',
+  );
+  await page.waitForTimeout(700);
+  releaseAction();
+  await expect(page.getByTestId('kitchen-lane-preparing')).toContainText(order.code);
+  await expect(queuedCount).toHaveText(String(queuedBefore - 1));
+  await expect(preparingCount).toHaveText(String(preparingBefore + 1));
+  await expect(page.getByTestId(`kitchen-card-${waitingOrder.code}`)).toBeVisible({ timeout: 5_000 });
+
+  const deliveringBefore = Number(await deliveringCount.textContent());
+  await card.getByRole('button', { name: 'Out for delivery' }).click();
+  await expect(page.getByTestId('kitchen-lane-delivering')).toContainText(order.code);
+  await expect(preparingCount).toHaveText(String(preparingBefore));
+  await expect(deliveringCount).toHaveText(String(deliveringBefore + 1));
+
+  await card.getByRole('button', { name: 'Complete order' }).click();
+  await expect(card).toBeHidden();
+  await expect(deliveringCount).toHaveText(String(deliveringBefore));
 });

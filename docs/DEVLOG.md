@@ -4,6 +4,53 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
+## 2026-11-03 16:10 — Session 56 — Tablet kitchen display
+
+**Built:** completed the next unblocked Phase 5 item as a web-only projection
+of the existing guarded owner-order API.
+
+- Added `/dashboard/kitchen` and a shared Kitchen portal tab. The board reads
+  `confirmed`, `preparing`, and `delivering` orders in parallel (up to 50 per
+  lane), sorts oldest first, and presents them as Queued, Preparing, and Out
+  for delivery. Pending acceptance/cancellation stays in the full inbox, so
+  unpaid or unaccepted work does not enter the prep flow.
+- Added tablet-sized cards with order code/time, customer, item quantities,
+  prominent kitchen notes, lane totals, and full-width touch actions for the
+  legal forward transitions. Successful actions move the server-returned card
+  in place; completion removes it and every affected lane total is updated.
+- Reused the owner Socket.IO restaurant room as the live wake-up path with a
+  debounced authenticated refetch, visibility catch-up, and 10-second polling
+  fallback. Silent reads that started before a landed action are discarded so
+  they cannot move a card backward. A 50-row lane cap is surfaced instead of
+  silently hiding overflow.
+- Extended the existing owner Playwright session (rather than spending another
+  auth-rate-limit login): create a guest order, pay/capture it, confirm it,
+  observe its WebSocket arrival on a 1024×768 board, then move it through all
+  three lanes and assert card content plus count changes. A second order arrives
+  while the first action response is deliberately held, proving the dropped
+  busy-period wake-up is remembered and flushed afterwards. Architecture and
+  E2E docs now describe the prep-board contract.
+
+**Verified:**
+- Strict TDD: the focused browser spec first failed because the Kitchen route
+  and heading did not exist; a later count assertion failed before lane-total
+  wiring was added; the busy-action regression then failed until missed push
+  wake-ups were retained and flushed.
+- Web production build clean (Next.js type-check + **15 routes**, including
+  `/dashboard/kitchen`).
+- Focused kitchen flow green, then the full PostgreSQL-backed Playwright suite
+  **15/15 green**. The first full run exposed the existing 10/min auth-bucket
+  ceiling after a separate kitchen login; the test was folded into the existing
+  owner session and the clean full run passed without relaxing production limits.
+- Live production smoke: API health returned 200 with `db:"up"`; the built
+  `/dashboard/kitchen` route returned HTTP 200 and served its route payload.
+  API/web processes were stopped and the database was re-seeded to the canonical
+  10-order fixture afterwards.
+- Touched-file sanitizer audit: no masked credential literals; the only U+2026
+  characters are intentional UI/prose ellipses.
+
+---
+
 ## 2026-11-03 11:08 — Session 55 — Presigned menu-image uploads
 
 **Built:** completed the next unblocked Phase 5 item end to end, from the owner
