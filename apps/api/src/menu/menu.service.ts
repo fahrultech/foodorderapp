@@ -10,9 +10,11 @@ import { Restaurant } from '../restaurants/restaurant.entity';
 import { UserRole } from '../users/user.entity';
 import { isUuid } from '../common/uuid';
 import {
+  CreateMenuImageUploadDto,
   CreateMenuItemDto,
   UpdateMenuItemDto,
 } from './dto/menu-item.dto';
+import { MenuImageService } from './menu-image.service';
 
 /** Authenticated actor (from the JWT claims) attempting a menu write. */
 export interface Actor {
@@ -26,6 +28,7 @@ export class MenuService {
     @InjectRepository(MenuItem) private readonly repo: Repository<MenuItem>,
     @InjectRepository(Restaurant)
     private readonly restaurants: Repository<Restaurant>,
+    private readonly imageUploads: MenuImageService,
   ) {}
 
   /**
@@ -112,6 +115,11 @@ export class MenuService {
     const item = await this.loadManagedItem(id, actor);
     item.isAvailable = isAvailable;
     return this.repo.save(item);
+  }
+
+  async createImageUpload(id: string, actor: Actor, dto: CreateMenuImageUploadDto) {
+    const item = await this.loadManagedItem(id, actor);
+    return this.imageUploads.createUpload(item.id, dto);
   }
 
   /**

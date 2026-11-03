@@ -280,6 +280,27 @@ export class MenuItemResponse {
   updatedAt: string;
 }
 
+export class MenuImageUploadResponse {
+  @ApiProperty({ type: 'string', format: 'uri', description: 'Five-minute presigned PUT URL.' })
+  uploadUrl: string;
+
+  @ApiProperty({ type: 'string', format: 'uri', description: 'Public URL to save on the dish after the PUT succeeds.' })
+  imageUrl: string;
+
+  @ApiProperty({ example: 'menu-items/33333333-3333-4333-8333-333333333333/uuid.webp' })
+  objectKey: string;
+
+  @ApiProperty({
+    type: 'object',
+    additionalProperties: { type: 'string' },
+    example: { 'Content-Type': 'image/webp' },
+  })
+  requiredHeaders: Record<string, string>;
+
+  @ApiProperty({ type: 'string', format: 'date-time' })
+  expiresAt: string;
+}
+
 /** GET /restaurants/{id} additionally embeds the dish list (relation loaded). */
 export class RestaurantWithMenuResponse extends RestaurantResponse {
   @ApiProperty({ type: () => [MenuItemResponse] })

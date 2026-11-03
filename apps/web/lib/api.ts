@@ -52,6 +52,14 @@ export interface MenuItemInput {
   isAvailable?: boolean;
 }
 
+export interface MenuImageUpload {
+  uploadUrl: string;
+  imageUrl: string;
+  objectKey: string;
+  requiredHeaders: Record<string, string>;
+  expiresAt: string;
+}
+
 export interface OrderLine {
   menuItemId: string;
   name: string;
@@ -474,6 +482,17 @@ export const api = {
       method: 'PATCH',
       headers: bearer(accessToken),
       body: JSON.stringify(patchBody),
+    }),
+  /** Create a five-minute direct-to-object-storage PUT for an existing dish. */
+  createMenuImageUpload: (
+    accessToken: string,
+    itemId: string,
+    input: { contentType: string; sizeBytes: number },
+  ) =>
+    request<MenuImageUpload>(`/menu/items/${itemId}/image-upload`, {
+      method: 'POST',
+      headers: bearer(accessToken),
+      body: JSON.stringify(input),
     }),
   /** PATCH /menu/items/:id/availability — first-class toggle. */
   setMenuItemAvailability: (accessToken: string, itemId: string, isAvailable: boolean) =>

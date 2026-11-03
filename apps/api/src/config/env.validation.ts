@@ -126,6 +126,31 @@ export class EnvVars {
   @IsString()
   VAPID_PRIVATE_KEY?: string;
 
+  // ── S3-compatible menu images (complete set enables presigned uploads) ───
+  @IsOptional()
+  @IsString()
+  S3_ENDPOINT?: string;
+
+  @IsOptional()
+  @IsString()
+  S3_REGION?: string;
+
+  @IsOptional()
+  @IsString()
+  S3_BUCKET?: string;
+
+  @IsOptional()
+  @IsString()
+  S3_ACCESS_KEY_ID?: string;
+
+  @IsOptional()
+  @IsString()
+  S3_SECRET_ACCESS_KEY?: string;
+
+  @IsOptional()
+  @IsString()
+  S3_PUBLIC_BASE_URL?: string;
+
   // ── Rate limiting (all optional) ─────────────────────────────────────────
   @IsOptional()
   @IsString()

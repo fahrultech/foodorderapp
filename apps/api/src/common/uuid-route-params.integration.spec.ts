@@ -71,6 +71,7 @@ function mocks() {
       createForRestaurant: jest.fn(async (id: string) => ({ id })),
       updateItem: jest.fn(async (id: string) => ({ id })),
       setAvailability: jest.fn(async (id: string) => ({ id })),
+      createImageUpload: jest.fn(async (id: string) => ({ objectKey: id })),
       remove: jest.fn(async (id: string) => ({ id })),
     } as unknown as MenuService,
     orders: {
@@ -249,6 +250,8 @@ describe('uuid route params — ParseUUIDPipe sweep (live HTTP, production pipes
     ['PATCH', (id) => `/api/menu/items/${id}`, m.menu.updateItem as jest.Mock, { name: 'X' }],
     ['PATCH', (id) => `/api/menu/items/${id}/availability`, m.menu.setAvailability as jest.Mock,
       { isAvailable: false }],
+    ['POST', (id) => `/api/menu/items/${id}/image-upload`, m.menu.createImageUpload as jest.Mock,
+      { contentType: 'image/webp', sizeBytes: 100 }],
     ['DELETE', (id) => `/api/menu/items/${id}`, m.menu.remove as jest.Mock],
     ['GET', (id) => `/api/restaurants/${id}`, m.restaurants.findOne as jest.Mock],
     ['PATCH', (id) => `/api/restaurants/${id}`, m.restaurants.updateOwned as jest.Mock,

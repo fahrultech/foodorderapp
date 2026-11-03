@@ -4,6 +4,50 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
+## 2026-11-03 11:08 — Session 55 — Presigned menu-image uploads
+
+**Built:** completed the next unblocked Phase 5 item end to end, from the owner
+portal through an S3-compatible direct upload.
+
+- Added `POST /api/menu/items/:id/image-upload` behind the existing JWT,
+  OWNER-role, UUID, and dish-ownership checks. The validated body accepts only
+  JPEG/PNG/WebP/AVIF plus an integer size from 1 byte through 5 MiB. The API
+  returns a unique `menu-items/<dish-id>/<uuid>.<ext>` object key, public URL,
+  required `Content-Type`, and a five-minute presigned PUT; image bytes never
+  transit Nest.
+- Added optional complete-set `S3_*` configuration and AWS SDK v3 wiring.
+  Incomplete configuration leaves the API bootable and produces a stable 503
+  `IMAGE_STORAGE_DISABLED`. OpenAPI now documents 54 operations and the typed
+  upload response; the UUID route sweep includes the new path.
+- Extended `/dashboard/menu`: owners editing an existing dish can choose a
+  JPEG/PNG/WebP/AVIF file up to 5 MiB, request the presign, PUT bytes directly
+  with the returned headers, and save the resulting public URL through the
+  existing menu-item PATCH. Upload/save states cannot be dismissed mid-write;
+  create mode explains that a dish must exist before its object key can be
+  minted. Manual image URLs remain supported.
+- Expanded the owner Playwright flow to assert the exact presign metadata,
+  direct PUT bytes/header, returned URL, and final PATCH without depending on
+  external storage. Architecture, E2E, and environment documentation include
+  the bucket-CORS requirement.
+
+**Verified:**
+- Browser TDD: the owner flow first failed on the missing `Image file` control,
+  then passed after the API client and form upload path were implemented.
+- API production build clean; full Jest **57 suites / 697 tests green**.
+- Web production build clean (Next.js type-check + 14 routes).
+- Full PostgreSQL-backed Playwright suite **15/15 green** after folding the new
+  flow into the existing owner session to stay within the default auth bucket;
+  the database was re-seeded to the canonical fixture afterwards.
+- Live built-API smoke with fake S3-compatible configuration: anonymous 401,
+  unsupported MIME 400, valid owner presign 201 with a real SigV4 query,
+  300-second expiry, required `Content-Type`, CDN URL, and Swagger path present.
+  API and web ports were released afterwards.
+- Runner-style cold `npm ci` in a fresh HOME/cache installed 724 packages and
+  resolved `@aws-sdk/client-s3` 3.1161.0; all API/web/e2e lockfile tarballs point
+  only to `registry.npmjs.org`.
+
+---
+
 ## 2026-11-02 16:26 — Session 54 — Owner revenue and peak-hour analytics
 
 **Built:** completed the next unblocked Phase 5 item with an owner-scoped SQL

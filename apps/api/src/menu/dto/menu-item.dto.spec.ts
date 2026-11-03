@@ -1,6 +1,7 @@
 import { BadRequestException, ValidationPipe } from '@nestjs/common';
 import {
   CreateMenuItemDto,
+  CreateMenuImageUploadDto,
   UpdateAvailabilityDto,
   UpdateMenuItemDto,
 } from './menu-item.dto';
@@ -123,6 +124,36 @@ describe('Menu item DTOs — validation via global ValidationPipe', () => {
     it('rejects missing, string and null availability', async () => {
       for (const body of [{}, { isAvailable: 'false' }, { isAvailable: null }]) {
         await expect(check(UpdateAvailabilityDto, body)).rejects.toBeInstanceOf(
+          BadRequestException,
+        );
+      }
+    });
+  });
+
+  describe('CreateMenuImageUploadDto', () => {
+    it('accepts supported image types and a byte size up to 5 MiB', async () => {
+      for (const contentType of ['image/jpeg', 'image/png', 'image/webp', 'image/avif']) {
+        const out: any = await check(CreateMenuImageUploadDto, {
+          contentType,
+          sizeBytes: 5 * 1024 * 1024,
+          ignoredFileName: 'attack.exe',
+        });
+        expect(out).toBeInstanceOf(CreateMenuImageUploadDto);
+        expect(out.contentType).toBe(contentType);
+        expect(out.sizeBytes).toBe(5 * 1024 * 1024);
+        expect(out.ignoredFileName).toBeUndefined();
+      }
+    });
+
+    it('rejects missing, unsupported, empty, fractional and oversized uploads', async () => {
+      for (const body of [
+        {},
+        { contentType: 'image/gif', sizeBytes: 100 },
+        { contentType: 'image/jpeg', sizeBytes: 0 },
+        { contentType: 'image/jpeg', sizeBytes: 1.5 },
+        { contentType: 'image/jpeg', sizeBytes: 5 * 1024 * 1024 + 1 },
+      ]) {
+        await expect(check(CreateMenuImageUploadDto, body)).rejects.toBeInstanceOf(
           BadRequestException,
         );
       }

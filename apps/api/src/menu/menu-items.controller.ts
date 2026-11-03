@@ -3,19 +3,26 @@ import {
   Controller,
   Delete,
   Patch,
+  Post,
   UseGuards,
 } from '@nestjs/common';
 import { UuidParam } from '../common/uuid';
 import {
   ApiBearerAuth,
+  ApiCreatedResponse,
   ApiOkResponse,
   ApiOperation,
   ApiParam,
   ApiTags,
 } from '@nestjs/swagger';
-import { ApiError, MenuItemResponse } from '../common/swagger-response-models';
+import {
+  ApiError,
+  MenuImageUploadResponse,
+  MenuItemResponse,
+} from '../common/swagger-response-models';
 import { MenuService } from './menu.service';
 import {
+  CreateMenuImageUploadDto,
   UpdateAvailabilityDto,
   UpdateMenuItemDto,
 } from './dto/menu-item.dto';
@@ -73,6 +80,27 @@ export class MenuItemsController {
     @Body() dto: UpdateAvailabilityDto,
   ) {
     return this.service.setAvailability(id, this.actor(user), dto.isAvailable);
+  }
+
+  @Post(':id/image-upload')
+  @ApiParam({ name: 'id', schema: { type: 'string', format: 'uuid' } })
+  @ApiOperation({
+    summary: 'Owner: create a presigned menu-image PUT',
+    description:
+      'Returns a five-minute S3-compatible PUT URL after checking dish ownership. Upload the exact file with the returned Content-Type header, then PATCH the dish imageUrl to the returned public imageUrl.',
+  })
+  @ApiCreatedResponse({ type: MenuImageUploadResponse })
+  @ApiError(400, 'Body failed validation or the path id is not a UUID.')
+  @ApiError(401, 'Missing/invalid/expired access token.')
+  @ApiError(403, 'Valid token but role is not OWNER (admins bypass).')
+  @ApiError(404, 'Unknown dish id.')
+  @ApiError(503, 'S3-compatible image storage is not configured.')
+  createImageUpload(
+    @UuidParam('id') id: string,
+    @CurrentUser() user: any,
+    @Body() dto: CreateMenuImageUploadDto,
+  ) {
+    return this.service.createImageUpload(id, this.actor(user), dto);
   }
 
   @Delete(':id')

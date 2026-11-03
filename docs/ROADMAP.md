@@ -72,7 +72,7 @@
 - [x] Dark mode (2026-11-02, session 52; server-rendered cookie preference, accessible localized toggle, full storefront palette + Playwright persistence coverage)
 - [x] Admin panel (users, restaurants, orders oversight) (2026-11-02, session 53; ADMIN-only read-only overview API + web tables, safe-user mapping, aggregate/status counts, seeded admin fixture, 14-test E2E suite)
 - [x] Analytics dashboard for owners (revenue, peak hours — SQL aggregates) (2026-11-02, session 54; OWNER/ADMIN-scoped completed-order aggregates, 24 UTC demand buckets, `/dashboard/analytics`, 15-test E2E suite)
-- [ ] Image upload for menu items (S3-compatible, presigned PUT)
+- [x] Image upload for menu items (S3-compatible, presigned PUT) (2026-11-03, session 55; owner-scoped 5-minute presigns, 5 MiB MIME validation, direct browser PUT + menu PATCH, 15-test E2E suite)
 - [ ] Kitchen display system view (tablet-friendly prep board)
 - [ ] Driver/courier role + assignment flow
 - [x] Scheduled cron: auto-cancel stale pending orders (2026-10-27, session 35; shared `stale-order-sweep` + ADMIN HTTP route + `ops/cancel-stale.sh` systemd/cron runner, STALE_ORDER_MINUTES/BATCH env, DRY_RUN; 469 tests green + live smoke)

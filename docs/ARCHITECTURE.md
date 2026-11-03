@@ -195,6 +195,15 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   primary column on the disposed entity, so a naive `return item` serialized
   JSON without `id` (caught by session 14 runtime smoke; the jest repo mock
   now reproduces the mutation to guard it).
+- **Menu images upload directly to S3-compatible storage** — an owner editing
+  an existing dish asks `POST /menu/items/:id/image-upload` for a five-minute
+  presigned PUT. The API first reuses the normal dish ownership check, accepts
+  only JPEG/PNG/WebP/AVIF metadata up to 5 MiB, and signs the exact content type
+  and byte length; image bytes never transit the Nest process. The browser PUTs
+  to storage with the returned headers, then saves only the returned public URL
+  through the existing menu-item PATCH. An incomplete `S3_*` configuration
+  keeps the API healthy but returns `503 IMAGE_STORAGE_DISABLED`; the bucket's
+  CORS policy must allow the web origin to PUT with `Content-Type`.
 - **Optional auth on checkout** — `POST /orders` uses `OptionalJwtAuthGuard`:
   a valid access token attaches the order to the user (enabling history and
   self-cancel); a missing, expired or garbage token silently proceeds as a

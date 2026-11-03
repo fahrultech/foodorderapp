@@ -48,7 +48,11 @@ browser download.
 - `tests/owner-analytics.spec.ts` — owner login opens
   `/dashboard/analytics`, selects the seeded Warung restaurant, renders the
   completed-order gross revenue/count and busiest UTC hour, and exposes all 24
-  hourly demand rows in an accessible table.
+  hourly demand rows in an accessible table. The same owner session then opens
+  the menu edit dialog, requests a presigned upload with the exact MIME
+  type/byte size, PUTs the file bytes and required header directly to intercepted
+  object storage, and saves the returned public URL through the existing
+  menu-item PATCH.
 - `tests/live-feed.spec.ts` — the realtime ladder (Socket.IO → SSE → poll):
   tracking page follows an owner status change over the feed, and the
   dashboard falls back to SSE when the WebSocket is sabotaged. The customer

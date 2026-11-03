@@ -45,27 +45,34 @@ interface Props {
   categories: string[];
   /** Returns null on success (parent unmounts us) or an error message to show. */
   onSubmit: (input: MenuItemInput) => Promise<string | null>;
+  /** Uploads bytes directly to object storage and returns the public URL. */
+  onUpload: (file: File) => Promise<string>;
   onCancel: () => void;
 }
 
 const labelCls = 'block text-xs font-bold uppercase tracking-wide text-stone-500';
 const inputCls =
   'mt-1 w-full rounded-xl border border-stone-300 bg-white px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100';
+const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/avif'];
+const IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 
-export default function MenuItemForm({ item, categories, onSubmit, onCancel }: Props) {
+export default function MenuItemForm({ item, categories, onSubmit, onUpload, onCancel }: Props) {
   const [f, setF] = useState<FieldState>(() => initial(item));
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadNotice, setUploadNotice] = useState<string | null>(null);
   const editing = item !== null;
 
   // Escape closes (backdrop click does too via the container handler).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onCancel();
+      if (e.key === 'Escape' && !busy && !uploading) onCancel();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [onCancel]);
+  }, [busy, onCancel, uploading]);
 
   function set<K extends keyof FieldState>(key: K, value: FieldState[K]) {
     setF((cur) => ({ ...cur, [key]: value }));
@@ -110,11 +117,33 @@ export default function MenuItemForm({ item, categories, onSubmit, onCancel }: P
     // Success: the parent closes this dialog (we may unmount mid-await of the refetch).
   }
 
+  async function uploadImage() {
+    if (!imageFile || uploading || busy) return;
+    setError(null);
+    setUploadNotice(null);
+    if (!IMAGE_TYPES.includes(imageFile.type)) {
+      return setError('Choose a JPEG, PNG, WebP or AVIF image.');
+    }
+    if (imageFile.size < 1 || imageFile.size > IMAGE_MAX_BYTES) {
+      return setError('Image size must be between 1 byte and 5 MiB.');
+    }
+    setUploading(true);
+    try {
+      const imageUrl = await onUpload(imageFile);
+      set('imageUrl', imageUrl);
+      setUploadNotice('Image uploaded. Save changes to publish it.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not upload the image.');
+    } finally {
+      setUploading(false);
+    }
+  }
+
   return (
     <div
       className="fixed inset-0 z-30 flex items-start justify-center overflow-y-auto bg-black/40 p-4 pt-12 backdrop-blur-[2px]"
       onMouseDown={(e) => {
-        if (e.target === e.currentTarget && !busy) onCancel();
+        if (e.target === e.currentTarget && !busy && !uploading) onCancel();
       }}
     >
       <form
@@ -236,8 +265,46 @@ export default function MenuItemForm({ item, categories, onSubmit, onCancel }: P
               onChange={(e) => set('imageUrl', e.target.value)}
               maxLength={500}
               placeholder="https://… (optional)"
-              disabled={busy}
+              disabled={busy || uploading}
             />
+            {editing ? (
+              <div className="mt-3 rounded-xl border border-dashed border-stone-300 bg-stone-50 p-3">
+                <label className={labelCls} htmlFor="mi-image-file">
+                  Image file
+                </label>
+                <div className="mt-1 flex flex-wrap items-center gap-2">
+                  <input
+                    id="mi-image-file"
+                    type="file"
+                    accept={IMAGE_TYPES.join(',')}
+                    onChange={(e) => {
+                      setImageFile(e.target.files?.[0] ?? null);
+                      setUploadNotice(null);
+                    }}
+                    disabled={busy || uploading}
+                    className="min-w-0 flex-1 text-xs text-stone-600 file:mr-3 file:rounded-lg file:border-0 file:bg-white file:px-3 file:py-1.5 file:text-xs file:font-bold file:text-stone-700"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void uploadImage()}
+                    disabled={!imageFile || busy || uploading}
+                    className="rounded-lg bg-stone-800 px-3 py-2 text-xs font-bold text-white hover:bg-stone-900 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {uploading ? 'Uploading…' : 'Upload image'}
+                  </button>
+                </div>
+                <p className="mt-2 text-xs text-stone-500">JPEG, PNG, WebP or AVIF · max 5 MiB.</p>
+                {uploadNotice && (
+                  <p className="mt-2 text-xs font-semibold text-emerald-700" role="status">
+                    {uploadNotice}
+                  </p>
+                )}
+              </div>
+            ) : (
+              <p className="mt-2 text-xs text-stone-500">
+                Save the dish first, then edit it to upload an image file.
+              </p>
+            )}
           </div>
 
           {!editing && (
@@ -259,14 +326,14 @@ export default function MenuItemForm({ item, categories, onSubmit, onCancel }: P
           <button
             type="button"
             onClick={onCancel}
-            disabled={busy}
+            disabled={busy || uploading}
             className="rounded-xl border border-stone-300 bg-white px-4 py-2 text-sm font-semibold text-stone-700 hover:bg-stone-100 disabled:opacity-50"
           >
             Cancel
           </button>
           <button
             type="submit"
-            disabled={busy}
+            disabled={busy || uploading}
             className="rounded-xl bg-brand-600 px-5 py-2 text-sm font-bold text-white hover:bg-brand-700 disabled:cursor-wait disabled:opacity-60"
           >
             {busy ? 'Saving…' : editing ? 'Save changes' : 'Add dish'}

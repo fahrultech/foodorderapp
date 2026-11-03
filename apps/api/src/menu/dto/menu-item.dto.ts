@@ -1,5 +1,6 @@
 import {
   IsBoolean,
+  IsIn,
   IsInt,
   IsNotEmpty,
   IsOptional,
@@ -10,6 +11,15 @@ import {
   Min,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+
+export const MENU_IMAGE_CONTENT_TYPES = [
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'image/avif',
+] as const;
+export type MenuImageContentType = (typeof MENU_IMAGE_CONTENT_TYPES)[number];
+export const MENU_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 
 /**
  * Owner creates a dish under `POST /restaurants/:restaurantId/menu`.
@@ -114,4 +124,22 @@ export class UpdateAvailabilityDto {
   @ApiProperty()
   @IsBoolean()
   isAvailable: boolean;
+}
+
+/** Browser metadata used to bind a short-lived direct-to-object-storage PUT. */
+export class CreateMenuImageUploadDto {
+  @ApiProperty({ enum: MENU_IMAGE_CONTENT_TYPES, example: 'image/webp' })
+  @IsIn(MENU_IMAGE_CONTENT_TYPES)
+  contentType: MenuImageContentType;
+
+  @ApiProperty({
+    type: 'integer',
+    minimum: 1,
+    maximum: MENU_IMAGE_MAX_BYTES,
+    description: 'Exact file size in bytes; maximum 5 MiB',
+  })
+  @IsInt()
+  @Min(1)
+  @Max(MENU_IMAGE_MAX_BYTES)
+  sizeBytes: number;
 }

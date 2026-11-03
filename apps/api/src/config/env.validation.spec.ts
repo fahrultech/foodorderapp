@@ -109,6 +109,19 @@ describe('validateEnv', () => {
     expect(result.SMTP_PASS).toBeUndefined();
   });
 
+  it('accepts optional S3-compatible image configuration fields as strings', () => {
+    const result = validateEnv({
+      ...valid,
+      S3_ENDPOINT: 'https://objects.example.test',
+      S3_REGION: 'us-east-1',
+      S3_BUCKET: 'foodorder-media',
+      S3_PUBLIC_BASE_URL: 'https://cdn.example.test/menu',
+    });
+    expect(result.S3_ENDPOINT).toBe('https://objects.example.test');
+    expect(result.S3_BUCKET).toBe('foodorder-media');
+    expect(result.S3_PUBLIC_BASE_URL).toBe('https://cdn.example.test/menu');
+  });
+
   it('lists all failing constraints in one error', () => {
     try {
       validateEnv({

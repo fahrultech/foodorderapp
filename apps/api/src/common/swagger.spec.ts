@@ -163,6 +163,7 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['/restaurants/{restaurantId}/menu', 'post'],
       ['/menu/items/{id}', 'patch'],
       ['/menu/items/{id}/availability', 'patch'],
+      ['/menu/items/{id}/image-upload', 'post'],
       ['/menu/items/{id}', 'delete'],
       ['/orders', 'post'],
       ['/orders/my', 'get'],
@@ -220,6 +221,7 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['/restaurants/{id}/orders/stream', 'get'],
       ['/reviews', 'post'],
       ['/menu/items/{id}', 'delete'],
+      ['/menu/items/{id}/image-upload', 'post'],
       ['/payments', 'post'],
       ['/payments/{id}/capture', 'post'],
       ['/payments/{id}/refund', 'post'],
@@ -262,6 +264,13 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       type: 'integer',
       minimum: 1,
       maximum: 10000000,
+    });
+    expect(schemas['CreateMenuImageUploadDto']).toMatchObject({
+      required: expect.arrayContaining(['contentType', 'sizeBytes']),
+    });
+    expect((schemas['CreateMenuImageUploadDto'] as any)?.properties).toMatchObject({
+      contentType: { enum: ['image/jpeg', 'image/png', 'image/webp', 'image/avif'] },
+      sizeBytes: { type: 'integer', minimum: 1, maximum: 5242880 },
     });
     // The status enum is a shared component with all 6 values:
     expect(schemas['OrderStatus']).toMatchObject({
@@ -307,6 +316,7 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['/restaurants/{restaurantId}/menu', 'post', 201, 'ref:MenuItemResponse'],
       ['/menu/items/{id}', 'patch', 200, 'ref:MenuItemResponse'],
       ['/menu/items/{id}/availability', 'patch', 200, 'ref:MenuItemResponse'],
+      ['/menu/items/{id}/image-upload', 'post', 201, 'ref:MenuImageUploadResponse'],
       ['/menu/items/{id}', 'delete', 200, 'ref:MenuItemResponse'],
       ['/orders', 'post', 201, 'ref:OrderResponse'],
       ['/orders/my', 'get', 200, 'ref:PaginatedOrdersResponse'],
@@ -335,7 +345,7 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['/notifications/push/subscriptions', 'delete', 200, 'ref:PushUnsubscribeResponse'],
       ['/admin/overview', 'get', 200, 'ref:AdminOverviewResponse'],
     ];
-    expect(SUCCESS.length).toBe(53);
+    expect(SUCCESS.length).toBe(54);
     for (const [path, method, code, kind] of SUCCESS) {
       const res = doc.paths[P(path)]?.[method]?.responses?.[String(code)];
       if (!res) throw new Error(`${method} ${path}: no ${code} response documented`);
@@ -389,6 +399,7 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['/restaurants/{restaurantId}/menu', 'post', [400, 401, 403, 404]],
       ['/menu/items/{id}', 'patch', [400, 401, 403, 404]],
       ['/menu/items/{id}/availability', 'patch', [400, 401, 403, 404]],
+      ['/menu/items/{id}/image-upload', 'post', [400, 401, 403, 404, 503]],
       ['/menu/items/{id}', 'delete', [400, 401, 403, 404]],
       ['/orders', 'post', [400, 404, 429]],
       ['/orders/my', 'get', [401]],

@@ -64,8 +64,21 @@ function build(
       restaurants.find((r) => r.id === where.id) ?? null,
     ),
   };
-  const service = new MenuService(itemRepo as Repository<MenuItem>, restaurantRepo);
-  return { itemRepo, restaurantRepo, service };
+  const imageUploads: any = {
+    createUpload: jest.fn(async () => ({
+      uploadUrl: 'https://signed.example.test/put',
+      imageUrl: 'https://cdn.example.test/menu/item.webp',
+      objectKey: 'menu-items/item.webp',
+      requiredHeaders: { 'Content-Type': 'image/webp' },
+      expiresAt: '2026-11-02T09:05:00.000Z',
+    })),
+  };
+  const service = new MenuService(
+    itemRepo as Repository<MenuItem>,
+    restaurantRepo,
+    imageUploads,
+  );
+  return { itemRepo, restaurantRepo, imageUploads, service };
 }
 
 describe('MenuService — owner CRUD', () => {
@@ -204,6 +217,44 @@ describe('MenuService — owner CRUD', () => {
       const { service, itemRepo } = build([fakeItem()], [fakeRestaurant({ ownerId: null })]);
       await service.setAvailability('33333333-3333-4333-8333-333333333333', admin, false);
       expect(itemRepo.save.mock.calls[0][0].isAvailable).toBe(false);
+    });
+  });
+
+  describe('createImageUpload', () => {
+    it('checks dish ownership before presigning and forwards the validated shape', async () => {
+      const { service, imageUploads } = build();
+      const dto = { contentType: 'image/webp' as const, sizeBytes: 2048 };
+
+      await expect(
+        service.createImageUpload('33333333-3333-4333-8333-333333333333', owner, dto),
+      ).resolves.toMatchObject({ uploadUrl: 'https://signed.example.test/put' });
+      expect(imageUploads.createUpload).toHaveBeenCalledWith(
+        '33333333-3333-4333-8333-333333333333',
+        dto,
+      );
+    });
+
+    it('does not presign for another owner or an unknown dish', async () => {
+      const foreign = build(
+        [fakeItem({ restaurantId: '22222222-2222-4222-8222-222222222222' })],
+        [fakeRestaurant({ id: '22222222-2222-4222-8222-222222222222', ownerId: 'someone-else' })],
+      );
+      await expect(
+        foreign.service.createImageUpload('33333333-3333-4333-8333-333333333333', owner, {
+          contentType: 'image/png',
+          sizeBytes: 100,
+        }),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(foreign.imageUploads.createUpload).not.toHaveBeenCalled();
+
+      const missing = build([]);
+      await expect(
+        missing.service.createImageUpload('33333333-3333-4333-8333-333333333333', owner, {
+          contentType: 'image/png',
+          sizeBytes: 100,
+        }),
+      ).rejects.toBeInstanceOf(NotFoundException);
+      expect(missing.imageUploads.createUpload).not.toHaveBeenCalled();
     });
   });
 

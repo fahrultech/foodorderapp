@@ -153,6 +153,31 @@ export default function MenuManagerPage() {
     return res.message;
   }
 
+  async function uploadImage(file: File): Promise<string> {
+    const editing = form?.mode === 'edit' ? form.item : null;
+    if (!editing) throw new Error('Save the dish before uploading an image.');
+    const res = await authedCall(getAccessToken, logout, (t) =>
+      api.createMenuImageUpload(t, editing.id, {
+        contentType: file.type,
+        sizeBytes: file.size,
+      }),
+    );
+    if (!res.ok) {
+      throw new Error(
+        res.kind === 'signedOut'
+          ? 'Your session expired — sign in again, then retry the upload.'
+          : res.message,
+      );
+    }
+    const put = await fetch(res.data.uploadUrl, {
+      method: 'PUT',
+      headers: res.data.requiredHeaders,
+      body: file,
+    });
+    if (!put.ok) throw new Error(`Image storage rejected the upload (${put.status}).`);
+    return res.data.imageUrl;
+  }
+
   /** Grouped like the storefront: server sorts category/name, so runs are adjacent. */
   const grouped = useMemo(() => {
     const out: { category: string; items: MenuItem[] }[] = [];
@@ -435,6 +460,7 @@ export default function MenuManagerPage() {
           item={form.mode === 'edit' ? form.item : null}
           categories={categories}
           onSubmit={submitForm}
+          onUpload={uploadImage}
           onCancel={() => setForm(null)}
         />
       )}
