@@ -1,7 +1,7 @@
 # E2E smoke suite (Playwright)
 
 Browser-level smoke of the customer path: **browse → cart → checkout → order
-page**, plus checkout guardrails, signed-in account flows, owner realtime,
+page**, plus checkout guardrails, signed-in account flows, owner/driver realtime,
 analytics and kitchen paths, and the ADMIN-only platform overview.
 
 ## Prerequisites
@@ -85,10 +85,17 @@ browser download.
   switches the server-rendered root and visible storefront palette, the theme
   survives navigation/reload through its cookie, and switching back restores
   the light palette.
+- `tests/zz-driver-portal.spec.ts` — the seeded DRIVER opens `/driver`, sees the
+  exact-role header entry and assigned FO-SEED3 pickup, reaches the driver WS
+  room, receives an externally-issued preparing→delivering update without a
+  reload, then completes the delivery through the portal action.
 
 Tests share the single dev database and one rate-limit identity per IP, so the
 suite runs serially (`workers: 1`). Guest smoke runs add real `pending` orders
 to the dev DB — that is expected scratch state for a seeded disposable database.
+The Playwright-owned API process raises only the auth bucket to 100/min because
+the suite intentionally signs in as many roles in one minute; rate-limit behavior
+remains covered by the API integration specs and production defaults are unchanged.
 
 ## In CI
 

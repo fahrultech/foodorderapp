@@ -155,6 +155,9 @@ export interface MyOrdersPage {
   limit: number;
 }
 
+/** Exact-driver assignment inbox; wire shape matches the customer history page. */
+export type DriverOrdersPage = MyOrdersPage;
+
 /**
  * Envelope of GET /restaurants/:id/orders — owner inbox page. `counts` is a
  * per-status total over ALL statuses (not affected by the status filter), so
@@ -409,6 +412,28 @@ export const api = {
   /** Self-cancel while the status machine allows it (pending/confirmed/preparing). */
   cancelOrder: (accessToken: string, id: string) =>
     request<Order>(`/orders/${id}/cancel`, { method: 'POST', headers: bearer(accessToken) }),
+
+  // --- driver portal ---
+  /** Assigned orders for the exact DRIVER JWT subject, newest first. */
+  listDriverOrders: (
+    accessToken: string,
+    params: { status?: OrderStatus; page?: number; limit?: number } = {},
+  ) => {
+    const qs = new URLSearchParams();
+    if (params.status) qs.set('status', params.status);
+    if (params.page) qs.set('page', String(params.page));
+    if (params.limit) qs.set('limit', String(params.limit));
+    const suffix = qs.toString() ? `?${qs.toString()}` : '';
+    return request<DriverOrdersPage>(`/driver/orders${suffix}`, {
+      headers: bearer(accessToken),
+    });
+  },
+  /** Driver-owned forward edges: preparing→delivering→completed. */
+  setDriverOrderStatus: (accessToken: string, orderId: string, status: OrderStatus) =>
+    request<Order>(`/driver/orders/${orderId}/status?status=${status}`, {
+      method: 'PATCH',
+      headers: bearer(accessToken),
+    }),
 
   // --- admin oversight ---
   /** Read-only platform totals plus newest users, restaurants and orders. ADMIN only. */

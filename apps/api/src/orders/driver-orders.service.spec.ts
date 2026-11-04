@@ -102,7 +102,11 @@ describe('OrdersService.assignDriverForRestaurant', () => {
     expect(h.users.findById).toHaveBeenCalledWith(DRIVER_ID);
     expect(h.save).toHaveBeenCalledTimes(1);
     expect(h.events.publish).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'order.updated', restaurantId: REST_ID }),
+      expect.objectContaining({
+        type: 'order.updated',
+        restaurantId: REST_ID,
+        driverIds: [DRIVER_ID],
+      }),
     );
   });
 
@@ -116,6 +120,9 @@ describe('OrdersService.assignDriverForRestaurant', () => {
     );
     expect(result.driverId).toBeNull();
     expect(h.users.findById).not.toHaveBeenCalled();
+    expect(h.events.publish).toHaveBeenCalledWith(
+      expect.objectContaining({ driverIds: [DRIVER_ID] }),
+    );
   });
 
   it.each([null, UserRole.CUSTOMER, UserRole.OWNER, UserRole.ADMIN])(
@@ -183,7 +190,11 @@ describe('OrdersService.setStatusForDriver', () => {
     expect(result.status).toBe(to);
     expect(result[stamp]).toBeInstanceOf(Date);
     expect(h.events.publish).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'order.updated', restaurantId: REST_ID }),
+      expect.objectContaining({
+        type: 'order.updated',
+        restaurantId: REST_ID,
+        driverIds: [DRIVER_ID],
+      }),
     );
   });
 

@@ -63,10 +63,11 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   `DriverOnlyGuard` deliberately does **not** grant the normal admin bypass.
   `PATCH /driver/orders/:id/status` exposes only `preparing→delivering` and
   `delivering→completed`; missing and foreign assignments share the same 404,
-  while illegal transitions are 400. Assignment and driver status writes publish
-  the existing trigger-only `order.updated` event so current restaurant/customer
-  live consumers refetch canonical state; a driver-specific web portal/feed is
-  intentionally the remaining roadmap sub-item.
+  while illegal transitions are 400. `/driver` is the exact-role browser portal:
+  it lists the verified subject's assignments, exposes only the two legal driver
+  actions, and renders pickup/drop-off/items/notes from canonical GET responses.
+  It uses the shared Socket.IO hook as a wake-up path and 10-second polling as
+  fallback; the header exposes its Driver link only to DRIVER accounts.
 - **Status-step timestamps** — the order entity carries write-once
   `confirmedAt`/`preparingAt`/`deliveringAt`/`completedAt`/`cancelledAt` columns
   stamped by `OrdersService.applyStatus` on first entry into each step (every
@@ -162,8 +163,13 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   surface as ack codes, never a join) and joins room `r:<restaurantId>`;
   `subscribe:me` joins `u:<sub>` with the id taken from the VERIFIED token —
   the customer-side live feed for one's own orders, which never had an
-  endpoint before. Guest orders (`userId` null on the event) fan out to the
-  restaurant room only. No app-level heartbeat: Socket.IO pings at the
+  endpoint before. Exact-role `subscribe:driver` joins `d:<sub>`; order events
+  carry internal-only `driverIds` routing metadata that is never sent to clients.
+  Assignment replacement includes both the previous and next driver, so an
+  unassigned courier is woken to remove the card and a newly assigned courier is
+  woken to add it. Driver status writes wake the current driver room. Guest orders
+  (`userId` null on the event) fan out to the restaurant room only. No app-level
+  heartbeat: Socket.IO pings at the
   transport layer. The web consumes it as its PRIMARY push transport
   (session 37): `lib/use-order-feed.ts` wraps the handshake/subscribe/
   reconnect lifecycle (WS-only transport so a dead feed fails fast and
@@ -179,7 +185,9 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   way via the `OrderLiveFeed` island: `subscribe:me` events for THIS order
   trigger a coalesced `router.refresh()` (server component re-runs its
   own GET — the feed never carries truth), with 10s refresh polling as the
-  fallback and no transport at all for guests or terminal orders.
+  fallback and no transport at all for guests or terminal orders. `/driver`
+  selects the driver room through the same hook and uses the same WS→poll
+  trigger/refetch model (there is no driver SSE endpoint).
 
 - **Outbound order notifications** — `OrderNotificationsService` consumes the
   same process-local `OrderEventsService` bus after order creation/status

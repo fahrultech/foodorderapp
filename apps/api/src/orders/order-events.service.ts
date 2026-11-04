@@ -32,6 +32,12 @@ export interface OrderEvent {
    * literal and spec keeps compiling untouched.
    */
   userId?: string | null;
+  /**
+   * Drivers whose assignment inbox may have changed. Assignment replacement
+   * includes both the previous and next driver so an unassigned driver gets a
+   * wake-up too. Internal routing metadata only; never sent in the payload.
+   */
+  driverIds?: string[];
   payload: OrderEventPayload;
 }
 

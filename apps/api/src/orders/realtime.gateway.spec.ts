@@ -24,6 +24,7 @@ const JWT_TEST = 'realtime-jwt-test-key';
 const OWNER_ID = 'b0000000-0000-4000-8000-00000000000b';
 const CUSTOMER_ID = 'c0000000-0000-4000-8000-00000000000c';
 const OTHER_ID = 'd0000000-0000-4000-8000-00000000000d';
+const DRIVER_ID = 'f0000000-0000-4000-8000-00000000000f';
 const RESTAURANT_ID = '11111111-1111-4111-8111-111111111111';
 const FOREIGN_RESTAURANT = '22222222-2222-4222-8222-222222222222';
 const UNKNOWN_RESTAURANT = '33333333-3333-4333-8333-333333333333';
@@ -214,6 +215,61 @@ describe('RealtimeGateway — Socket.IO realtime order feed (/orders namespace)'
     events.publish({ type: 'order.created', restaurantId: RESTAURANT_ID, userId: CUSTOMER_ID, payload: { ...payload, code: 'FO-AFTER' } });
     await wait(250);
     expect(mine.length).toBe(1);
+  });
+
+  // ---------- subscribe:driver ----------
+
+  it('joins an exact DRIVER to their verified assignment room and rejects every other role', async () => {
+    const driver = await authedSocket(DRIVER_ID, UserRole.DRIVER);
+    expect(await driver.emitWithAck('subscribe:driver')).toMatchObject({
+      ok: true,
+      driverId: DRIVER_ID,
+    });
+
+    for (const role of [UserRole.CUSTOMER, UserRole.OWNER, UserRole.ADMIN]) {
+      const other = await authedSocket(OTHER_ID, role);
+      expect(await other.emitWithAck('subscribe:driver')).toMatchObject({
+        ok: false,
+        code: 'FORBIDDEN',
+      });
+    }
+  });
+
+  it('fans updates to every affected driver room and stops after unsubscribe', async () => {
+    const driver = await authedSocket(DRIVER_ID, UserRole.DRIVER);
+    const other = await authedSocket(OTHER_ID, UserRole.DRIVER);
+    await driver.emitWithAck('subscribe:driver');
+    await other.emitWithAck('subscribe:driver');
+
+    const mine: OrderEvent['payload'][] = [];
+    const theirs: OrderEvent['payload'][] = [];
+    driver.on('order.updated', (data: any) => mine.push(data));
+    other.on('order.updated', (data: any) => theirs.push(data));
+
+    const payload = { orderId: ORDER_ID, code: 'FO-DRV1', status: 'preparing' };
+    events.publish({
+      type: 'order.updated',
+      restaurantId: RESTAURANT_ID,
+      userId: null,
+      driverIds: [DRIVER_ID, OTHER_ID],
+      payload,
+    });
+    await wait(250);
+    expect(mine).toEqual([payload]);
+    expect(theirs).toEqual([payload]);
+
+    expect(await driver.emitWithAck('unsubscribe:driver')).toMatchObject({
+      ok: true,
+      driverId: DRIVER_ID,
+    });
+    events.publish({
+      type: 'order.updated',
+      restaurantId: RESTAURANT_ID,
+      driverIds: [DRIVER_ID],
+      payload: { ...payload, status: 'delivering' },
+    });
+    await wait(250);
+    expect(mine).toHaveLength(1);
   });
 
   it('admin bypasses the ownership gate exactly like the inbox GET', async () => {

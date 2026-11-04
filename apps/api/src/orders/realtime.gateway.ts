@@ -70,13 +70,14 @@ interface WsUser {
 
 /** Ack envelope every subscribe/unsubscribe handler answers with. */
 type Ack =
-  | { ok: true; restaurantId?: string; userId?: string }
+  | { ok: true; restaurantId?: string; userId?: string; driverId?: string }
   | { ok: false; code: string; message: string };
 
 const err = (code: string, message: string): Ack => ({ ok: false, code, message });
 
 export const realtimeRestaurantRoom = (restaurantId: string) => `r:${restaurantId}`;
 export const realtimeUserRoom = (userId: string) => `u:${userId}`;
+export const realtimeDriverRoom = (driverId: string) => `d:${driverId}`;
 
 @WebSocketGateway({ namespace: '/orders' })
 export class RealtimeGateway implements OnGatewayInit, OnModuleDestroy {
@@ -181,6 +182,28 @@ export class RealtimeGateway implements OnGatewayInit, OnModuleDestroy {
     return { ok: true, userId: actor.sub };
   }
 
+  @SubscribeMessage('subscribe:driver')
+  subscribeDriver(client: Socket): Ack {
+    const actor = this.actor(client);
+    if (!actor) return err('UNAUTHENTICATED', 'Unverified socket');
+    if (actor.role !== UserRole.DRIVER) {
+      return err('FORBIDDEN', 'Driver role required');
+    }
+    client.join(realtimeDriverRoom(actor.sub));
+    return { ok: true, driverId: actor.sub };
+  }
+
+  @SubscribeMessage('unsubscribe:driver')
+  unsubscribeDriver(client: Socket): Ack {
+    const actor = this.actor(client);
+    if (!actor) return err('UNAUTHENTICATED', 'Unverified socket');
+    if (actor.role !== UserRole.DRIVER) {
+      return err('FORBIDDEN', 'Driver role required');
+    }
+    client.leave(realtimeDriverRoom(actor.sub));
+    return { ok: true, driverId: actor.sub };
+  }
+
   private actor(client: Socket): WsUser | null {
     const u = client.data?.user as WsUser | undefined;
     return u && typeof u.sub === 'string' ? u : null;
@@ -193,6 +216,9 @@ export class RealtimeGateway implements OnGatewayInit, OnModuleDestroy {
     this.server.to(realtimeRestaurantRoom(e.restaurantId)).emit(e.type, e.payload);
     if (e.userId) {
       this.server.to(realtimeUserRoom(e.userId)).emit(e.type, e.payload);
+    }
+    for (const driverId of new Set(e.driverIds ?? [])) {
+      this.server.to(realtimeDriverRoom(driverId)).emit(e.type, e.payload);
     }
   }
 }

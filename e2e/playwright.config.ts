@@ -30,7 +30,11 @@ export default defineConfig({
   },
   webServer: [
     {
-      command: 'node dist/main.js',
+      // The functional suite deliberately exercises many distinct account
+      // roles in one serial minute. Rate-limit behavior has its own API
+      // integration specs; raise only this test server's auth bucket so adding
+      // a role flow cannot make unrelated browser tests order-dependent.
+      command: 'RATE_LIMIT_AUTH_MAX=100 node dist/main.js',
       cwd: '../apps/api',
       url: 'http://localhost:4000/api/health',
       reuseExistingServer: true,

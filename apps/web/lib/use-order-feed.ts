@@ -52,14 +52,18 @@ export interface OrderFeedOptions {
   restaurantId?: string | null;
   /** Customer mode: join room `u:<userId>` — id comes from the VERIFIED token. */
   me?: boolean;
+  /** Driver mode: join room `d:<driverId>` — exact DRIVER role, id from the token. */
+  driver?: boolean;
   getAccessToken: () => Promise<string | null>;
   handlers: OrderFeedHandlers;
 }
 
-type SubscribeAck = { ok: true; restaurantId?: string; userId?: string } | { ok: false; code: string };
+type SubscribeAck =
+  | { ok: true; restaurantId?: string; userId?: string; driverId?: string }
+  | { ok: false; code: string };
 
 export function useOrderFeed(opts: OrderFeedOptions): { wsUp: boolean } {
-  const { enabled, restaurantId = null, me = false, getAccessToken } = opts;
+  const { enabled, restaurantId = null, me = false, driver = false, getAccessToken } = opts;
   // Handlers called through a ref: consumers pass fresh closures every
   // render (state-dependent sync logic) but must never tear down/rebuild the
   // socket because of it.
@@ -71,7 +75,7 @@ export function useOrderFeed(opts: OrderFeedOptions): { wsUp: boolean } {
   const [wsUp, setWsUp] = useState(false);
 
   useEffect(() => {
-    if (!enabled || (!restaurantId && !me)) {
+    if (!enabled || (!restaurantId && !me && !driver)) {
       setWsUp(false);
       return;
     }
@@ -156,6 +160,10 @@ export function useOrderFeed(opts: OrderFeedOptions): { wsUp: boolean } {
           pending += 1;
           s.emit('subscribe:me', onAck);
         }
+        if (driver) {
+          pending += 1;
+          s.emit('subscribe:driver', onAck);
+        }
       });
 
       const forward = (payload: FeedEventPayload) => {
@@ -185,7 +193,7 @@ export function useOrderFeed(opts: OrderFeedOptions): { wsUp: boolean } {
     };
     // getAccessToken is referentially stable inside the auth provider
     // (memoised on a stable doRefresh), so this never churns the connection.
-  }, [enabled, restaurantId, me, getAccessToken]);
+  }, [enabled, restaurantId, me, driver, getAccessToken]);
 
   return { wsUp };
 }

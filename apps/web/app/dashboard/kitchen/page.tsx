@@ -161,7 +161,9 @@ export default function KitchenDisplayPage() {
   }, [fetchBoard, reloadKey]);
 
   const requestSync = useCallback(() => {
-    if (syncTimerRef.current != null) return;
+    // Trailing debounce: a push that lands while the initial/onReady timer is
+    // pending must replace that timer, not disappear behind a stale fetch.
+    if (syncTimerRef.current != null) window.clearTimeout(syncTimerRef.current);
     syncTimerRef.current = window.setTimeout(() => {
       syncTimerRef.current = null;
       if (document.hidden || busyOrderId) {

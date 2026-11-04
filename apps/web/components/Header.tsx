@@ -83,6 +83,14 @@ export default function Header({
                   {t('dashboard')}
                 </Link>
               )}
+              {user.role === 'driver' && (
+                <Link
+                  href="/driver"
+                  className={pathname.startsWith('/driver') ? 'font-semibold text-brand-600' : 'text-stone-600 hover:text-stone-900'}
+                >
+                  {t('driver')}
+                </Link>
+              )}
               <Link
                 href="/favorites"
                 className={pathname.startsWith('/favorites') ? 'font-semibold text-brand-600' : 'text-stone-600 hover:text-stone-900'}

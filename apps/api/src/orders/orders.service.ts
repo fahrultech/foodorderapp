@@ -79,13 +79,16 @@ export class OrdersService {
    */
   private emit(
     type: 'order.created' | 'order.updated',
-    order: Pick<Order, 'id' | 'code' | 'status' | 'restaurantId' | 'userId'>,
+    order: Pick<Order, 'id' | 'code' | 'status' | 'restaurantId' | 'userId' | 'driverId'>,
+    affectedDriverIds: Array<string | null | undefined> = [order.driverId],
   ): void {
+    const driverIds = [...new Set(affectedDriverIds.filter((id): id is string => !!id))];
     this.events.publish({
       type,
       restaurantId: order.restaurantId,
       // Drives the WS customer-side room fan-out; null for guest orders.
       userId: order.userId ?? null,
+      ...(driverIds.length > 0 ? { driverIds } : {}),
       payload: {
         orderId: order.id,
         code: order.code,
@@ -502,9 +505,10 @@ export class OrdersService {
       }
     }
 
+    const previousDriverId = order.driverId;
     order.driverId = driverId;
     const saved = await this.orders.save(order);
-    this.emit('order.updated', saved);
+    this.emit('order.updated', saved, [previousDriverId, driverId]);
     return saved;
   }
 

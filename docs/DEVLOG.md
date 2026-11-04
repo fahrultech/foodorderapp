@@ -4,6 +4,46 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
+## 2026-11-04 10:55 — Session 58 — Live driver delivery portal
+
+**Built:** completed the remaining web half of the Phase 5 driver/courier item.
+
+- Added `/driver`, guarded in the UI to the exact DRIVER role, with assigned
+  delivery cards, restaurant/customer/address/phone/items/notes, legal
+  preparing→delivering and delivering→completed actions, loading/empty/error/
+  signed-out/wrong-role states, and a role-scoped header link (EN/ID labels).
+- Extended the shared Socket.IO order feed with `subscribe:driver` /
+  `unsubscribe:driver` and verified `d:<JWT-sub>` rooms. Order events now carry
+  internal-only affected driver ids; assignment replacement wakes both the old
+  and new driver, while driver status changes wake the current assignee. The web
+  refetches canonical `GET /driver/orders` data on push and falls back to a
+  10-second poll.
+- Added typed web client methods for the driver inbox/status route and a
+  Playwright flow that proves a server-side status write arrives without reload,
+  then completes the delivery through the portal. The E2E-owned API raises only
+  its auth test bucket to avoid role-login ordering failures; production limits
+  and the dedicated rate-limit specs are unchanged.
+- Fixed a push debounce race exposed by the expanded suite: an event arriving
+  while the kitchen's on-ready timer was pending could be swallowed behind the
+  earlier fetch. Kitchen and driver views now use a trailing debounce, preserving
+  the latest wake-up.
+
+**Verified:**
+- Strict TDD: the new browser spec first failed on the absent `/driver` heading;
+  after implementation, the expanded full suite exposed and reproduced the
+  kitchen debounce race and the auth-bucket ceiling before both harness issues
+  were fixed.
+- API production build clean; full Jest **62 suites / 740 tests green**.
+- Web production build clean with **16 routes**, including `/driver`.
+- Full PostgreSQL-backed Playwright suite **16/16 green**; focused kitchen +
+  driver regression run **2/2 green**.
+- Live built-API curl smoke: health/db up; DRIVER login; filtered driver inbox;
+  FO-SEED3 preparing→delivering→completed with both timestamps. Built `/driver`
+  returned HTTP 200 with the route payload. Ports 3000/4000 were released and
+  the canonical seed was restored afterwards.
+
+---
+
 ## 2026-11-03 17:48 — Session 57 — Driver assignment API foundation
 
 **Built:** completed the API half of the top Phase 5 driver/courier item while
