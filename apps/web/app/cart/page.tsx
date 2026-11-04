@@ -1,11 +1,24 @@
 'use client';
 
 import Link from 'next/link';
+import { useEffect, useState } from 'react';
 import { useCart } from '@/lib/cart';
 import { formatPrice } from '@/lib/api';
 
 export default function CartPage() {
   const { lines, setQty, clear, subtotalCents, restaurantName, restaurantId } = useCart();
+  const [online, setOnline] = useState(true);
+
+  useEffect(() => {
+    const sync = () => setOnline(navigator.onLine);
+    sync();
+    window.addEventListener('online', sync);
+    window.addEventListener('offline', sync);
+    return () => {
+      window.removeEventListener('online', sync);
+      window.removeEventListener('offline', sync);
+    };
+  }, []);
 
   if (lines.length === 0) {
     return (
@@ -27,6 +40,11 @@ export default function CartPage() {
     <div className="mx-auto max-w-2xl">
       <h1 className="text-2xl font-extrabold">Your cart</h1>
       {restaurantName && <p className="mt-1 text-sm text-stone-500">From {restaurantName}</p>}
+      {!online && (
+        <p className="mt-4 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900" role="status">
+          You are offline. Cart changes stay on this device; checkout needs a connection.
+        </p>
+      )}
 
       <div className="mt-6 divide-y divide-stone-200 rounded-2xl border border-stone-200 bg-white">
         {lines.map((l) => (

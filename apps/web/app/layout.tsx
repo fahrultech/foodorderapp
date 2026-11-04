@@ -8,6 +8,7 @@ import { AuthProvider } from '@/lib/auth';
 import { FavoritesProvider } from '@/lib/favorites';
 import { PushNotificationsProvider } from '@/lib/push-notifications';
 import Header from '@/components/Header';
+import PwaRegistration from '@/components/PwaRegistration';
 import type { AppTheme } from '@/components/ThemeSwitcher';
 import type { AppLocale } from '@/i18n/request';
 import { isAppLocale } from '@/i18n/request';
@@ -50,6 +51,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   return (
     <html lang={locale} data-theme={theme} className={theme === 'dark' ? 'dark' : undefined}>
       <body>
+        <PwaRegistration />
         <NextIntlClientProvider>
           <AuthProvider>
             <PushNotificationsProvider>

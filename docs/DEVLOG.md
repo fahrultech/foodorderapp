@@ -4,6 +4,41 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
+## 2026-11-04 15:37 — Session 59 — Installable PWA and offline cart
+
+**Built:** completed the next unblocked Phase 5 item without adding a PWA
+framework dependency.
+
+- Added a Next metadata manifest with standalone display mode, FoodOrder theme
+  colors, and generated 192×192, 512×512, and maskable 512×512 PNG icons.
+- Registered the existing `/sw.js` for every storefront visitor. The worker now
+  keeps its browser-push behavior and adds a versioned cache for the small public
+  app shell (`/`, `/cart`, `/offline`, manifest/icons) plus visited Next static
+  assets. App-shell navigation is network-first; uncached offline navigation gets
+  the neutral offline page. API requests and authenticated portal/order HTML are
+  deliberately never cached.
+- Reused the existing device-local cart storage: a visited cart can render and
+  change quantities offline. The cart announces loss of connectivity and makes
+  the checkout boundary explicit instead of pretending an order can submit.
+- Added Playwright coverage for manifest/icon contracts, worker control, a real
+  Chromium offline reload, persisted cart rendering, offline status, and an
+  offline quantity edit. Architecture and E2E docs record the cache/privacy
+  boundary.
+
+**Verified:**
+- Strict TDD: the focused browser spec first failed because
+  `/manifest.webmanifest` returned 404; after implementation it passed offline.
+- Web production build clean with **18 generated pages/routes**, including the
+  manifest and `/offline`.
+- Full PostgreSQL-backed Playwright suite **17/17 green**; the canonical seed was
+  restored afterwards.
+- Live production-web curl smoke verified **7 endpoints/files**: manifest,
+  worker, three PNG icons with exact dimensions, `/offline`, and `/cart`.
+  Manifest values and both fetch/push worker handlers were asserted. Port 3000
+  was released afterwards.
+
+---
+
 ## 2026-11-04 10:55 — Session 58 — Live driver delivery portal
 
 **Built:** completed the remaining web half of the Phase 5 driver/courier item.

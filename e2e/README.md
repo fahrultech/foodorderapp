@@ -78,6 +78,10 @@ browser download.
   permission is untouched before the explicit bell click, subscribe sends the
   endpoint/keys contract, opt-out unsubscribes locally, and sign-out detaches
   an active shared-browser endpoint before the auth session is cleared.
+- `tests/pwa.spec.ts` — install metadata exposes standalone mode plus 192/512
+  icons; after the worker controls a visited cart, Chromium is taken fully
+  offline and the persisted cart still renders, announces offline mode, and
+  accepts quantity edits without a network request.
 - `tests/storefront-i18n.spec.ts` — English defaults, switching to Indonesian
   updates `<html lang>` plus home/header copy, the cookie survives reload and
   navigation to a restaurant/menu, and switching back restores English.

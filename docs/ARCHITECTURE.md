@@ -45,6 +45,18 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   A global compatibility layer remaps the storefront's existing stone/pastel
   Tailwind utilities under the dark root, keeping cards, forms, status notices,
   and portal pages readable without client-side theme hydration.
+- **The storefront is an installable PWA with a deliberately small offline
+  boundary** — `app/manifest.ts` publishes standalone metadata plus 192/512 and
+  maskable icons, while `PwaRegistration` registers `/sw.js` for every visitor
+  (notification opt-in still requires its explicit user gesture). The existing
+  push worker also owns versioned storefront caching: `/`, `/cart`, `/offline`,
+  the manifest/icons, and visited Next static assets. Network-first navigation
+  keeps those app-shell pages fresh when online; cached copies serve them when
+  offline, while other failed navigations receive the neutral offline page and
+  API requests are never cached. Cart rows remain device-local in the existing
+  `CartProvider` storage, so a previously visited cart can be reviewed and edited
+  offline; the cart surfaces connectivity state and states that checkout needs a
+  connection. This avoids caching authenticated order/admin HTML or API truth.
 - **Order status machine** — transitions validated server-side
   (`pending→confirmed→preparing→delivering→completed`, cancellable through preparing).
   `POST /orders/:id/cancel` lets the *customer* use exactly that machine edge
