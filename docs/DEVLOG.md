@@ -4,6 +4,43 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
+## 2026-11-04 19:18 — Session 61 — k6 browse baseline and tuning report
+
+**Built:** completed the next unblocked Phase 5 item with a repeatable,
+non-destructive API load workload.
+
+- Added `ops/load-test.js` with smoke and 25-VU ramp/hold profiles. It
+  bootstraps real restaurant ids, then cycles through public restaurant list,
+  cuisines, detail, and substring-search reads. It never creates or mutates
+  application data.
+- Added explicit SLO gates: HTTP failures below 1%, p95 below 500 ms, p99 below
+  1 second, and checks above 99%. Every response must be HTTP 200 JSON without
+  the standard error envelope.
+- Split deterministic profile/path/bootstrap helpers into
+  `ops/load-test.lib.mjs` and pinned them with a Node contract test.
+- Added `docs/PERFORMANCE.md` with native and Docker commands, workload safety
+  boundaries, the measured baseline, query-plan findings, and evidence-based
+  follow-ups. README now points operators to the workload and report.
+
+**Verified:**
+
+- Strict TDD: the contract test first failed on the absent load-test helper;
+  after implementation it passed and remained green after the k6 script was
+  finalized.
+- API production build clean; full Jest **63 suites / 747 tests green**.
+- Real k6 smoke: **75 requests**, **0 failures**, checks **223/223**, p95
+  **4.30 ms**, p99 **5.49 ms**, max **8.09 ms**.
+- Real 3-minute load profile: peak **25 VUs**, **15,027 requests** at **83.41
+  req/s**, **0 failures**, checks **45,079/45,079**, p95 **4.06 ms**, p99
+  **8.17 ms**, max **44.77 ms**; all thresholds passed and no iteration was
+  interrupted.
+- PostgreSQL 16 `EXPLAIN (ANALYZE, BUFFERS)` confirmed UUID detail uses the
+  primary-key index; list/cuisine/search scan the six-row seed cheaply. No
+  speculative tuning was applied. API health remained `status:ok`, `db:up`
+  after the run.
+
+---
+
 ## 2026-11-04 17:28 — Session 60 — Deterministic database feature flags
 
 **Built:** completed the next unblocked Phase 5 item as an API foundation for

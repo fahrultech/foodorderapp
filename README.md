@@ -143,3 +143,9 @@ docker-compose.yml db + api + web
 This project is developed in ongoing daily increments. See
 `docs/WORKFLOW.md` for the per-session routine and `docs/ROADMAP.md` for the
 evergreen backlog; every pushed commit appends to `docs/DEVLOG.md`.
+
+## Performance baseline
+
+The read-only k6 browse workload lives at `ops/load-test.js`. Run the smoke or
+25-VU load profile and see the measured local baseline plus query-plan findings
+in `docs/PERFORMANCE.md`.
