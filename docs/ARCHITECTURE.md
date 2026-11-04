@@ -101,6 +101,15 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   cents. The web `/admin` route repeats the role gate for UX, exposes summary
   cards and three oversight tables, and the shared header only advertises it to
   admin sessions. API authorization remains authoritative for direct requests.
+- **Feature flags are DB-backed and deterministic** — `feature_flags` stores a
+  unique key, global enabled switch, and constrained integer rollout percentage
+  from 0 through 100. `FeatureFlagsService.isEnabled(key, subjectId)` fails
+  closed for missing/disabled flags and partial rollouts without a stable
+  subject. For a partial rollout, SHA-256 of the separated key and subject id
+  assigns one stable 0–99 bucket; including the key keeps experiments
+  independent for the same account. The module exports the helper for future
+  product surfaces without exposing flag mutation publicly or using per-request
+  randomness.
 - **Owner inbox scoping** — `GET /restaurants/:id/orders` (same query DTO +
   envelope, plus a per-status `counts` map computed over ALL statuses so the
   dashboard tabs stay accurate while filtered) is guarded by

@@ -16,6 +16,7 @@ import { RateLimitModule } from './common/rate-limit/rate-limit.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { CitiesModule } from './cities/cities.module';
 import { AdminModule } from './admin/admin.module';
+import { FeatureFlagsModule } from './feature-flags/feature-flags.module';
 
 @Module({
   imports: [
@@ -47,6 +48,7 @@ import { AdminModule } from './admin/admin.module';
     PaymentsModule,
     RateLimitModule,
     NotificationsModule,
+    FeatureFlagsModule,
     AdminModule,
   ],
 })

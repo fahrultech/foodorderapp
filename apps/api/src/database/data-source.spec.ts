@@ -14,6 +14,7 @@ import { Payment } from '../payments/payment.entity';
 import { PaymentRefund } from '../payments/payment-refund.entity';
 import { PushSubscription } from '../notifications/push-subscription.entity';
 import { City } from '../cities/city.entity';
+import { FeatureFlag } from '../feature-flags/feature-flag.entity';
 import { InitSchema1792213437047 } from './migrations/1792213437047-InitSchema';
 
 describe('database/data-source', () => {
@@ -22,10 +23,10 @@ describe('database/data-source', () => {
     expect(dataSourceOptions.migrationsRun).toBe(true);
   });
 
-  it('registers exactly the fourteen entities and a ts/js migration glob', () => {
-    expect(dataSourceOptions.entities).toHaveLength(14);
+  it('registers exactly the fifteen entities and a ts/js migration glob', () => {
+    expect(dataSourceOptions.entities).toHaveLength(15);
     expect(dataSourceOptions.entities).toEqual(
-      expect.arrayContaining([User, Favorite, DeliveryAddress, RefreshToken, City, Restaurant, MenuItem, Order, OrderItem, Review, PromoCode, Payment, PaymentRefund, PushSubscription]),
+      expect.arrayContaining([User, Favorite, DeliveryAddress, RefreshToken, City, Restaurant, MenuItem, Order, OrderItem, Review, PromoCode, Payment, PaymentRefund, PushSubscription, FeatureFlag]),
     );
     expect(dataSourceOptions.migrations).toHaveLength(1);
     expect(dataSourceOptions.migrations[0]).toMatch(/migrations\/\*\.\{ts,js\}$/);

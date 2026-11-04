@@ -4,6 +4,40 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
+## 2026-11-04 17:28 — Session 60 — Deterministic database feature flags
+
+**Built:** completed the next unblocked Phase 5 item as an API foundation for
+safe staged rollouts.
+
+- Added the `feature_flags` table/entity with a unique 80-character key,
+  optional description, global enabled switch, and a `smallint`
+  `rolloutPercentage`. The migration and entity both enforce the 0–100 range;
+  flags default disabled and therefore cannot turn behavior on accidentally.
+- Added exported `FeatureFlagsService.isEnabled(key, subjectId)`. Missing and
+  disabled flags fail closed, 0/100 provide explicit global boundaries, and a
+  partial rollout requires a stable subject id. SHA-256 of the separated key and
+  subject id produces a deterministic 0–99 bucket, so a user stays in one cohort
+  while different experiments remain independent.
+- Registered the entity in the CLI data source and the module in the Nest app.
+  No public mutation endpoint or seed flag was added: future features can inject
+  the helper, while rollout administration remains an explicit later surface.
+
+**Verified:**
+- Strict TDD: the focused spec first failed because the feature-flag entity and
+  service did not exist; after implementation the focused service/data-source
+  run passed **11/11**.
+- API production build clean; full Jest **63 suites / 747 tests green**.
+- Migration applied to PostgreSQL 16 as migration 16; schema-drift generation
+  correctly refused with “No changes in database schema were found”.
+- Real application-context smoke inserted a temporary 20% flag and proved an
+  included bucket, excluded bucket, anonymous partial-rollout exclusion,
+  missing/disabled fail-closed behavior, global 100% behavior, and live CHECK
+  rejection of 101 (`23514`). The temporary row was deleted afterwards.
+- Built API booted normally and `/api/health` returned `status:ok`, `db:up`;
+  port 4000 was released afterwards. No API endpoint changed this session.
+
+---
+
 ## 2026-11-04 15:37 — Session 59 — Installable PWA and offline cart
 
 **Built:** completed the next unblocked Phase 5 item without adding a PWA

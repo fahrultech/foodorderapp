@@ -79,7 +79,7 @@
   - [x] Web: driver portal + live assignment/status feed (2026-11-04, session 58; `/driver`, exact-role nav/access states, WS driver rooms with previous+next assignment wake-ups, polling fallback, 16-test E2E suite)
 - [x] Scheduled cron: auto-cancel stale pending orders (2026-10-27, session 35; shared `stale-order-sweep` + ADMIN HTTP route + `ops/cancel-stale.sh` systemd/cron runner, STALE_ORDER_MINUTES/BATCH env, DRY_RUN; 469 tests green + live smoke)
 - [x] PWA: installable storefront + offline cart (2026-11-04, session 59; manifest/icons + shared push/cache worker, offline app shell and editable persisted cart, 17-test E2E suite)
-- [ ] A/B-friendly feature flags table + helper
+- [x] A/B-friendly feature flags table + helper (2026-11-04, session 60; DB-backed boolean flags with deterministic percentage cohorts)
 - [ ] Load testing script (k6) + tuning report in docs/
 - [ ] SEO: metadata per restaurant page, sitemap.xml, robots.txt
 - [ ] GDPR-ish data export & account deletion endpoints
