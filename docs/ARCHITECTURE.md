@@ -29,6 +29,14 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   the full menu in `GET /restaurants/:id`; `MenuBrowser` filters it in memory
   (name/description/category, case-insensitive) instead of adding a per-keystroke
   API. Category anchor ids are positional (`cat-<i>`) and stable while filtering.
+- **Public browse routes publish server-derived SEO metadata** — each
+  `/restaurants/:id` response uses the canonical restaurant row for its title,
+  description, canonical URL, Open Graph card, and Twitter card. Missing
+  restaurants are marked `noindex`. `app/sitemap.ts` lists the homepage and every
+  live restaurant while degrading to the homepage if the API is temporarily
+  unavailable; `app/robots.ts` points crawlers at that sitemap and excludes
+  authenticated/customer workflow routes. `NEXT_PUBLIC_SITE_URL` is the one
+  deployment origin used for every absolute URL (localhost is the dev fallback).
 - **Storefront localization uses `next-intl` without locale-prefixed routes** —
   English (`en`) is the safe default and Indonesian (`id`) is selected from the
   shared header. A server action validates the requested locale and stores it in

@@ -82,6 +82,10 @@ browser download.
   icons; after the worker controls a visited cart, Chromium is taken fully
   offline and the persisted cart still renders, announces offline mode, and
   accepts quantity edits without a network request.
+- `tests/seo.spec.ts` — `robots.txt` advertises the sitemap and excludes private
+  workflow routes; `sitemap.xml` contains the homepage plus every restaurant
+  returned by the API; a live restaurant page emits its server-derived title,
+  description, canonical URL, Open Graph URL/title, and image card.
 - `tests/storefront-i18n.spec.ts` — English defaults, switching to Indonesian
   updates `<html lang>` plus home/header copy, the cookie survives reload and
   navigation to a restaurant/menu, and switching back restores English.

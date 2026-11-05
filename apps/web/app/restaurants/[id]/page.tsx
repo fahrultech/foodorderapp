@@ -1,11 +1,59 @@
 import { notFound } from 'next/navigation';
+import type { Metadata } from 'next';
 import { api, formatPrice } from '@/lib/api';
 import type { RestaurantReviewsPage } from '@/lib/api';
 import MenuBrowser from '@/components/MenuBrowser';
 import Stars from '@/components/Stars';
 import { getTranslations } from 'next-intl/server';
+import { absoluteSiteUrl } from '@/lib/site';
 
 export const dynamic = 'force-dynamic';
+
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}): Promise<Metadata> {
+  const { id } = await params;
+
+  try {
+    const restaurant = await api.getRestaurant(id);
+    const title = `${restaurant.name} — FoodOrder`;
+    const description =
+      restaurant.description ||
+      `Order ${restaurant.cuisine ? `${restaurant.cuisine} food` : 'food'} from ${restaurant.name}${
+        restaurant.city ? ` in ${restaurant.city}` : ''
+      }.`;
+    const url = absoluteSiteUrl(`/restaurants/${restaurant.id}`);
+
+    return {
+      title,
+      description,
+      alternates: { canonical: url },
+      openGraph: {
+        type: 'website',
+        title,
+        description,
+        url,
+        siteName: 'FoodOrder',
+        images: restaurant.imageUrl
+          ? [{ url: restaurant.imageUrl, alt: restaurant.name }]
+          : undefined,
+      },
+      twitter: {
+        card: restaurant.imageUrl ? 'summary_large_image' : 'summary',
+        title,
+        description,
+        images: restaurant.imageUrl ? [restaurant.imageUrl] : undefined,
+      },
+    };
+  } catch {
+    return {
+      title: 'Restaurant not found — FoodOrder',
+      robots: { index: false, follow: false },
+    };
+  }
+}
 
 export default async function RestaurantPage({
   params,

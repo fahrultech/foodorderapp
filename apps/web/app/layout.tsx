@@ -12,10 +12,15 @@ import PwaRegistration from '@/components/PwaRegistration';
 import type { AppTheme } from '@/components/ThemeSwitcher';
 import type { AppLocale } from '@/i18n/request';
 import { isAppLocale } from '@/i18n/request';
+import { siteUrl } from '@/lib/site';
 
 export async function generateMetadata(): Promise<Metadata> {
   const t = await getTranslations('Metadata');
-  return { title: t('title'), description: t('description') };
+  return {
+    metadataBase: new URL(siteUrl()),
+    title: t('title'),
+    description: t('description'),
+  };
 }
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {

@@ -4,6 +4,48 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
+## 2026-11-05 09:23 — Session 62 — Restaurant SEO metadata and crawler routes
+
+**Built:** completed the next unblocked Phase 5 item across the public browse
+surface.
+
+- Added restaurant-specific server metadata on `/restaurants/:id`: canonical
+  title and description from the API row, absolute canonical URL, Open Graph and
+  Twitter cards, and the restaurant image when present. Missing restaurants are
+  explicitly `noindex,nofollow` instead of inheriting generic storefront SEO.
+- Added `/sitemap.xml` with the homepage plus every live restaurant returned by
+  the API. It is generated on demand so restaurant changes do not require a web
+  rebuild; during an API outage it remains valid with the homepage entry rather
+  than failing the route.
+- Added `/robots.txt`, advertising the sitemap while excluding authenticated and
+  customer-workflow routes such as dashboard, admin, checkout, orders, driver,
+  account, and address pages.
+- Added one validated site-origin helper and documented
+  `NEXT_PUBLIC_SITE_URL`; localhost remains the safe local default. Root
+  `metadataBase`, canonical links, crawler routes, and social URLs now share the
+  same origin contract.
+- Added `e2e/tests/seo.spec.ts` plus architecture/E2E documentation for the
+  crawler and metadata behavior.
+
+**Verified:**
+
+- Strict TDD: the focused Playwright test first failed because `/robots.txt`
+  returned 404; after implementation it passed. A later expected-value failure
+  caught the sitemap root's standards-correct trailing slash and the assertion
+  was corrected without changing application behavior.
+- Web production build clean with **19 generated routes**, including static
+  `/robots.txt` and dynamic `/sitemap.xml`.
+- Full PostgreSQL-backed Playwright suite **18/18 green**.
+- Live production curl-equivalent smoke asserted the robots directives and
+  sitemap declaration, all **6/6** seeded restaurant URLs in the sitemap, and a
+  real Seoul Street page's title, canonical URL, and Open Graph title.
+- The canonical database seed was restored after E2E; ports 3000/4000 were
+  released. API code was untouched, so API build/Jest were skipped per workflow.
+- `git diff --check` passed; sanitizer audit found no masked credential literals
+  or U+2026 corruption in tracked additions.
+
+---
+
 ## 2026-11-04 19:18 — Session 61 — k6 browse baseline and tuning report
 
 **Built:** completed the next unblocked Phase 5 item with a repeatable,
