@@ -125,6 +125,16 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   active orders/assignments. Existing signed access JWTs remain cryptographically
   valid until their normal short expiry, but refresh is revoked immediately and
   account-backed reads fail once the user row is gone.
+- **Status-change auditing is append-only** — every accepted order status
+  transition writes an `order_status_audits` row (`fromStatus`/`toStatus`, a
+  constrained `source` of `owner`/`admin`/`driver`/`customer`/`stale_sweep`, and
+  an actor snapshot of userId/role/email) from the same code path that saves the
+  order: restaurant-owner route, driver route, generic admin route, customer
+  cancel, and both stale-sweep entry points (HTTP ops route and the cron script).
+  Rejected transitions never write a row. `orderId` cascades on deletion while
+  `actorUserId` is `SET NULL`, so account erasure keeps the history with its
+  email snapshot; `(orderId, createdAt)` and `actorUserId` indexes back timeline
+  and actor queries.
 - **Feature flags are DB-backed and deterministic** — `feature_flags` stores a
   unique key, global enabled switch, and constrained integer rollout percentage
   from 0 through 100. `FeatureFlagsService.isEnabled(key, subjectId)` fails

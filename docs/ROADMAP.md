@@ -83,7 +83,7 @@
 - [x] Load testing script (k6) + tuning report in docs/ (2026-11-04, session 61; read-only public browse profile, 25-VU baseline: 15,027 requests, 0 failures, p95 4.06 ms)
 - [x] SEO: metadata per restaurant page, sitemap.xml, robots.txt (2026-11-05, session 62; canonical/OG/Twitter metadata, dynamic restaurant sitemap, private-route crawl exclusions, 18-test E2E suite)
 - [x] GDPR-ish data export & account deletion endpoints (2026-11-05, session 63; allowlisted full-account export + transactional password-confirmed deletion, retained-history anonymization, operational guards, Swagger/tests/live smoke)
-- [ ] Audit log table for status changes
+- [x] Audit log table for status changes (2026-11-06, session 64; append-only `order_status_audits` with from/to/source + actor userId/role/email snapshot, wired into owner/driver/admin/customer/both stale-sweep paths, CHECK-constrained + indexed migration, live smoke: 7 rows across all 5 sources, rejected edges silent)
 - [ ] Menu item options/variants (size, spice level, extras) — cart line options
 - [ ] Coupons expiry + usage caps
 - [ ] Restaurant open hours (day-of-week schedule entity) + auto isOpen

@@ -87,7 +87,7 @@ export class OrdersController {
   @ApiError(404, 'Unknown order id or an order belonging to another customer (guest orders cannot be cancelled either).')
   @ApiError(429, 'Orders rate limit exceeded.')
   cancel(@UuidParam('id') id: string, @CurrentUser() user: any) {
-    return this.service.cancel(id, user.sub);
+    return this.service.cancel(id, user.sub, user.role, user.email);
   }
 
   @Get(':id')
@@ -128,8 +128,16 @@ export class OrdersController {
   @ApiError(401, 'Missing/invalid/expired access token.')
   @ApiError(403, 'Valid token but role is not ADMIN.')
   @ApiError(404, 'Unknown order id.')
-  updateStatus(@UuidParam('id') id: string, @Query('status') status: OrderStatus) {
-    return this.service.updateStatus(id, status);
+  updateStatus(
+    @UuidParam('id') id: string,
+    @Query('status') status: OrderStatus,
+    @CurrentUser() user: any,
+  ) {
+    return this.service.updateStatus(id, status, {
+      sub: user.sub,
+      role: user.role,
+      email: user.email,
+    });
   }
 
   /**

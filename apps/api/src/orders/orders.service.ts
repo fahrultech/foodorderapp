@@ -4,11 +4,13 @@ import {
   HttpStatus,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { FindOptionsWhere, Repository } from 'typeorm';
 import { Order, OrderStatus } from './order.entity';
+import { OrderStatusAudit, OrderStatusAuditSource } from './order-status-audit.entity';
 import { Payment, PaymentStatus } from '../payments/payment.entity';
 import { AppException } from '../common/app-exception';
 import { confirmGateEnabled } from './payment-confirm-gate';
@@ -70,7 +72,29 @@ export class OrdersService {
     @InjectRepository(Payment) private readonly payments?: Repository<Payment>,
     private readonly config?: ConfigService,
     private readonly users?: UsersService,
+    @Optional()
+    @InjectRepository(OrderStatusAudit)
+    private readonly statusAudits?: Repository<OrderStatusAudit>,
   ) {}
+
+  private async auditStatusChange(
+    orderId: string,
+    fromStatus: OrderStatus,
+    toStatus: OrderStatus,
+    source: OrderStatusAuditSource,
+    actor?: { sub: string; role: UserRole; email?: string },
+  ): Promise<void> {
+    if (!this.statusAudits) return;
+    await this.statusAudits.save(this.statusAudits.create({
+      orderId,
+      fromStatus,
+      toStatus,
+      source,
+      actorUserId: actor?.sub ?? null,
+      actorRole: actor?.role ?? null,
+      actorEmail: actor?.email ?? null,
+    }));
+  }
 
   /**
    * After every state-changing write, tell the live streams something moved.
@@ -454,7 +478,7 @@ export class OrdersService {
     restaurantId: string,
     orderId: string,
     status: OrderStatus,
-    actor: { sub: string; role: UserRole },
+    actor: { sub: string; role: UserRole; email?: string },
   ) {
     await this.getOwnedRestaurant(restaurantId, actor);
     if (!isUuid(orderId)) throw new NotFoundException('Order not found');
@@ -472,8 +496,18 @@ export class OrdersService {
       );
     }
     await this.assertConfirmGate(order, status);
+    const fromStatus = order.status;
     this.applyStatus(order, status);
     const saved = await this.orders.save(order);
+    await this.auditStatusChange(
+      saved.id,
+      fromStatus,
+      status,
+      actor.role === UserRole.ADMIN
+        ? OrderStatusAuditSource.ADMIN
+        : OrderStatusAuditSource.OWNER,
+      actor,
+    );
     this.emit('order.updated', saved);
     return saved;
   }
@@ -513,7 +547,12 @@ export class OrdersService {
   }
 
   /** Assigned drivers own only the final two forward edges of the status flow. */
-  async setStatusForDriver(id: string, status: OrderStatus, driverId: string) {
+  async setStatusForDriver(
+    id: string,
+    status: OrderStatus,
+    driverId: string,
+    actorEmail?: string,
+  ) {
     if (!isUuid(id)) throw new NotFoundException('Order not found');
     const order = await this.orders.findOne({
       where: { id, driverId },
@@ -530,8 +569,16 @@ export class OrdersService {
       );
     }
 
+    const fromStatus = order.status;
     this.applyStatus(order, status);
     const saved = await this.orders.save(order);
+    await this.auditStatusChange(
+      saved.id,
+      fromStatus,
+      status,
+      OrderStatusAuditSource.DRIVER,
+      { sub: driverId, role: UserRole.DRIVER, email: actorEmail },
+    );
     this.emit('order.updated', saved);
     return saved;
   }
@@ -542,7 +589,7 @@ export class OrdersService {
    * (pending/confirmed/preparing). Once the food is out for delivery the
    * customer has no self-service cancel — the restaurant/admin path stands.
    */
-  async cancel(id: string, userId: string) {
+  async cancel(id: string, userId: string, role?: UserRole, email?: string) {
     if (!isUuid(id)) throw new NotFoundException('Order not found');
     const order = await this.orders.findOne({
       where: { id },
@@ -558,13 +605,25 @@ export class OrdersService {
         `Order can no longer be cancelled (status: ${order.status})`,
       );
     }
+    const fromStatus = order.status;
     this.applyStatus(order, OrderStatus.CANCELLED);
     const saved = await this.orders.save(order);
+    await this.auditStatusChange(
+      saved.id,
+      fromStatus,
+      OrderStatus.CANCELLED,
+      OrderStatusAuditSource.CUSTOMER,
+      role ? { sub: userId, role, email } : undefined,
+    );
     this.emit('order.updated', saved);
     return saved;
   }
 
-  async updateStatus(id: string, status: OrderStatus) {
+  async updateStatus(
+    id: string,
+    status: OrderStatus,
+    actor?: { sub: string; role: UserRole; email?: string },
+  ) {
     const order = await this.findOne(id);
     if (!STATUS_FLOW[order.status].includes(status)) {
       throw new BadRequestException(
@@ -572,8 +631,16 @@ export class OrdersService {
       );
     }
     await this.assertConfirmGate(order, status);
+    const fromStatus = order.status;
     this.applyStatus(order, status);
     const saved = await this.orders.save(order);
+    await this.auditStatusChange(
+      saved.id,
+      fromStatus,
+      status,
+      OrderStatusAuditSource.ADMIN,
+      actor,
+    );
     this.emit('order.updated', saved);
     return saved;
   }
@@ -598,6 +665,12 @@ export class OrdersService {
       ...options,
       // Compose, don't clobber: a caller-provided hook still runs after ours.
       onCancelled: async (order) => {
+        await this.auditStatusChange(
+          order.id,
+          OrderStatus.PENDING,
+          OrderStatus.CANCELLED,
+          OrderStatusAuditSource.STALE_SWEEP,
+        );
         this.emit('order.updated', order);
         await options.onCancelled?.(order);
       },

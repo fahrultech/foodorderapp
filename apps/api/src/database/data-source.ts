@@ -16,6 +16,7 @@ import { PaymentRefund } from '../payments/payment-refund.entity';
 import { PushSubscription } from '../notifications/push-subscription.entity';
 import { City } from '../cities/city.entity';
 import { FeatureFlag } from '../feature-flags/feature-flag.entity';
+import { OrderStatusAudit } from '../orders/order-status-audit.entity';
 
 /**
  * Single source of truth for TypeORM connection + schema options.
@@ -36,7 +37,7 @@ export const dataSourceOptions = {
   url:
     process.env.DATABASE_URL ||
     'postgresql://foodorder:foodorder@localhost:5432/foodorder',
-  entities: [User, Favorite, DeliveryAddress, RefreshToken, City, Restaurant, MenuItem, Order, OrderItem, Review, PromoCode, Payment, PaymentRefund, PushSubscription, FeatureFlag],
+  entities: [User, Favorite, DeliveryAddress, RefreshToken, City, Restaurant, MenuItem, Order, OrderItem, OrderStatusAudit, Review, PromoCode, Payment, PaymentRefund, PushSubscription, FeatureFlag],
   // Glob works for ts-node (src) and compiled output (dist) alike.
   migrations: [path.join(__dirname, 'migrations', '*.{ts,js}')],
   migrationsRun: true,

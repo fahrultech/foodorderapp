@@ -181,6 +181,7 @@ describe('driver assignment + driver order HTTP surface', () => {
       ORDER_ID,
       OrderStatus.DELIVERING,
       DRIVER_ID,
+      undefined,
     );
   });
 

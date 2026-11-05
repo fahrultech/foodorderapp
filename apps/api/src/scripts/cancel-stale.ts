@@ -1,6 +1,10 @@
 import 'reflect-metadata';
 import { AppDataSource } from '../database/data-source';
-import { Order } from '../orders/order.entity';
+import { Order, OrderStatus } from '../orders/order.entity';
+import {
+  OrderStatusAudit,
+  OrderStatusAuditSource,
+} from '../orders/order-status-audit.entity';
 import {
   runStaleOrderSweep,
   resolveStaleSweepConfig,
@@ -32,6 +36,7 @@ const DRY_RUN = process.env.DRY_RUN === '1' || process.env.DRY_RUN === 'true';
 async function main(): Promise<void> {
   await AppDataSource.initialize();
   const orders = AppDataSource.getRepository(Order);
+  const statusAudits = AppDataSource.getRepository(OrderStatusAudit);
   const config = resolveStaleSweepConfig();
 
   if (DRY_RUN) {
@@ -58,7 +63,18 @@ async function main(): Promise<void> {
 
   const report = await runStaleOrderSweep(orders, {
     config,
-    onCancelled: (o) => console.error(`cancelled ${o.code} (${o.id})`),
+    onCancelled: async (o) => {
+      await statusAudits.save(statusAudits.create({
+        orderId: o.id,
+        fromStatus: OrderStatus.PENDING,
+        toStatus: o.status,
+        source: OrderStatusAuditSource.STALE_SWEEP,
+        actorUserId: null,
+        actorRole: null,
+        actorEmail: null,
+      }));
+      console.error(`cancelled ${o.code} (${o.id})`);
+    },
   });
 
   // Summary to stdout as one JSON line for log scrapers; per-order detail on

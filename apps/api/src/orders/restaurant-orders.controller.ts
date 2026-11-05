@@ -157,7 +157,7 @@ export class RestaurantOrdersController {
       id,
       orderId,
       dto.status,
-      { sub: user.sub, role: user.role },
+      { sub: user.sub, role: user.role, email: user.email },
     );
   }
 

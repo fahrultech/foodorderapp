@@ -51,6 +51,6 @@ export class DriverOrdersController {
     @CurrentUser() user: any,
     @Query() dto: SetOrderStatusDto,
   ) {
-    return this.service.setStatusForDriver(id, dto.status, user.sub);
+    return this.service.setStatusForDriver(id, dto.status, user.sub, user.email);
   }
 }

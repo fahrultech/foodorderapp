@@ -4,6 +4,51 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
+## 2026-11-06 06:10 — Session 64 — Order status-change audit trail
+
+**Built:** completed the ROADMAP item "Audit log table for status changes",
+left uncommitted in the working tree by the 2026-11-05 19:27 session that
+crashed on an upstream 402 (provider credits) mid-implementation.
+
+- New `OrderStatusAudit` entity + migration `AddOrderStatusAudits1793865600000`:
+  append-only `order_status_audits` table — `fromStatus`/`toStatus`/`source` +
+  actor userId/role/email snapshot, CHECK constraints on all three domains,
+  `orderId` FK CASCADE vs `actorUserId` FK SET NULL (GDPR erasure keeps history
+  with the email snapshot), `(orderId, createdAt)` + `actorUserId` indexes.
+- Every accepted transition path records exactly one row: restaurant-owner
+  route (ADMIN actor recorded as admin source), driver route (email now flows
+  from the JWT payload), generic admin `PATCH /orders/:id/status` (now captures
+  the calling admin as actor — previously actor-less), customer cancel, HTTP
+  stale-sweep route, and the standalone `cancel-stale` cron script path (writes
+  its own row since it bypasses the service). Rejected transitions short-circuit
+  before the save and write nothing.
+- Wiring: `OrdersModule` registers the repository; the service constructor takes
+  it `@Optional` so existing unit harnesses stay valid; `data-source.ts` + the
+  entity-count spec updated to 16 entities.
+
+**Verified:**
+
+- API production build clean; full Jest **66 suites / 759 tests** green
+  (+1 suite / +4 tests from the new `order-status-audit.spec.ts` covering all
+  five sources plus the rejected-transition case).
+- Migration chain ran 17/17 from an empty scratch DB, then a live smoke against
+  the built API (payment-confirm gate disabled via env for the transition test):
+  owner confirmed+preparing, driver delivering, admin generic confirm, customer
+  cancel, HTTP ops sweep, backdated script sweep. Result: **exactly 7 audit
+  rows covering all 5 sources** with correct from/to statuses and actor emails;
+  an illegal driver edge (delivering→pending) answered 400 and added **no row**;
+  the script path wrote exactly 1 row (no double-write with the service hook).
+- FK policies proven live: deleting an order cascades its audit rows; deleting
+  the acting user SET NULLs `actorUserId` while `actorEmail` survives.
+- Scratch verification database dropped after use; API port released.
+  `git diff --check` clean; added lines scanned for sanitizer corruption
+  (U+2026/`***`): none.
+
+**Left for next sessions:** next roadmap candidates — menu item
+options/variants, `GET /orders/:id` guest-ownership fix, coupons expiry.
+
+---
+
 ## 2026-11-05 13:10 — Session 63 — Personal-data export and account deletion
 
 **Built:** completed the next unblocked Phase 5 item as two authenticated
