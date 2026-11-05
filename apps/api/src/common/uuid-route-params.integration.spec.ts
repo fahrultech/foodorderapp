@@ -29,6 +29,7 @@ import { UsersController } from '../users/users.controller';
 import { UsersService } from '../users/users.service';
 import { FavoritesService } from '../users/favorites.service';
 import { AddressesService } from '../users/addresses.service';
+import { AccountDataService } from '../users/account-data.service';
 
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { RolesGuard } from './roles.guard';
@@ -120,6 +121,10 @@ function mocks() {
       remove: jest.fn(async () => ({ removed: false })),
       setDefault: jest.fn(async () => ({ alreadyDefault: true, item: {} })),
     } as unknown as AddressesService,
+    accountData: {
+      exportForUser: jest.fn(async () => ({})),
+      deleteForUser: jest.fn(async () => ({ deleted: true })),
+    } as unknown as AccountDataService,
     promos: { preview: jest.fn(async () => ({ valid: false })) } as unknown as PromosService,
     payments: {
       pay: jest.fn(async () => ({ payment: {}, clientSecret: null })),
@@ -217,6 +222,7 @@ describe('uuid route params — ParseUUIDPipe sweep (live HTTP, production pipes
         { provide: UsersService, useValue: m.users },
         { provide: FavoritesService, useValue: m.favorites },
         { provide: AddressesService, useValue: m.addresses },
+        { provide: AccountDataService, useValue: m.accountData },
         { provide: PromosService, useValue: m.promos },
         { provide: PaymentsService, useValue: m.payments },
         { provide: DataSource, useValue: { query: async () => [] } },

@@ -9,6 +9,7 @@ import { UsersService } from './users.service';
 import { FavoritesService } from './favorites.service';
 import { AddressesService } from './addresses.service';
 import { AuthModule } from '../auth/auth.module';
+import { AccountDataService } from './account-data.service';
 
 @Module({
   // AuthModule exports JwtModule — required for JwtAuthGuard on /users/me
@@ -19,7 +20,7 @@ import { AuthModule } from '../auth/auth.module';
   // saved-address id against the owner's book server-side).
   imports: [TypeOrmModule.forFeature([User, Favorite, DeliveryAddress, MenuItem]), AuthModule],
   controllers: [UsersController],
-  providers: [UsersService, FavoritesService, AddressesService],
+  providers: [UsersService, FavoritesService, AddressesService, AccountDataService],
   exports: [UsersService, AddressesService],
 })
 export class UsersModule {}

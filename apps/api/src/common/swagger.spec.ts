@@ -39,6 +39,7 @@ import { UsersController } from '../users/users.controller';
 import { UsersService } from '../users/users.service';
 import { FavoritesService } from '../users/favorites.service';
 import { AddressesService } from '../users/addresses.service';
+import { AccountDataService } from '../users/account-data.service';
 import { NotificationsController } from '../notifications/notifications.controller';
 import { PushService } from '../notifications/push.service';
 import { CitiesController } from '../cities/cities.controller';
@@ -88,6 +89,7 @@ const mockedProviders = [
   { provide: UsersService, useValue: empty() },
   { provide: FavoritesService, useValue: empty() },
   { provide: AddressesService, useValue: empty() },
+  { provide: AccountDataService, useValue: empty() },
   { provide: PromosService, useValue: empty() },
   { provide: PaymentsService, useValue: empty() },
   { provide: PushService, useValue: empty() },
@@ -146,6 +148,8 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['/auth/logout', 'post'],
       ['/auth/me', 'get'],
       ['/users/me', 'patch'],
+      ['/users/me', 'delete'],
+      ['/users/me/export', 'get'],
       ['/users/me/favorites', 'get'],
       ['/users/me/favorites', 'post'],
       ['/users/me/favorites/{menuItemId}', 'delete'],
@@ -218,6 +222,8 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['/auth/me', 'get'],
       ['/auth/logout', 'post'],
       ['/users/me', 'patch'],
+      ['/users/me', 'delete'],
+      ['/users/me/export', 'get'],
       ['/orders/my', 'get'],
       ['/orders/ops/cancel-stale', 'post'],
       ['/orders/{id}/status', 'patch'],
@@ -286,6 +292,12 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       format: 'uuid',
       nullable: true,
     });
+    expect(schemas['DeleteAccountDto']).toMatchObject({
+      required: expect.arrayContaining(['password', 'confirmation']),
+    });
+    expect((schemas['DeleteAccountDto'] as any)?.properties?.confirmation).toMatchObject({
+      enum: ['DELETE'],
+    });
     // The status enum is a shared component with all 6 values:
     expect(schemas['OrderStatus']).toMatchObject({
       enum: ['pending', 'confirmed', 'preparing', 'delivering', 'completed', 'cancelled'],
@@ -311,6 +323,8 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['/auth/logout', 'post', 200, 'ref:LogoutResponse'],
       ['/auth/me', 'get', 200, 'ref:SafeUserResponse'],
       ['/users/me', 'patch', 200, 'ref:SafeUserResponse'],
+      ['/users/me', 'delete', 200, 'ref:AccountDeleteResponse'],
+      ['/users/me/export', 'get', 200, 'ref:AccountDataExportResponse'],
       ['/users/me/favorites', 'get', 200, 'ref:FavoriteListResponse'],
       ['/users/me/favorites', 'post', 200, 'ref:FavoriteAddResponse'],
       ['/users/me/favorites/{menuItemId}', 'delete', 200, 'ref:RemovedResponse'],
@@ -362,7 +376,7 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['/notifications/push/subscriptions', 'delete', 200, 'ref:PushUnsubscribeResponse'],
       ['/admin/overview', 'get', 200, 'ref:AdminOverviewResponse'],
     ];
-    expect(SUCCESS.length).toBe(57);
+    expect(SUCCESS.length).toBe(59);
     for (const [path, method, code, kind] of SUCCESS) {
       const res = doc.paths[P(path)]?.[method]?.responses?.[String(code)];
       if (!res) throw new Error(`${method} ${path}: no ${code} response documented`);
@@ -400,6 +414,8 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['/auth/logout', 'post', [401]],
       ['/auth/me', 'get', [401]],
       ['/users/me', 'patch', [400, 401, 404]],
+      ['/users/me', 'delete', [400, 401, 404, 409]],
+      ['/users/me/export', 'get', [401, 404]],
       ['/users/me/favorites', 'get', [401]],
       ['/users/me/favorites', 'post', [400, 401, 404]],
       ['/users/me/favorites/{menuItemId}', 'delete', [400, 401]],
@@ -489,6 +505,33 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['address', 'createdAt', 'email', 'id', 'name', 'phone', 'role', 'updatedAt'].sort(),
     );
     expect(props('SafeUserResponse').role.enum).toEqual(['customer', 'owner', 'admin', 'driver']);
+
+    expect(Object.keys(props('AccountDataExportResponse')).sort()).toEqual(
+      [
+        'addresses',
+        'driverAssignments',
+        'favorites',
+        'generatedAt',
+        'orders',
+        'ownedRestaurants',
+        'paymentsMade',
+        'profile',
+        'pushSubscriptions',
+        'refundsIssued',
+        'reviews',
+        'schemaVersion',
+        'sessions',
+      ].sort(),
+    );
+    expect(Object.keys(props('AccountSessionExportResponse')).sort()).toEqual(
+      ['createdAt', 'expiresAt', 'id', 'revokedAt'].sort(),
+    );
+    expect(Object.keys(props('AccountPushSubscriptionExportResponse')).sort()).toEqual(
+      ['createdAt', 'endpoint', 'id', 'updatedAt'].sort(),
+    );
+    expect(props('AccountSessionExportResponse').tokenHash).toBeUndefined();
+    expect(props('AccountPushSubscriptionExportResponse').p256dh).toBeUndefined();
+    expect(props('AccountPushSubscriptionExportResponse').auth).toBeUndefined();
 
     // Session: token pair + nested safe user; money-free integer expiry.
     expect(refOf(props('SessionResponse').user)).toBe('#/components/schemas/SafeUserResponse');

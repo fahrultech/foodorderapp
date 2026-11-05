@@ -22,6 +22,8 @@ import {
   AddressItemResponse,
   AddressListResponse,
   AddressRemoveResponse,
+  AccountDataExportResponse,
+  AccountDeleteResponse,
   ApiError,
   FavoriteAddResponse,
   FavoriteListResponse,
@@ -39,6 +41,8 @@ import {
 } from './dto/delivery-address.dto';
 import { JwtAuthGuard } from '../common/jwt-auth.guard';
 import { CurrentUser } from '../common/current-user.decorator';
+import { AccountDataService } from './account-data.service';
+import { DeleteAccountDto } from './dto/delete-account.dto';
 
 /**
  * Routes a user has about their own account. Everything here is scoped to the
@@ -53,6 +57,7 @@ export class UsersController {
     private readonly users: UsersService,
     private readonly favorites: FavoritesService,
     private readonly addresses: AddressesService,
+    private readonly accountData: AccountDataService,
   ) {}
 
   @Patch('me')
@@ -64,6 +69,29 @@ export class UsersController {
   @ApiError(404, 'The account row vanished mid-request.')
   updateMe(@CurrentUser() user: any, @Body() dto: UpdateProfileDto) {
     return this.users.updateProfile(user.sub, dto);
+  }
+
+  @Get('me/export')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Export all personal data held for my account', description: 'Returns an explicit allowlist. Password hashes, refresh-token hashes and Web Push key material are never exported.' })
+  @ApiOkResponse({ type: AccountDataExportResponse })
+  @ApiError(401, 'Missing/invalid/expired access token.')
+  @ApiError(404, 'The account row vanished mid-request.')
+  exportMe(@CurrentUser() user: any) {
+    return this.accountData.exportForUser(user.sub);
+  }
+
+  @Delete('me')
+  @HttpCode(200)
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Delete my account', description: 'Requires the current password and exact `DELETE` confirmation. Retained order/payment history is detached and personal order snapshots are anonymized. Active owner/driver work and deletion of the final admin are blocked.' })
+  @ApiOkResponse({ type: AccountDeleteResponse })
+  @ApiError(400, 'Body validation failed.')
+  @ApiError(401, 'Missing/invalid token or wrong current password.')
+  @ApiError(404, 'The account row vanished mid-request.')
+  @ApiError(409, 'The final admin or an account with active operational work cannot be deleted.')
+  deleteMe(@CurrentUser() user: any, @Body() dto: DeleteAccountDto) {
+    return this.accountData.deleteForUser(user.sub, dto.password);
   }
 
   /** All dishes the caller hearted, newest first. */

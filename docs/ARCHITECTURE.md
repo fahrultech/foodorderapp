@@ -109,6 +109,22 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   cents. The web `/admin` route repeats the role gate for UX, exposes summary
   cards and three oversight tables, and the shared header only advertises it to
   admin sessions. API authorization remains authoritative for direct requests.
+- **Account portability and deletion use explicit privacy boundaries** —
+  `GET /users/me/export` is scoped only from the verified JWT subject and maps
+  every response through an allowlist: profile, addresses, favorites, customer
+  orders, payments made, reviews, owned restaurants/menu, driver assignments,
+  issued refunds, refresh-session metadata, and push endpoints. It never emits
+  password hashes, refresh-token hashes, Web Push key material, raw tokens, or
+  gateway client secrets. `DELETE /users/me` requires the current password plus
+  the exact `DELETE` confirmation and executes in one transaction. Address,
+  favorite, review, refresh-session, and push rows cascade; order/payment/refund
+  audit rows survive through their existing `SET NULL` links. Before deletion,
+  customer order snapshots are anonymized and refund-admin email snapshots are
+  cleared; affected restaurant review aggregates are recomputed after the review
+  cascade. The last admin cannot self-delete, and owners/drivers must first clear
+  active orders/assignments. Existing signed access JWTs remain cryptographically
+  valid until their normal short expiry, but refresh is revoked immediately and
+  account-backed reads fail once the user row is gone.
 - **Feature flags are DB-backed and deterministic** — `feature_flags` stores a
   unique key, global enabled switch, and constrained integer rollout percentage
   from 0 through 100. `FeatureFlagsService.isEnabled(key, subjectId)` fails

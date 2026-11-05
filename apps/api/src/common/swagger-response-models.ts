@@ -150,6 +150,110 @@ export class LogoutResponse {
   revoked_sessions: number;
 }
 
+export class AccountFavoriteRestaurantResponse {
+  @ApiProperty({ type: 'string', format: 'uuid' })
+  id: string;
+
+  @ApiProperty()
+  name: string;
+
+  @ApiProperty()
+  slug: string;
+}
+
+export class AccountFavoriteMenuItemResponse {
+  @ApiProperty({ type: 'string', format: 'uuid' })
+  id: string;
+
+  @ApiProperty()
+  name: string;
+
+  @ApiProperty({ type: 'string', format: 'uuid' })
+  restaurantId: string;
+
+  @ApiProperty({ type: () => AccountFavoriteRestaurantResponse, nullable: true })
+  restaurant: AccountFavoriteRestaurantResponse | null;
+}
+
+export class AccountFavoriteExportResponse {
+  @ApiProperty({ type: 'string', format: 'uuid' })
+  id: string;
+
+  @ApiProperty({ type: 'string', format: 'uuid' })
+  menuItemId: string;
+
+  @ApiProperty({ type: 'string', format: 'date-time' })
+  createdAt: string;
+
+  @ApiProperty({ type: () => AccountFavoriteMenuItemResponse, nullable: true })
+  menuItem: AccountFavoriteMenuItemResponse | null;
+}
+
+export class AccountReviewExportResponse {
+  @ApiProperty({ type: 'string', format: 'uuid' })
+  id: string;
+
+  @ApiProperty({ type: 'string', format: 'uuid' })
+  orderId: string;
+
+  @ApiProperty({ type: 'string', format: 'uuid' })
+  restaurantId: string;
+
+  @ApiProperty({ type: 'integer', minimum: 1, maximum: 5 })
+  rating: number;
+
+  @ApiProperty({ type: 'string', nullable: true })
+  comment: string | null;
+
+  @ApiProperty({ type: 'string', format: 'date-time' })
+  createdAt: string;
+
+  @ApiProperty({ type: 'string', format: 'date-time' })
+  updatedAt: string;
+}
+
+export class AccountSessionExportResponse {
+  @ApiProperty({ type: 'string', format: 'uuid' })
+  id: string;
+
+  @ApiProperty({ type: 'string', format: 'date-time' })
+  expiresAt: string;
+
+  @ApiProperty({ type: 'string', format: 'date-time', nullable: true })
+  revokedAt: string | null;
+
+  @ApiProperty({ type: 'string', format: 'date-time' })
+  createdAt: string;
+}
+
+export class AccountPushSubscriptionExportResponse {
+  @ApiProperty({ type: 'string', format: 'uuid' })
+  id: string;
+
+  @ApiProperty({ type: 'string', format: 'uri' })
+  endpoint: string;
+
+  @ApiProperty({ type: 'string', format: 'date-time' })
+  createdAt: string;
+
+  @ApiProperty({ type: 'string', format: 'date-time' })
+  updatedAt: string;
+}
+
+export class AccountDeleteResponse {
+  @ApiProperty({ example: true })
+  deleted: boolean;
+
+  @ApiProperty({ type: 'integer' })
+  anonymizedOrders: number;
+
+  @ApiProperty({ type: 'integer' })
+  detachedRestaurants: number;
+
+  @ApiProperty({ type: 'integer' })
+  unassignedOrders: number;
+}
+
 // ---------------------------------------------------------------------------
 // Restaurants & menu (wire = TypeORM entity JSON; unloaded relations absent)
 // ---------------------------------------------------------------------------
@@ -952,4 +1056,45 @@ export class PaymentRefundResponse {
 
   @ApiProperty({ type: 'string', format: 'date-time' })
   createdAt: string;
+}
+
+export class AccountDataExportResponse {
+  @ApiProperty({ type: 'integer', example: 1 })
+  schemaVersion: number;
+
+  @ApiProperty({ type: 'string', format: 'date-time' })
+  generatedAt: string;
+
+  @ApiProperty({ type: () => SafeUserResponse })
+  profile: SafeUserResponse;
+
+  @ApiProperty({ type: () => [DeliveryAddressResponse] })
+  addresses: DeliveryAddressResponse[];
+
+  @ApiProperty({ type: () => [AccountFavoriteExportResponse] })
+  favorites: AccountFavoriteExportResponse[];
+
+  @ApiProperty({ type: () => [OrderResponse] })
+  orders: OrderResponse[];
+
+  @ApiProperty({ type: () => [PaymentResponse] })
+  paymentsMade: PaymentResponse[];
+
+  @ApiProperty({ type: () => [AccountReviewExportResponse] })
+  reviews: AccountReviewExportResponse[];
+
+  @ApiProperty({ type: () => [RestaurantWithMenuResponse] })
+  ownedRestaurants: RestaurantWithMenuResponse[];
+
+  @ApiProperty({ type: () => [OrderResponse] })
+  driverAssignments: OrderResponse[];
+
+  @ApiProperty({ type: () => [PaymentRefundResponse] })
+  refundsIssued: PaymentRefundResponse[];
+
+  @ApiProperty({ type: () => [AccountSessionExportResponse] })
+  sessions: AccountSessionExportResponse[];
+
+  @ApiProperty({ type: () => [AccountPushSubscriptionExportResponse] })
+  pushSubscriptions: AccountPushSubscriptionExportResponse[];
 }

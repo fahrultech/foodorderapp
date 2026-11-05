@@ -4,6 +4,51 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
+## 2026-11-05 13:10 — Session 63 — Personal-data export and account deletion
+
+**Built:** completed the next unblocked Phase 5 item as two authenticated
+self-service API endpoints.
+
+- Added `GET /api/users/me/export`, scoped exclusively from the JWT subject. The
+  versioned export explicitly maps profile, address book, favorites, customer
+  orders, payments made, reviews, owned restaurants/menu, driver assignments,
+  issued-refund history, refresh-session metadata, and push endpoints. Password
+  hashes, refresh-token hashes, push key material, raw tokens, and payment client
+  secrets cannot enter the response shape.
+- Added `DELETE /api/users/me` with a fully decorated DTO requiring the current
+  password and exact `DELETE` confirmation. The operation is transactional:
+  retained customer-order snapshots are anonymized, refund-admin email snapshots
+  are cleared, the user is deleted through existing cascade/SET NULL FKs, and
+  affected restaurant review aggregates are recomputed.
+- Added operational safety gates: the final administrator cannot self-delete;
+  drivers must clear active assignments; owners must resolve active restaurant
+  orders. Successful deletion reports anonymized orders, detached restaurants,
+  and unassigned deliveries. Refresh sessions cascade immediately; existing
+  short-lived access JWTs keep their normal cryptographic expiry boundary.
+- Added typed OpenAPI models for both endpoints and their nested export fields,
+  plus privacy architecture/API documentation. No schema migration was needed;
+  the existing FK actions and nullable retained-history links already express the
+  deletion policy.
+
+**Verified:**
+
+- Strict TDD: the new DTO/service suites first failed on missing modules; after
+  implementation they passed **8/8**. The expanded Swagger contract and UUID
+  controller harness then exposed both missing test providers before the full
+  suite was rerun.
+- API production build clean; full Jest **65 suites / 755 tests green**.
+- Live PostgreSQL-backed smoke against the built API: registered a temporary
+  customer, created an authenticated order containing private contact snapshots,
+  exported it with no sensitive key material, proved wrong password → 401 and
+  non-exact confirmation → 400, then deleted the account → 200 with one
+  anonymized order. The retained order had `userId:null`, all contact/address
+  fields replaced, note cleared, and the deleted refresh token returned 401.
+- The temporary smoke data was removed by a full canonical reseed; port 4000 was
+  released. `git diff --check` passed, and added-line sanitizer auditing found no
+  masked credential literals or U+2026 corruption.
+
+---
+
 ## 2026-11-05 09:23 — Session 62 — Restaurant SEO metadata and crawler routes
 
 **Built:** completed the next unblocked Phase 5 item across the public browse

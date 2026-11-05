@@ -76,6 +76,8 @@ NEXT_PUBLIC_API_URL=http://localhost:4000/api npm run dev
 | POST | `/api/auth/logout` | Revoke this session, or all of mine (Bearer) |
 | GET | `/api/auth/me` | Current profile (Bearer, read from DB) |
 | PATCH | `/api/users/me` | Update own name/phone/address (Bearer) |
+| GET | `/api/users/me/export` | Export the authenticated account's profile, addresses, favorites, orders/payments/reviews, owned restaurants, driver/refund history, session metadata, and push endpoints — sensitive hashes/key material excluded |
+| DELETE | `/api/users/me` | Delete own account with current password + exact `DELETE` confirmation; anonymizes retained order snapshots, revokes refresh sessions, blocks final-admin and active owner/driver work |
 | GET | `/api/users/me/favorites` | Saved dishes, newest first (Bearer) — `{items,total}` with dish + restaurant fields |
 | POST | `/api/users/me/favorites` | Heart a dish `{menuItemId}` (Bearer) — idempotent: 200 `{created:false}` if already saved; unknown dish 404 |
 | DELETE | `/api/users/me/favorites/:menuItemId` | Un-heart (Bearer) — idempotent `{removed:true/false}` |
