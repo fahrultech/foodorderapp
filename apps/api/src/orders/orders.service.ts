@@ -23,6 +23,7 @@ import {
   MAX_PAGE_SIZE,
 } from './dto/list-my-orders.dto';
 import { MenuService } from '../menu/menu.service';
+import { MenuOptionService } from '../menu/menu-option.service';
 import { RestaurantsService } from '../restaurants/restaurants.service';
 import { OrderEventsService } from './order-events.service';
 import { PromosService, normalizePromoCode } from '../promos/promos.service';
@@ -75,6 +76,12 @@ export class OrdersService {
     @Optional()
     @InjectRepository(OrderStatusAudit)
     private readonly statusAudits?: Repository<OrderStatusAudit>,
+    // Menu-option pricing (Phase 5): resolves + validates every line's
+    // selected choice ids server-side. Optional so pre-options unit
+    // harnesses (which never send optionChoiceIds) stay valid; the app
+    // module always injects it.
+    @Optional()
+    private readonly optionPricing?: MenuOptionService,
   ) {}
 
   private async auditStatusChange(
@@ -219,9 +226,18 @@ export class OrdersService {
     const menuItems = await this.menu.findByIds(dto.items.map((i) => i.menuItemId));
     const byId = new Map(menuItems.map((m) => [m.id, m]));
 
+    // Menu options (Phase 5): validate every line's selected choice ids
+    // against the dishes' option groups BEFORE any pricing is trusted —
+    // duplicates, foreign-dish ids, unknown ids and group min/max all 400
+    // the whole order. Results are INDEX-ALIGNED with dto.items.
+    const optionLines = this.optionPricing
+      ? await this.optionPricing.resolveSelections(dto.items)
+      : dto.items.map(() => ({ extraCents: 0, selections: [] }));
+
     let subtotal = 0;
     const items: Partial<OrderItem>[] = [];
-    for (const line of dto.items) {
+    for (let index = 0; index < dto.items.length; index++) {
+      const line = dto.items[index];
       const quantity = Math.floor(line.quantity);
       if (!Number.isFinite(quantity) || quantity < 1 || quantity > 50) {
         throw new BadRequestException(`Invalid quantity for ${line.menuItemId}`);
@@ -233,12 +249,17 @@ export class OrdersService {
       if (m.restaurantId !== dto.restaurantId) {
         throw new BadRequestException(`Item ${m.id} does not belong to this restaurant`);
       }
-      subtotal += m.priceCents * quantity;
+      // Server-side unit price: dish base + resolved option deltas. The
+      // client never sends a price; deltas already survived validation.
+      const options = optionLines[index];
+      const unitPriceCents = m.priceCents + options.extraCents;
+      subtotal += unitPriceCents * quantity;
       items.push({
         menuItemId: m.id,
         name: m.name,
-        unitPriceCents: m.priceCents,
+        unitPriceCents,
         quantity,
+        optionSelections: options.selections.length ? options.selections : null,
       });
     }
 

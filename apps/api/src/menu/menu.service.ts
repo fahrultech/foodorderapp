@@ -2,10 +2,12 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { MenuItem } from './menu-item.entity';
+import { MenuOptionGroup } from './menu-option-group.entity';
 import { Restaurant } from '../restaurants/restaurant.entity';
 import { UserRole } from '../users/user.entity';
 import { isUuid } from '../common/uuid';
@@ -29,20 +31,47 @@ export class MenuService {
     @InjectRepository(Restaurant)
     private readonly restaurants: Repository<Restaurant>,
     private readonly imageUploads: MenuImageService,
+    // Optional so every pre-options construction (unit harnesses) keeps
+    // working; the app module always registers both option entities.
+    @Optional()
+    @InjectRepository(MenuOptionGroup)
+    private readonly optionGroups?: Repository<MenuOptionGroup>,
   ) {}
 
   /**
-   * Public menu of one restaurant. The uuid guard here is defense-in-depth
-   * for direct service calls: over HTTP, `UuidParam` on the route already
-   * answers 400 for malformed ids. An unknown-but-valid id answers an
-   * empty list (pre-existing contract — no existence leak either way).
+   * Public menu of one restaurant, WITH option groups + choices attached
+   * (Phase 5). Two flat queries — items, then all groups for those ids in
+   * one IN — deliberately avoiding a per-dish N+1; choices come with the
+   * group relation load. An owner-created dish with no groups serializes
+   * `optionGroups: []` so the web cart can branch without null-checks.
    */
   async findByRestaurant(restaurantId: string): Promise<MenuItem[]> {
     if (!isUuid(restaurantId)) throw new NotFoundException('Restaurant not found');
-    return this.repo.find({
+    const items = await this.repo.find({
       where: { restaurantId },
       order: { category: 'ASC', name: 'ASC' },
     });
+    if (!items.length) return items;
+    if (!this.optionGroups) {
+      return items.map((i) => ({ ...i, optionGroups: [] }));
+    }
+    const groups = await this.optionGroups.find({
+      where: { menuItemId: In(items.map((i) => i.id)) },
+      relations: { choices: true },
+    });
+    const byItem = new Map<string, MenuOptionGroup[]>();
+    for (const g of groups) {
+      g.choices = (g.choices ?? []).sort(
+        (a, b) => a.position - b.position || a.name.localeCompare(b.name),
+      );
+      const list = byItem.get(g.menuItemId) ?? [];
+      list.push(g);
+      byItem.set(g.menuItemId, list);
+    }
+    for (const list of byItem.values()) {
+      list.sort((a, b) => a.position - b.position || a.name.localeCompare(b.name));
+    }
+    return items.map((i) => ({ ...i, optionGroups: byItem.get(i.id) ?? [] }));
   }
 
   /** Fetch items by ids — used when pricing an order server-side. */
@@ -89,8 +118,13 @@ export class MenuService {
     return this.repo.save(item);
   }
 
-  /** Load a dish and verify the actor may manage its parent restaurant. */
-  private async loadManagedItem(id: string, actor: Actor): Promise<MenuItem> {
+  /**
+   * Load a dish and verify the actor may manage its parent restaurant.
+   * PUBLIC because MenuOptionService reuses the exact same ownership
+   * resolution for option-group routes (session 14 lesson: foreign/unknown
+   * ids both answer 404, no existence leak).
+   */
+  async loadManagedItem(id: string, actor: Actor): Promise<MenuItem> {
     if (!isUuid(id)) throw new NotFoundException('Menu item not found');
     const item = await this.repo.findOne({ where: { id } });
     if (!item) throw new NotFoundException('Menu item not found');

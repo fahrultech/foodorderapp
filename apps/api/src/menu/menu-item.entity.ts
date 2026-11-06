@@ -4,10 +4,12 @@ import {
   Entity,
   Index,
   ManyToOne,
+  OneToMany,
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
 import { Restaurant } from '../restaurants/restaurant.entity';
+import { MenuOptionGroup } from './menu-option-group.entity';
 
 @Index('IDX_menu_items_restaurantId', ['restaurantId'])
 @Entity('menu_items')
@@ -43,6 +45,14 @@ export class MenuItem {
 
   @Column()
   restaurantId: string;
+
+  /**
+   * Option groups (size/spice/extras, Phase 5). Loaded explicitly on the
+   * public menu read via a second IN-query (see MenuService.findByRestaurant)
+   * — never blindly cascaded, so owner mutation responses stay slim.
+   */
+  @OneToMany(() => MenuOptionGroup, (group) => group.menuItem)
+  optionGroups: MenuOptionGroup[];
 
   @CreateDateColumn()
   createdAt: Date;

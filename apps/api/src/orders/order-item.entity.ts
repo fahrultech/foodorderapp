@@ -7,6 +7,7 @@ import {
 } from 'typeorm';
 import { Order } from './order.entity';
 import { MenuItem } from '../menu/menu-item.entity';
+import { OrderOptionSnapshot } from '../menu/order-option-snapshot';
 
 @Index('IDX_order_items_orderId', ['orderId'])
 @Entity('order_items')
@@ -35,4 +36,14 @@ export class OrderItem {
 
   @Column({ type: 'int' })
   unitPriceCents: number;
+
+  /**
+   * Menu-option receipt (Phase 5): [{ groupId, groupName, choiceId,
+   * choiceName, priceDeltaCents }] frozen at order time — same snapshot
+   * philosophy as `name`/`unitPriceCents`: later menu edits never rewrite
+   * history. null for every pre-options row AND for lines with no picks.
+   * The deltas are already folded into `unitPriceCents` server-side.
+   */
+  @Column({ type: 'jsonb', nullable: true })
+  optionSelections: OrderOptionSnapshot[] | null;
 }

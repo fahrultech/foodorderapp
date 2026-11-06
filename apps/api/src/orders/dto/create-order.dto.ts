@@ -1,5 +1,6 @@
 import { Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
   IsArray,
   IsInt,
   IsNotEmpty,
@@ -25,6 +26,23 @@ export class CreateOrderItemDto {
   @Max(50)
   @Type(() => Number)
   quantity: number;
+
+  /**
+   * Menu-option selections (Phase 5). NOT trusted like every money field:
+   * the server re-checks each id against the dish's option groups (exists,
+   * belongs to THIS dish, no duplicates, per-group min/max) and folds the
+   * stored price deltas into the unit price itself. Unknown/foreign ids
+   * 400 the whole order.
+   */
+  @ApiPropertyOptional({
+    type: [String],
+    description: 'Choice ids from the dish optionGroups in GET /restaurants/{id}/menu',
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(20)
+  @IsUUID('4', { each: true, message: 'optionChoiceIds must be valid choice ids' })
+  optionChoiceIds?: string[];
 }
 
 export class CreateOrderDto {

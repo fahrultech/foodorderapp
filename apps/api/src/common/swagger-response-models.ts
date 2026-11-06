@@ -349,6 +349,49 @@ export class RestaurantResponse {
   updatedAt: string;
 }
 
+export class MenuOptionChoiceResponse {
+  @ApiProperty({ type: 'string', format: 'uuid' })
+  id: string;
+
+  @ApiProperty({ type: 'string', format: 'uuid', description: 'Owning option group.' })
+  groupId: string;
+
+  @ApiProperty({ example: 'Large' })
+  name: string;
+
+  @ApiProperty({ type: 'integer', minimum: 0, description: 'Extra cents on top of the dish base price.' })
+  priceDeltaCents: number;
+
+  @ApiProperty({ type: 'integer', description: 'Display order inside the group.' })
+  position: number;
+}
+
+export class MenuOptionGroupResponse {
+  @ApiProperty({ type: 'string', format: 'uuid' })
+  id: string;
+
+  @ApiProperty({ type: 'string', format: 'uuid', description: 'Dish this group belongs to.' })
+  menuItemId: string;
+
+  @ApiProperty({ example: 'Size' })
+  name: string;
+
+  @ApiProperty({ type: 'integer', minimum: 0, description: 'Selections an order line MUST include (0 = optional group).' })
+  minChoices: number;
+
+  @ApiProperty({ type: 'integer', minimum: 1, description: 'Selections an order line MAY include.' })
+  maxChoices: number;
+
+  @ApiProperty({ type: 'integer', description: 'Display order on the dish.' })
+  position: number;
+
+  @ApiPropertyOptional({
+    type: [MenuOptionChoiceResponse],
+    description: 'Loaded on public menu reads and group mutations; omitted on choice-scoped routes.',
+  })
+  choices?: MenuOptionChoiceResponse[];
+}
+
 export class MenuItemResponse {
   @ApiProperty({ type: 'string', format: 'uuid' })
   id: string;
@@ -382,6 +425,12 @@ export class MenuItemResponse {
 
   @ApiProperty({ type: 'string', format: 'date-time' })
   updatedAt: string;
+
+  @ApiPropertyOptional({
+    type: [MenuOptionGroupResponse],
+    description: 'Option groups with their choices. Attached on the public menu read (GET /restaurants/{id}/menu) — empty array when the dish has none; omitted on owner mutation responses.',
+  })
+  optionGroups?: MenuOptionGroupResponse[];
 }
 
 export class MenuImageUploadResponse {
@@ -429,6 +478,23 @@ export class PaginatedRestaurantsResponse {
 // Orders
 // ---------------------------------------------------------------------------
 
+export class OrderItemOptionSelectionResponse {
+  @ApiProperty({ type: 'string', format: 'uuid', description: 'Option group id at order time (snapshot; may reference a since-deleted group).' })
+  groupId: string;
+
+  @ApiProperty({ example: 'Size', description: 'Group label snapshot.' })
+  groupName: string;
+
+  @ApiProperty({ type: 'string', format: 'uuid', description: 'Choice id at order time (snapshot).' })
+  choiceId: string;
+
+  @ApiProperty({ example: 'Large', description: 'Choice label snapshot.' })
+  choiceName: string;
+
+  @ApiProperty({ type: 'integer', minimum: 0, description: 'Cents folded into unitPriceCents for this choice.' })
+  priceDeltaCents: number;
+}
+
 export class OrderItemResponse {
   @ApiProperty({ type: 'string', format: 'uuid' })
   id: string;
@@ -450,8 +516,15 @@ export class OrderItemResponse {
   @ApiProperty({ type: 'integer', minimum: 1, maximum: 50 })
   quantity: number;
 
-  @ApiProperty({ type: 'integer', description: 'Unit price in cents (snapshot).' })
+  @ApiProperty({ type: 'integer', description: 'Unit price in cents (snapshot; INCLUDES resolved menu-option deltas).' })
   unitPriceCents: number;
+
+  @ApiProperty({
+    type: [OrderItemOptionSelectionResponse],
+    nullable: true,
+    description: 'Menu-option receipt frozen at order time (Phase 5). null = no options / pre-options row.',
+  })
+  optionSelections: OrderItemOptionSelectionResponse[] | null;
 }
 
 export class OrderResponse {

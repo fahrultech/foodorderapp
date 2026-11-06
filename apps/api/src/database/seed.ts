@@ -3,6 +3,7 @@ import * as bcrypt from 'bcryptjs';
 import { User, UserRole } from '../users/user.entity';
 import { Restaurant } from '../restaurants/restaurant.entity';
 import { MenuItem } from '../menu/menu-item.entity';
+import { MenuOptionGroup } from '../menu/menu-option-group.entity';
 import { Order, OrderStatus } from '../orders/order.entity';
 import { Favorite } from '../users/favorite.entity';
 import { DeliveryAddress } from '../users/delivery-address.entity';
@@ -125,6 +126,7 @@ async function main() {
   const restaurantRepo = dataSource.getRepository(Restaurant);
   const cityRepo = dataSource.getRepository(City);
   const menuRepo = dataSource.getRepository(MenuItem);
+  const optionRepo = dataSource.getRepository(MenuOptionGroup);
   const orderRepo = dataSource.getRepository(Order);
 
   // Users first — restaurants reference the demo owner.
@@ -210,6 +212,41 @@ async function main() {
     created.push({ restaurant, items });
     console.log(`  + ${restaurant.name} (${items.length} items)`);
   }
+
+  // Menu options/variants (Phase 5): sizes on Warung's Es Teh Manis and
+  // add-ons on Nasi Goreng Spesial. Every seeded group is OPTIONAL
+  // (minChoices 0): the web cart learns to send selection ids in the
+  // follow-up session, and a required group would make these dishes
+  // unorderable meanwhile. Required-group enforcement is covered by
+  // service specs + live smoke instead.
+  const warungEntry = created.find((c) => c.restaurant.slug === 'warung-nusantara')!;
+  await optionRepo.save([
+    optionRepo.create({
+      menuItemId: warungEntry.items[4].id, // Es Teh Manis
+      name: 'Size',
+      minChoices: 0,
+      maxChoices: 1,
+      position: 0,
+      choices: [
+        { name: 'Regular', priceDeltaCents: 0, position: 0 },
+        { name: 'Large', priceDeltaCents: 200, position: 1 },
+        { name: 'Jumbo', priceDeltaCents: 350, position: 2 },
+      ],
+    }),
+    optionRepo.create({
+      menuItemId: warungEntry.items[0].id, // Nasi Goreng Spesial
+      name: 'Add-ons',
+      minChoices: 0,
+      maxChoices: 3,
+      position: 0,
+      choices: [
+        { name: 'Extra egg', priceDeltaCents: 200, position: 0 },
+        { name: 'Chicken satay (3 pcs)', priceDeltaCents: 500, position: 1 },
+        { name: 'Fried shallots', priceDeltaCents: 150, position: 2 },
+      ],
+    }),
+  ]);
+  console.log('  + option groups on Warung Nusantara (Size, Add-ons)');
 
   // Demo orders so both surfaces have data on a fresh clone: the customer
   // history page and the owner dashboard inbox (/dashboard, Phase 2). The
