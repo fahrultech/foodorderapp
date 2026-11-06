@@ -443,22 +443,39 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   server-fetched "Recent reviews" section; `Stars.tsx` is display-only and
   SSR-safe. Review edit/delete exist on the API but have no UI yet.
 - **Promo codes (`/api/promos` + order-create hook)** — `promo_codes` rows are
-  platform/seed-managed (no owner CRUD yet): `percent` (1..100 of subtotal,
+  platform-managed: ADMIN-only CRUD at `/api/admin/promos` (list with live
+  `usageCount`, create, PATCH where an omitted field keeps its value and an
+  explicit `null` CLEARS expiry/caps) plus the read-only redemption ledger at
+  `GET /admin/promos/:id/usages` — no owner access, owners must not mint or
+  widen their own discounts. Definition: `percent` (1..100 of subtotal,
   optional `maxDiscountCents` cap) or `fixed` cents-off, gated by
   `minSubtotalCents` (checked against the PRE-discount subtotal, so a promo
   can't bypass a restaurant minimum either — that check still runs first) and
   optionally scoped to one restaurant (`restaurantId` null = platform-wide);
-  `isActive=false` is the kill switch. `PromosService.evaluate` is the single
-  decision point, called by `OrdersService.create` with the SERVER-computed
-  subtotal — the client's numbers are never consulted; a rejected code 400s
-  the whole order. The applied code + `discountCents` are denormalized onto
+  `isActive=false` is the kill switch; `startsAt`/`expiresAt` form the
+  redemption window (start INCLUSIVE, end EXCLUSIVE — equality with
+  `expiresAt` rejects); `maxTotalUsages`/`maxPerUser` are redemption caps
+  counted on the append-only `promo_usages` ledger (one row per consumed
+  discount, unique per order, integer-cents snapshot; `userId` null = guest
+  or GDPR-erased account — guests consume the total cap but are never
+  per-user capped, since there is no provable identity to cap).
+  `PromosService.evaluate` is the single decision point, called by
+  `OrdersService.create` with the SERVER-computed subtotal plus the caller
+  identity — the client's numbers are never consulted; a rejected code 400s
+  the whole order. An applied code appends the ledger row AFTER the order is
+  saved (FK needs the id); the count→insert window for simultaneous
+  "last redemption" orders stays open until the order-create transaction
+  lands. The applied code + `discountCents` are denormalized onto
   the order (text snapshot, not FK — receipts survive promo deletion). The
   discount is clamped to the subtotal: delivery fees are never discounted.
-  `POST /promos/validate` is a soft-200 preview for the checkout UI; expiry
-  dates + usage caps are deliberately Phase 5 ("Coupons expiry + usage caps"
-  needs a usage-ledger table). Web: promo input in the checkout summary
-  (apply/Enter, stale-cart reset, inline reason), discount line on the
-  receipt `/orders/[id]`.
+  `POST /promos/validate` is a soft-200 preview for the checkout UI (valid
+  payloads add `startsAt`/`expiresAt`/`remainingUsages`; a bearer token
+  additionally applies the per-user cap check). Seed ships demo codes for
+  every gate (WELCOME10 per-user-capped + WARUNGHEMAT expiring + expired
+  EXPIRED25 + not-yet-started NEXTWEEK5 + cap-1 FLASH3OFF) and writes a
+  ledger row for every promo-coded seed order. Web: promo input in the
+  checkout summary (apply/Enter, stale-cart reset, inline reason), discount
+  line on the receipt `/orders/[id]`.
 - **Delivery address book (`/api/users/me/addresses`, Bearer + checkout
   picker)** — `delivery_addresses` rows (label/recipientName/phone/address +
   `isDefault`), user FK cascade, indexed by `userId`, capped at 10 rows (400).
@@ -567,7 +584,8 @@ cities(1)──(N)restaurants  (restaurants.cityId → cities.id; nullable for l
 menu_items(1)──(N)menu_option_groups(1)──(N)menu_option_choices  (both FKs ON DELETE CASCADE + indexed on the child side; a group carries minChoices/maxChoices/position, a choice carries priceDeltaCents/position — money columns integer cents with CHECK bounds mirroring the DTO)
 order_items(1)──(jsonb)optionSelections  (denormalized receipt array, NOT a relation: no FK, so option rows can be deleted without touching order history)
 users(1)──(N)reviews(1)──(1)orders(1)──(1)restaurants  (reviews: unique orderId, all FKs ON DELETE CASCADE; restaurants.rating/ratingCount are recomputed server-side on every review write)
-restaurants(1)──(N)promo_codes  (restaurantId nullable: null = platform-wide, FK ON DELETE CASCADE; code unique uppercase; orders keep promoCode/discountCents text+int snapshots, no FK)
+restaurants(1)──(N)promo_codes  (restaurantId nullable: null = platform-wide, FK ON DELETE CASCADE; code unique uppercase; startsAt/expiresAt redemption window (timestamptz, nullable), maxTotalUsages/maxPerUser integer caps nullable with CHECK >= 0; orders keep promoCode/discountCents text+int snapshots, no FK)
+promo_codes(1)──(N)promo_usages  (append-only redemption ledger: one row per consumed discount — the caps are counted on this table, never a mutable counter; promoId FK ON DELETE CASCADE, orderId FK ON DELETE CASCADE + UNIQUE (an order redeems at most one code once), userId FK ON DELETE SET NULL (GDPR erasure keeps the total count alive), discountCents integer-cents snapshot CHECK >= 0; indexed (promoId) and (promoId, userId))
 orders(1)──(N)payments  (payments.orderId FK ON DELETE CASCADE; payer payments.userId FK ON DELETE SET NULL — audit row survives user deletion; providerRef UNIQUE nullable (null only when intent creation itself failed); amountCents = server snapshot of orders.totalCents at intent time; status enum pending|succeeded|failed|refunded; refundedCents/refundedAt accumulate refunds on the same row, CHECK 0..amountCents; indexed (orderId, createdAt) for the per-order history list)
 payments(1)──(N)payment_refunds  (refund audit ledger — one append-only row per LANDED refund, written in the same transaction as the payment-row CAS update; paymentId FK ON DELETE CASCADE, indexed (paymentId, createdAt) for the chronological read; providerRefundRef varchar(128) snapshot — nullable, deliberately NOT unique: a schema rule must never reject a refund the provider already executed; amountCents > 0 CHECK; refundedAfterCents running balance; actingAdminId FK SET NULL + actingAdminEmail JWT snapshot for attribution outliving the account)
 

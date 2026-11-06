@@ -4,6 +4,80 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
+## 2026-11-06 17:38 — Session 67 — Coupons expiry + usage caps (API)
+
+**Built:** completed the ROADMAP item "Coupons expiry + usage caps" — promo
+codes now carry a redemption window and ledger-backed caps, enforced at every
+decision point, with ADMIN minting/editing + an audit read of the ledger.
+
+- `promo_codes` gains `startsAt`/`expiresAt` (timestamptz, window start
+  inclusive / end EXCLUSIVE) and `maxTotalUsages`/`maxPerUser` (int, nullable
+  = unlimited, CHECK >= 0) — migration `AddCouponExpiryAndUsageCaps1794038400000`
+  (19th) plus the append-only `promo_usages` ledger entity/table: one row per
+  consumed discount, `orderId` UNIQUE (an order redeems at most one code once),
+  `promoId`/`orderId` CASCADE, `userId` FK SET NULL (guests AND GDPR-erased
+  accounts keep counting toward the total cap without an identity),
+  integer-cents `discountCents` snapshot, indexes (promoId) + (promoId,userId).
+  Caps are counted on THIS table — no mutable counter to drift.
+- `PromosService.evaluate` grew a 4th `ctx { userId?, now? }` arg and four new
+  rejection reasons (`not_started`, `expired`, `total_cap_reached`,
+  `per_user_cap_reached`), gated in cheapest-first order (ledger queries run
+  last, only for live codes). Guests skip the per-user cap only — there is no
+  provable identity to cap. `OrdersService.create` passes the caller identity
+  and appends the ledger row AFTER the order save (FK needs the id); a
+  rejected code still 400s with nothing written.
+- `POST /promos/validate` now runs behind `OptionalJwtAuthGuard` (a bearer
+  token activates the per-user check; guests/stale tokens stay public) and
+  the valid payload adds `startsAt`/`expiresAt`/`remainingUsages`.
+- ADMIN-only `PromosAdminController` at `/api/admin/promos`: list (with live
+  `usageCount` via one GROUP BY — no N+1), create, PATCH (omitted keeps,
+  explicit null CLEARS; lowering a cap below the current count makes the code
+  instantly spent, ledger untouched), and `GET /:id/usages` paginated ledger.
+  Guards mirrored on the service: percent 1..100 (400), `startsAt >= expiresAt`
+  (400), unknown restaurant (400 before an FK 500), duplicate normalized code
+  (409), UuidParam 400 on malformed ids.
+- Seed: 6 codes — WELCOME10 gained `maxPerUser 3`, WARUNGHEMAT a +365d expiry,
+  plus EXPIRED25/NEXTWEEK5/FLASH3OFF demoing expired/not_started/cap-1;
+  every promo-coded seed order (FO-SEED1) now gets its matching ledger row so
+  cap counting starts honest. TRUNCATE covers `promo_usages`.
+- Swagger: 4 new operations pinned in `swagger.spec` (route 63-op contract,
+  bearer lists, SUCCESS/ERRORS matrices, 8-value reason enum); money math
+  untouched (discount clamped to subtotal, fee never discounted).
+
+**Verified:**
+
+- API production build clean; full Jest **69 suites / 823 tests** green
+  (+1 suite / +38 tests: expiry/caps service specs, ADMIN CRUD/ledger specs,
+  4 real-ValidationPipe DTO cases, orders-promo ledger assertions).
+- Live smoke on a scratch DB (chain 19/19 from empty; payment gate OFF — not
+  under test): **54/54 assertions** — window boundaries, EXPIRED25 order 400
+  wrote nothing, guest FLASH3OFF redemption (ledger userId NULL, 300 cents),
+  second redemption 400 total cap + rejected path wrote zero rows, owner
+  per-user loop exactly 3 landings then 400 while demo (1 seeded of 3) and
+  guests stay valid, ADMIN 401/403/404/400/409 branches, cap-0 instantly
+  spent, null-clear revives with `remainingUsages` null, ledger pagination +
+  404, and direct psql probes: negative-cap CHECK, negative-discount CHECK,
+  duplicate-order UNIQUE, "every promo-coded order has exactly one redemption
+  row".
+- Two real bugs found BY the smoke and fixed: `PromosModule` lacked
+  `AuthModule` so the route guards failed DI at boot, and admin `code`
+  validation rejected pasted whitespace (`@Transform` trim added, unit-pinned
+  through the real pipe).
+- Full Playwright suite **20/20 green ×2** on re-seeded local DB (web source
+  unchanged; seed promo fixture money math verified intact: the $39.00
+  WARUNGHEMAT cart still passes). Scratch DB dropped, servers killed,
+  ports 3000/4000/4010 freed.
+
+**Left for next sessions:** the count→insert race for two simultaneous
+"last redemption" orders stays open until "Unit-of-work: wrap order create in
+a transaction" (existing roadmap item — ledger write then moves inside it);
+promo redemptions are not in the GDPR export allowlist (SET NULL keeps
+erasure safe); storefront does not yet render the `expiresAt`/
+`remainingUsages` hints the preview already sends; no admin WEB UI for promo
+management (API-only for now). Next roadmap item: restaurant open hours.
+
+---
+
 ## 2026-11-06 14:55 — Session 66 — Cart line option picker (web)
 
 **Built:** finished the ROADMAP item "Menu item options/variants" with its
