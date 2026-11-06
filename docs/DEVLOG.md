@@ -4,6 +4,58 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
+## 2026-11-06 11:15 — Session 65 — Menu options/variants (API)
+
+**Built:** completed the ROADMAP item "Menu item options/variants" API half,
+left uncommitted in the working tree by the session that crashed
+mid-implementation (the 2026-11-06 morning WIP: entities, migration, service,
+controller, order wiring, seed and two spec files all present, nothing
+verified). Reviewed every file, then ran the full gates.
+
+- Two new entities + migration `AddMenuOptionGroups1793952000000` (18th):
+  `menu_option_groups` (name, minChoices 0..20, maxChoices 1..20 >= min,
+  position; FK menuItemId CASCADE) and `menu_option_choices` (name,
+  `priceDeltaCents` >= 0 integer cents, position; FK groupId CASCADE), both
+  CHECK-constrained + indexed, mirroring the DTO bounds exactly.
+- Owner CRUD: `POST/PATCH/DELETE /menu/items/:itemId/options/groups[/:groupId[/choices[/:choiceId]]]`
+  (`MenuOptionsController`, OWNER role, ownership resolved through the DISH via
+  the now-public `MenuService.loadManagedItem` — foreign/unknown ids all 404).
+  Guards: min>max 400, min above provided/current choice count 400, deleting
+  the choice that would starve a mandatory group 400, 20-choice cap per group,
+  cascade group-delete returns the pre-delete snapshot.
+- Public menu read embeds sorted `optionGroups` (one IN-query, no N+1; dishes
+  without groups get `[]`). Order lines accept `optionChoiceIds`;
+  `MenuOptionService.resolveSelections` validates existence/parent-dish/
+  duplicates/per-group min-max and folds DB price deltas into
+  `unitPriceCents` server-side; the receipt freezes into the new jsonb
+  `order_items.optionSelections` (null = no picks / pre-options rows).
+  Seed adds optional (min 0) Size + Add-ons groups on Warung Nusantara so the
+  web cart can adopt them without breaking checkout meanwhile.
+
+**Verified:**
+
+- API production build clean; full Jest **68 suites / 782 tests** green
+  (+2 suites / +23 tests: `menu-option.service.spec.ts` incl. real-pipe DTO
+  checks, `orders-option-pricing.spec.ts` for the index-aligned wiring).
+- Live smoke on a scratch DB (payment gate off — payments not under test):
+  **40/40 assertions**, notably — migration chain 18/18 from empty; seeded
+  2 groups/6 choices; public menu arrays + position sort; owner create
+  (cascade 2 choices), 400 min>max, 403 customer token, 404 foreign dish;
+  order with Large -> unit 700 = base 500+200, subtotal 1400, receipt stored;
+  client-sent `priceCents` stripped by the whitelist; duplicate/foreign/
+  unknown ids each 400 and wrote no order; mandatory-group missing 400,
+  satisfied 201; 3 picks on max 2 -> 400 while 2 picks priced both deltas
+  (1540); deleting the Size group cascaded its choices yet the past order's
+  snapshot stayed intact; non-uuid choice id -> 400 at the DTO.
+- Scratch DB dropped; port released. Added lines scanned for sanitizer
+  corruption (U+2026/`***`): none; `git diff --check` clean.
+
+**Left for next sessions:** web cart line option picker (render groups,
+enforce min/max in UI, send `optionChoiceIds`, show receipt on order
+history); then coupons expiry + usage caps.
+
+---
+
 ## 2026-11-06 06:10 — Session 64 — Order status-change audit trail
 
 **Built:** completed the ROADMAP item "Audit log table for status changes",

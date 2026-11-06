@@ -18,7 +18,14 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
 - **Money as integer cents** — every price/fee/total is `int` cents; formatting
   only at the UI edge. Avoids float drift in totals.
 - **Server-side pricing** — order totals are computed from DB menu prices at
-  checkout, never trusted from the client. Cart contents only send `menuItemId`s.
+  checkout, never trusted from the client. Cart contents only send `menuItemId`s
+  plus, for dishes with option groups, the selected `optionChoiceIds`. Those ids
+  are the ONLY client-supplied input the option path consults: `MenuOptionService.resolveSelections`
+  re-checks every one against the dish's own groups (existence, correct parent
+  dish, no duplicates, per-group `minChoices`/`maxChoices`) and folds the DB
+  `priceDeltaCents` values into `unitPriceCents` itself. A client-sent price,
+  delta or `extraCents` field simply does not exist as far as the DTO is
+  concerned, and any rejected selection 400s the whole order before a row is written.
 - **One-restaurant carts** — a cart holds dishes from a single restaurant
   (matches delivery/logic reality). Adding a dish from a *different*
   restaurant never wipes the cart silently: the CartProvider raises a
@@ -300,7 +307,18 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   token model.
 - **Snapshot order items** — `order_items` store name+unit price copies, so
   historical orders survive menu edits *and dish deletes* (the
-  `order_items.menuItemId` FK is `ON DELETE SET NULL`).
+  `order_items.menuItemId` FK is `ON DELETE SET NULL`). Menu-option picks follow
+  the same rule as a `jsonb` `optionSelections` receipt
+  (`{groupId, groupName, choiceId, choiceName, priceDeltaCents}`) frozen at order
+  time with **no FK**, so deleting a group or a choice never rewrites past orders;
+  the column is `null` for pre-options rows and for lines with no picks.
+- **Option selections are optional-by-default** — seeded groups ship
+  `minChoices 0` (a mandatory group with no client support would make the dish
+  unorderable). Bounds live in two places and must match: DTO
+  (`menu-option.dto.ts` constants) and migration CHECKs (`minChoices` 0..20,
+  `maxChoices` 1..20 and >= min, `priceDeltaCents` 0..10_000_000 integer cents).
+  The owner cannot starve a mandatory group either — deleting the choice that
+  would drop a group below its own `minChoices` answers 400.
 - **TypeORM migrations own the schema** — `synchronize` is off; the baseline
   `InitSchema` migration reproduces the Phase 0 dev schema exactly. Pending
   migrations run automatically on API boot; `db:stamp-baseline` adopts
@@ -534,6 +552,8 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
 users(1)──(N)orders(1)──(N)order_items(N)──(1)menu_items(N)──(1)restaurants
 users(1)──(N)restaurants  (restaurants.ownerId → users.id; nullable, FK ON DELETE SET NULL, indexed)
 cities(1)──(N)restaurants  (restaurants.cityId → cities.id; nullable for legacy rows, FK ON DELETE SET NULL, indexed; restaurants.city is the read-friendly name snapshot)
+menu_items(1)──(N)menu_option_groups(1)──(N)menu_option_choices  (both FKs ON DELETE CASCADE + indexed on the child side; a group carries minChoices/maxChoices/position, a choice carries priceDeltaCents/position — money columns integer cents with CHECK bounds mirroring the DTO)
+order_items(1)──(jsonb)optionSelections  (denormalized receipt array, NOT a relation: no FK, so option rows can be deleted without touching order history)
 users(1)──(N)reviews(1)──(1)orders(1)──(1)restaurants  (reviews: unique orderId, all FKs ON DELETE CASCADE; restaurants.rating/ratingCount are recomputed server-side on every review write)
 restaurants(1)──(N)promo_codes  (restaurantId nullable: null = platform-wide, FK ON DELETE CASCADE; code unique uppercase; orders keep promoCode/discountCents text+int snapshots, no FK)
 orders(1)──(N)payments  (payments.orderId FK ON DELETE CASCADE; payer payments.userId FK ON DELETE SET NULL — audit row survives user deletion; providerRef UNIQUE nullable (null only when intent creation itself failed); amountCents = server snapshot of orders.totalCents at intent time; status enum pending|succeeded|failed|refunded; refundedCents/refundedAt accumulate refunds on the same row, CHECK 0..amountCents; indexed (orderId, createdAt) for the per-order history list)

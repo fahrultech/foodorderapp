@@ -85,6 +85,8 @@
 - [x] GDPR-ish data export & account deletion endpoints (2026-11-05, session 63; allowlisted full-account export + transactional password-confirmed deletion, retained-history anonymization, operational guards, Swagger/tests/live smoke)
 - [x] Audit log table for status changes (2026-11-06, session 64; append-only `order_status_audits` with from/to/source + actor userId/role/email snapshot, wired into owner/driver/admin/customer/both stale-sweep paths, CHECK-constrained + indexed migration, live smoke: 7 rows across all 5 sources, rejected edges silent)
 - [ ] Menu item options/variants (size, spice level, extras) — cart line options
+  - [x] API: option groups/choices entities + migration, owner CRUD routes under `/menu/items/:id/options`, public menu read embeds `optionGroups`, order lines accept `optionChoiceIds` with server-side validation + integer-cents delta folding + jsonb receipt snapshot (2026-11-06, session 65; 68 suites/782 tests, live smoke 40/40 incl. cascade, snapshot immutability, 403/404/400 branches)
+  - [ ] Web: cart line option picker (render groups from menu read, enforce min/max in UI, send `optionChoiceIds`, show receipt on order history)
 - [ ] Coupons expiry + usage caps
 - [ ] Restaurant open hours (day-of-week schedule entity) + auto isOpen
 - [ ] Search: fuzzy name/description match with pg_trgm
