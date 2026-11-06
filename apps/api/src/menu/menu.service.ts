@@ -51,6 +51,17 @@ export class MenuService {
       where: { restaurantId },
       order: { category: 'ASC', name: 'ASC' },
     });
+    return this.attachOptionGroups(items);
+  }
+
+  /**
+   * The attach half of `findByRestaurant`, public because `GET
+   * /restaurants/:id` (the storefront's source, session 66) embeds the
+   * identical shape on its nested `menuItems` — one contract, one sort,
+   * one code path. Items come back untouched (no copies) only when the
+   * groups repo is not wired, i.e. unit harnesses without it.
+   */
+  async attachOptionGroups(items: MenuItem[]): Promise<MenuItem[]> {
     if (!items.length) return items;
     if (!this.optionGroups) {
       return items.map((i) => ({ ...i, optionGroups: [] }));

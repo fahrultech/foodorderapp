@@ -15,7 +15,10 @@ function fakeRestaurant(overrides: Partial<Restaurant> = {}): Restaurant {
   } as Restaurant;
 }
 
-function build(existing: Restaurant[] = [fakeRestaurant()]) {
+function build(
+  existing: Restaurant[] = [fakeRestaurant()],
+  menu?: { attachOptionGroups: jest.Mock },
+) {
   const findOne = jest.fn(async ({ where }: any) => {
     if (where.slug) return existing.find((r) => r.slug === where.slug) ?? null;
     if (where.id) return existing.find((r) => r.id === where.id) ?? null;
@@ -40,9 +43,51 @@ function build(existing: Restaurant[] = [fakeRestaurant()]) {
     save,
     cityFindOne,
     repo,
-    service: new RestaurantsService(repo, cityRepo),
+    service: new RestaurantsService(repo, cityRepo, menu as any),
   };
 }
+
+describe('RestaurantsService.findOne — storefront option-group embed', () => {
+  const ID = '11111111-1111-4111-8111-111111111111';
+
+  it('embeds optionGroups on menuItems through MenuService.attachOptionGroups', async () => {
+    const attach = jest.fn(async (items: any[]) =>
+      items.map((i) => ({ ...i, optionGroups: [{ id: 'g1', name: 'Size' }] })),
+    );
+    const { service } = build(
+      [fakeRestaurant({ id: ID, menuItems: [{ id: 'i1', name: 'Es Teh' } as any] })],
+      { attachOptionGroups: attach },
+    );
+
+    const res = await service.findOne(ID);
+
+    expect(attach).toHaveBeenCalledWith([{ id: 'i1', name: 'Es Teh' }]);
+    expect((res as any).menuItems[0].optionGroups).toEqual([
+      { id: 'g1', name: 'Size' },
+    ]);
+  });
+
+  it('skips the attach for a menu-less restaurant', async () => {
+    const attach = jest.fn(async (items: any[]) => items);
+    const { service } = build([fakeRestaurant({ id: ID, menuItems: [] })], {
+      attachOptionGroups: attach,
+    });
+
+    await service.findOne(ID);
+
+    expect(attach).not.toHaveBeenCalled();
+  });
+
+  it('stays valid without the optional MenuService (unit harness shape)', async () => {
+    const { service } = build([
+      fakeRestaurant({ id: ID, menuItems: [{ id: 'i1' } as any] }),
+    ]);
+
+    const res = await service.findOne(ID);
+
+    expect((res as any).menuItems[0].optionGroups).toBeUndefined();
+  });
+});
 
 describe('RestaurantsService — owner CRUD', () => {
   describe('uniqueSlug', () => {

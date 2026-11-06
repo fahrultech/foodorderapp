@@ -2,6 +2,7 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Brackets, Repository } from 'typeorm';
@@ -10,6 +11,7 @@ import { CreateRestaurantDto, UpdateRestaurantDto } from './dto/restaurant.dto';
 import { UserRole } from '../users/user.entity';
 import { isUuid } from '../common/uuid';
 import { City } from '../cities/city.entity';
+import { MenuService } from '../menu/menu.service';
 
 export interface RestaurantQuery {
   search?: string;
@@ -27,6 +29,12 @@ export class RestaurantsService {
     private readonly repo: Repository<Restaurant>,
     @InjectRepository(City)
     private readonly cityRepo: Repository<City>,
+    // Session 66: the storefront's dish rows need their option groups —
+    // embedded through MenuService's single-IN attach so GET /restaurants/:id
+    // and GET /restaurants/:id/menu ship one identical shape. @Optional keeps
+    // the unit harness (constructed without it) valid.
+    @Optional()
+    private readonly menu?: MenuService,
   ) {}
 
   async findAll(q: RestaurantQuery) {
@@ -71,10 +79,14 @@ export class RestaurantsService {
 
   async findOne(id: string) {
     if (!isUuid(id)) return null;
-    return this.repo.findOne({
+    const restaurant = await this.repo.findOne({
       where: { id },
       relations: { menuItems: true },
     });
+    if (restaurant?.menuItems?.length && this.menu) {
+      restaurant.menuItems = await this.menu.attachOptionGroups(restaurant.menuItems);
+    }
+    return restaurant;
   }
 
   async findRestaurants() {
