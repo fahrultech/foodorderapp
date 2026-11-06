@@ -70,6 +70,13 @@
     "unavailable": "Unavailable",
     "added": "Added ✓",
     "addWithCount": "Add ({count} in cart)",
-    "add": "Add"
+    "add": "Add",
+    "chooseOptions": "Choose {name}"
+  },
+  "Options": {
+    "required": "{count, plural, =1 {Choose 1 required} other {Choose # required}}",
+    "chooseOne": "Choose one",
+    "upTo": "Choose up to {count}",
+    "unitPrice": "Unit price: {price}"
   }
 }

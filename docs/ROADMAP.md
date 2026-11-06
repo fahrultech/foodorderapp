@@ -84,9 +84,9 @@
 - [x] SEO: metadata per restaurant page, sitemap.xml, robots.txt (2026-11-05, session 62; canonical/OG/Twitter metadata, dynamic restaurant sitemap, private-route crawl exclusions, 18-test E2E suite)
 - [x] GDPR-ish data export & account deletion endpoints (2026-11-05, session 63; allowlisted full-account export + transactional password-confirmed deletion, retained-history anonymization, operational guards, Swagger/tests/live smoke)
 - [x] Audit log table for status changes (2026-11-06, session 64; append-only `order_status_audits` with from/to/source + actor userId/role/email snapshot, wired into owner/driver/admin/customer/both stale-sweep paths, CHECK-constrained + indexed migration, live smoke: 7 rows across all 5 sources, rejected edges silent)
-- [ ] Menu item options/variants (size, spice level, extras) — cart line options
+- [x] Menu item options/variants (size, spice level, extras) — cart line options (complete 2026-11-06, session 66)
   - [x] API: option groups/choices entities + migration, owner CRUD routes under `/menu/items/:id/options`, public menu read embeds `optionGroups`, order lines accept `optionChoiceIds` with server-side validation + integer-cents delta folding + jsonb receipt snapshot (2026-11-06, session 65; 68 suites/782 tests, live smoke 40/40 incl. cascade, snapshot immutability, 403/404/400 branches)
-  - [ ] Web: cart line option picker (render groups from menu read, enforce min/max in UI, send `optionChoiceIds`, show receipt on order history)
+  - [x] Web: cart line option picker (render groups from menu read, enforce min/max in UI, send `optionChoiceIds`, show receipt on order history) (2026-11-06, session 66; `GET /restaurants/:id` embeds the same `optionGroups` as the menu route, cart lines keyed by dish+selection with lineKey, radio/multi chips with cap enforcement + live unit-price, grouped receipt rows on cart/checkout/receipt/history; 68 suites/785 tests, live smoke 22/22, e2e 20/20 green x2 incl. new `menu-options.spec.ts`)
 - [ ] Coupons expiry + usage caps
 - [ ] Restaurant open hours (day-of-week schedule entity) + auto isOpen
 - [ ] Search: fuzzy name/description match with pg_trgm

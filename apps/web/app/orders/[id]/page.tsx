@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { api, formatPrice } from '@/lib/api';
+import { api, formatPrice, optionRowLabels } from '@/lib/api';
 import OrderTimeline from '@/components/OrderTimeline';
 import OrderLiveFeed from '@/components/OrderLiveFeed';
 import RateOrderCard from '@/components/RateOrderCard';
@@ -87,11 +87,16 @@ export default async function OrderPage({
         <h2 className="font-bold">Items</h2>
         <ul className="mt-3 space-y-2 text-sm">
           {order.items.map((i) => (
-            <li key={i.id} className="flex justify-between">
-              <span>
-                {i.quantity} × {i.name}
-              </span>
-              <span>{formatPrice(i.unitPriceCents * i.quantity)}</span>
+            <li key={i.id}>
+              <div className="flex justify-between">
+                <span>{i.quantity} × {i.name}</span>
+                <span>{formatPrice(i.unitPriceCents * i.quantity)}</span>
+              </div>
+              {i.optionSelections && i.optionSelections.length > 0 && (
+                <p className="mt-0.5 text-xs text-stone-500">
+                  {optionRowLabels(i.optionSelections).join(' · ')}
+                </p>
+              )}
             </li>
           ))}
         </ul>

@@ -4,6 +4,79 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
+## 2026-11-06 14:55 — Session 66 — Cart line option picker (web)
+
+**Built:** finished the ROADMAP item "Menu item options/variants" with its
+web half — the cart line option picker that renders groups from the menu
+read, enforces min/max in the UI, sends `optionChoiceIds`, and shows the
+frozen receipt — plus the one API embed the storefront needed.
+
+- API embed (additive): extracted `MenuService.attachOptionGroups` out of
+  `findByRestaurant` (one IN-query, position sort, `[]` when none) and
+  `RestaurantsService.findOne` now runs its nested `menuItems` through it —
+  `GET /restaurants/:id` ships the IDENTICAL option payload as
+  `GET /restaurants/:id/menu` (byte-parity proven in the live smoke). The
+  `MenuService` constructor arg is `@Optional()` so existing unit harnesses
+  compile untouched; `RestaurantsModule` imports `MenuModule` (no cycle:
+  MenuModule pulls in only AuthModule).
+- Cart model (`lib/cart.tsx`): `CartLine` gains `basePriceCents`, receipt-
+  shaped `options[]` and a `lineKey` (dish id + sorted choice ids) — the
+  same dish at two selections is TWO independent lines; `add` merges on
+  lineKey, `setQty` keys on it, `quantityOf` badges across selections,
+  and the unit price is always re-derived as base+Σ-deltas. Persisted
+  pre-options carts normalize at hydration (legacy lines survive), and a
+  cart-switch request carries its options so the replaced cart prices the
+  line right.
+- Picker (`AddToCartButton`): chips rendered from the embedded
+  `optionGroups` — radio semantics at `maxChoices 1`, accumulating
+  multi-select otherwise with unchecked chips disabled at the cap — `+$`
+  delta labels, live "Unit price:" readout, and Add disabled + relabelled
+  "Choose {group}" while a mandatory group is unmet. The button keeps the
+  exact name "Add" for satisfied/optional cases (the contract the whole
+  e2e suite clicks).
+- Receipt everywhere: cart rows, checkout summary, switch modal,
+  `/orders/[id]` items and `/orders/my` summaries render grouped labels
+  ("Add-ons: Extra egg, Chicken satay (3 pcs)") through the shared
+  `optionRowLabels` helper — flat per-choice rendering had repeated the
+  group name (found BY the new e2e, fixed before commit). Checkout sends
+  `optionChoiceIds` only on lines that carry picks.
+- i18n: new `Options` namespace + `CartButton.chooseOptions` in BOTH EN
+  and ID locales; `MenuBrowser` splits the dish-row layout so the picker
+  gets a full-width block under the name/price row while option-less
+  dishes keep the classic layout.
+
+**Verified:**
+
+- API production build clean; full Jest **68 suites / 785 tests** green
+  (+3: embed wiring, no-menu skip, optional-harness case).
+- Web production build clean.
+- Live smoke on a scratch DB (migration chain 18/18 from empty; payment
+  gate OFF — not under test): **22/22 assertions** — detail route embeds
+  optionGroups (Size max 1, position-sorted choices, `[]` for the option-
+  less dish, key present on all 5 rows); Size payload byte-identical
+  across the two public menu reads; selections server-priced (Es Teh+
+  Large 700, Nasi+egg+satay 2500 each, subtotal 5700), exactly 2 rows of
+  jsonb snapshot stored position-ordered; plain line kept the base price
+  with a null snapshot; cross-dish id / duplicate / over-max each answered
+  400 and wrote NOTHING.
+- Full Playwright suite **20/20 green ×2 on fresh seeds** — including the
+  new `menu-options.spec.ts` (2 tests: three-line option cart → $43.50
+  checkout → receipt snapshot round trip; radio swap / cap stacking /
+  deselect + untouched plain-Add behavior).
+- Scratch DB dropped; test servers killed and ports 3000/4000/4010 freed
+  so the next session never reuses stale builds or consumed seed state.
+  `git diff --check` clean; added-line sanitizer scan (U+2026/`***`):
+  the only ellipsis mirrors the checkout page's own placeholder string —
+  codepoint-verified on disk, not corruption.
+
+**Left for next sessions:** the kitchen board and owner inbox do not yet
+surface per-item option rows (staff needs the "no egg" visibility); the
+favorites page adds plain base-price lines because its payload omits
+`optionGroups` (safe on optional groups, wrong for mandatory ones); next
+roadmap item — coupons expiry + usage caps.
+
+---
+
 ## 2026-11-06 11:15 — Session 65 — Menu options/variants (API)
 
 **Built:** completed the ROADMAP item "Menu item options/variants" API half,

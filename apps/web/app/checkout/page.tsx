@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useCart } from '@/lib/cart';
 import { useAuth } from '@/lib/auth';
-import { api, formatPrice, DeliveryAddress, PromoPreview, Restaurant } from '@/lib/api';
+import { api, formatPrice, optionRowLabels, DeliveryAddress, PromoPreview, Restaurant } from '@/lib/api';
 
 /** A validated promo from the soft-200 /promos/validate endpoint. */
 type AppliedPromo = Extract<PromoPreview, { valid: true }>;
@@ -168,7 +168,15 @@ export default function CheckoutPage() {
     try {
       const order = await api.createOrder({
         restaurantId,
-        items: lines.map((l) => ({ menuItemId: l.menuItemId, quantity: l.quantity })),
+        // optionChoiceIds rides only when the line actually carries picks;
+        // the server re-validates every id and re-prices the line itself.
+        items: lines.map((l) => ({
+          menuItemId: l.menuItemId,
+          quantity: l.quantity,
+          ...(l.options.length
+            ? { optionChoiceIds: l.options.map((x) => x.choiceId) }
+            : {}),
+        })),
         customerName: form.customerName,
         contactPhone: form.contactPhone,
         deliveryAddress: form.deliveryAddress,
@@ -340,9 +348,14 @@ export default function CheckoutPage() {
         <h2 className="font-bold">Order summary</h2>
         <ul className="mt-3 space-y-2 text-sm">
           {lines.map((l) => (
-            <li key={l.menuItemId} className="flex justify-between">
+            <li key={l.lineKey} className="flex justify-between">
               <span>
                 {l.quantity} × {l.name}
+                {l.options.length > 0 && (
+                  <span className="block text-xs text-stone-500">
+                    {optionRowLabels(l.options).join(' · ')}
+                  </span>
+                )}
               </span>
               <span>{formatPrice(l.priceCents * l.quantity)}</span>
             </li>

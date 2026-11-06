@@ -122,27 +122,43 @@ export default function MenuBrowser({ restaurant }: { restaurant: Restaurant }) 
           <div key={g.anchorId} id={g.anchorId} className="scroll-mt-[172px]">
             <h2 className="mb-3 text-xl font-bold">{g.name}</h2>
             <div className="divide-y divide-stone-200 rounded-2xl border border-stone-200 bg-white">
-              {g.items.map((item) => (
-                <div key={item.id} className="flex items-center gap-4 p-4">
-                  <div className="min-w-0 flex-1">
-                    <h3 className="font-semibold">{item.name}</h3>
-                    {item.description && (
-                      <p className="mt-0.5 truncate text-sm text-stone-500">{item.description}</p>
-                    )}
-                    <p className="mt-1 text-sm text-stone-400">⏱ {common('minutes', { count: item.prepMinutes })}</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="font-bold">{formatPrice(item.priceCents)}</p>
-                    <div className="mt-2 flex items-center justify-end gap-1">
-                      <FavoriteButton menuItemId={item.id} />
+              {g.items.map((item) => {
+                // Dishes with option groups get the picker block below the
+                // classic row; option-less dishes keep the compact layout
+                // (button in the price column) byte-for-byte.
+                const hasOptions = (item.optionGroups?.length ?? 0) > 0;
+                return (
+                  <div key={item.id} className="p-4">
+                    <div className="flex items-center gap-4">
+                      <div className="min-w-0 flex-1">
+                        <h3 className="font-semibold">{item.name}</h3>
+                        {item.description && (
+                          <p className="mt-0.5 truncate text-sm text-stone-500">{item.description}</p>
+                        )}
+                        <p className="mt-1 text-sm text-stone-400">⏱ {common('minutes', { count: item.prepMinutes })}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="font-bold">{formatPrice(item.priceCents)}</p>
+                        <div className="mt-2 flex items-center justify-end gap-1">
+                          <FavoriteButton menuItemId={item.id} />
+                          {!hasOptions && (
+                            <AddToCartButton
+                              item={item}
+                              restaurant={{ id: restaurant.id, name: restaurant.name }}
+                            />
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    {hasOptions && (
                       <AddToCartButton
                         item={item}
                         restaurant={{ id: restaurant.id, name: restaurant.name }}
                       />
-                    </div>
+                    )}
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         ))}

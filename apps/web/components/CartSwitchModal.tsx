@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import { formatPrice } from '@/lib/api';
-import type { SwitchRequest } from '@/lib/cart';
+import { formatPrice, optionRowLabels } from '@/lib/api';
+import { optionsDeltaCents, type SwitchRequest } from '@/lib/cart';
 
 interface Props {
   request: SwitchRequest | null;
@@ -73,8 +73,17 @@ export default function CartSwitchDialog({
             <span>
               1 × {request.item.name}
               <span className="text-stone-400"> · {request.restaurant.name}</span>
+              {request.options && request.options.length > 0 && (
+                <span className="block text-xs text-stone-500">
+                  {optionRowLabels(request.options).join(' · ')}
+                </span>
+              )}
             </span>
-            <span className="font-bold">{formatPrice(request.item.priceCents)}</span>
+            <span className="font-bold">
+              {formatPrice(
+                request.item.priceCents + optionsDeltaCents(request.options ?? []),
+              )}
+            </span>
           </p>
         </div>
 

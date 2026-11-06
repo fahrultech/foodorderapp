@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { useCart } from '@/lib/cart';
-import { formatPrice } from '@/lib/api';
+import { formatPrice, optionRowLabels } from '@/lib/api';
 
 export default function CartPage() {
   const { lines, setQty, clear, subtotalCents, restaurantName, restaurantId } = useCart();
@@ -48,14 +48,24 @@ export default function CartPage() {
 
       <div className="mt-6 divide-y divide-stone-200 rounded-2xl border border-stone-200 bg-white">
         {lines.map((l) => (
-          <div key={l.menuItemId} className="flex items-center gap-4 p-4">
+          <div key={l.lineKey} className="flex items-center gap-4 p-4">
             <div className="min-w-0 flex-1">
               <p className="font-semibold">{l.name}</p>
-              <p className="text-sm text-stone-500">{formatPrice(l.priceCents)} each</p>
+              {l.options.length > 0 && (
+                <p className="mt-0.5 text-xs text-stone-500">
+                  {optionRowLabels(l.options).join(' · ')}
+                </p>
+              )}
+              <p className="text-sm text-stone-500">
+                {formatPrice(l.priceCents)} each
+                {l.options.length > 0 && (
+                  <span className="text-stone-400"> · incl. options</span>
+                )}
+              </p>
             </div>
             <div className="flex items-center gap-2">
               <button
-                onClick={() => setQty(l.menuItemId, l.quantity - 1)}
+                onClick={() => setQty(l.lineKey, l.quantity - 1)}
                 className="h-8 w-8 rounded-lg border border-stone-300 font-bold hover:bg-stone-100"
                 aria-label="Decrease quantity"
               >
@@ -63,7 +73,7 @@ export default function CartPage() {
               </button>
               <span className="w-6 text-center font-semibold">{l.quantity}</span>
               <button
-                onClick={() => setQty(l.menuItemId, l.quantity + 1)}
+                onClick={() => setQty(l.lineKey, l.quantity + 1)}
                 className="h-8 w-8 rounded-lg border border-stone-300 font-bold hover:bg-stone-100"
                 aria-label="Increase quantity"
               >

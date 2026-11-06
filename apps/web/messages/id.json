@@ -70,6 +70,13 @@
     "unavailable": "Tidak tersedia",
     "added": "Ditambahkan ✓",
     "addWithCount": "Tambah ({count} di keranjang)",
-    "add": "Tambah"
+    "add": "Tambah",
+    "chooseOptions": "Pilih {name}"
+  },
+  "Options": {
+    "required": "Pilih {count} wajib",
+    "chooseOne": "Pilih satu",
+    "upTo": "Pilih hingga {count}",
+    "unitPrice": "Harga satuan: {price}"
   }
 }

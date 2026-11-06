@@ -22,6 +22,34 @@ export interface Restaurant {
   menuItems?: MenuItem[];
 }
 
+/**
+ * One selectable choice inside an option group (Phase 5 menu options).
+ * `priceDeltaCents` is integer cents ADDED to the dish base price; the
+ * server folds it into the unit price at order time — the client copy is
+ * display-only and never trusted.
+ */
+export interface MenuOptionChoice {
+  id: string;
+  name: string;
+  priceDeltaCents: number;
+  position: number;
+}
+
+/**
+ * A group of choices on one dish ("Size", "Add-ons"). Server contract:
+ * an order line must select >= minChoices and <= maxChoices from it;
+ * maxChoices 1 behaves like a radio. Embedded by BOTH public menu reads
+ * (GET /restaurants/:id and GET /restaurants/:id/menu), sorted by position.
+ */
+export interface MenuOptionGroup {
+  id: string;
+  name: string;
+  minChoices: number;
+  maxChoices: number;
+  position: number;
+  choices: MenuOptionChoice[];
+}
+
 export interface MenuItem {
   id: string;
   name: string;
@@ -32,6 +60,8 @@ export interface MenuItem {
   isAvailable: boolean;
   prepMinutes: number;
   restaurantId: string;
+  /** Present on public menu reads ([] when the dish has none). */
+  optionGroups?: MenuOptionGroup[];
 }
 
 /**
@@ -67,9 +97,27 @@ export interface OrderLine {
   quantity: number;
 }
 
+/** One frozen option row of an order line — mirrors the API's jsonb receipt. */
+export interface OrderOptionSelection {
+  groupId: string;
+  groupName: string;
+  choiceId: string;
+  choiceName: string;
+  priceDeltaCents: number;
+}
+
 export interface CreateOrderPayload {
   restaurantId: string;
-  items: { menuItemId: string; quantity: number }[];
+  items: {
+    menuItemId: string;
+    quantity: number;
+    /**
+     * Choice ids picked on the dish's option groups. The server validates
+     * existence/parent-dish/per-group min-max and prices the line itself —
+     * these ids are a claim, never a price.
+     */
+    optionChoiceIds?: string[];
+  }[];
   customerName: string;
   contactPhone: string;
   deliveryAddress: string;
@@ -114,7 +162,15 @@ export interface Order {
   contactPhone: string;
   deliveryAddress: string;
   note: string | null;
-  items: { id: string; name: string; quantity: number; unitPriceCents: number }[];
+  items: Array<{
+    id: string;
+    name: string;
+    quantity: number;
+    /** Unit price snapshot INCL. option deltas (server-priced). */
+    unitPriceCents: number;
+    /** Receipt of the chosen options; null = no options / pre-options row. */
+    optionSelections?: OrderOptionSelection[] | null;
+  }>;
   restaurant?: Pick<Restaurant, 'id' | 'name' | 'imageUrl' | 'cuisine'>;
   createdAt: string;
   /**
@@ -706,6 +762,25 @@ export const api = {
 
 export function formatPrice(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
+}
+
+/**
+ * Compact receipt-style option labels: ONE row per group, choices comma-
+ * joined in array order ("Add-ons: Extra egg, Chicken satay (3 pcs)").
+ * Shared by cart lines, the checkout summary, the switch modal and order
+ * receipts so every surface reads the same snapshot array the same way
+ * (session 66 — per-choice rows used to repeat the group name).
+ */
+export function optionRowLabels(
+  rows: Array<{ groupName: string; choiceName: string }>,
+): string[] {
+  const byGroup = new Map<string, string[]>();
+  for (const r of rows) {
+    const list = byGroup.get(r.groupName);
+    if (list) list.push(r.choiceName);
+    else byGroup.set(r.groupName, [r.choiceName]);
+  }
+  return [...byGroup.entries()].map(([group, names]) => `${group}: ${names.join(', ')}`);
 }
 
 /**

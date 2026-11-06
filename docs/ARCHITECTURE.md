@@ -26,6 +26,18 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   `priceDeltaCents` values into `unitPriceCents` itself. A client-sent price,
   delta or `extraCents` field simply does not exist as far as the DTO is
   concerned, and any rejected selection 400s the whole order before a row is written.
+- **Storefront menu reads embed option groups** — `GET /restaurants/:id` attaches
+  the same sorted `optionGroups` (choices included, `[]` when a dish has none) to
+  its nested `menuItems` as `GET /restaurants/:id/menu`, through the single shared
+  `MenuService.attachOptionGroups` pass (one IN-query, no N+1). The web cart picker
+  renders directly from the storefront payload — there is no second fetch per dish.
+- **Cart lines are keyed by dish + selection** — `CartLine.lineKey` is
+  `menuItemId` alone for option-less lines and `menuItemId|<sorted choice ids>`
+  otherwise, so the same dish at two sizes is two independent lines. Every cart
+  mutation (qty, merge-on-add, React keys) keys on `lineKey`, never `menuItemId`;
+  persisted pre-options carts normalize to the new shape at hydration without
+  losing lines. Displayed line price is `basePriceCents + Σ deltas`, always
+  re-derived — a tampered stored `priceCents` never reaches the subtotal.
 - **One-restaurant carts** — a cart holds dishes from a single restaurant
   (matches delivery/logic reality). Adding a dish from a *different*
   restaurant never wipes the cart silently: the CartProvider raises a

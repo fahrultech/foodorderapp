@@ -31,7 +31,14 @@ function queryParams(filter: Filter, page: number) {
 function itemSummary(order: Order): string {
   const lines = order.items ?? [];
   if (lines.length === 0) return '—';
-  const head = lines.slice(0, 2).map((l) => `${l.quantity} × ${l.name}`).join(', ');
+  const head = lines
+    .slice(0, 2)
+    .map((l) =>
+      l.optionSelections && l.optionSelections.length > 0
+        ? `${l.quantity} × ${l.name} (${l.optionSelections.map((x) => x.choiceName).join(', ')})`
+        : `${l.quantity} × ${l.name}`,
+    )
+    .join(', ');
   return lines.length > 2 ? `${head} +${lines.length - 2} more` : head;
 }
 
