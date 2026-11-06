@@ -271,14 +271,20 @@ export class OrdersService {
 
     // Promo evaluation runs AFTER the min-order check (a promo can never
     // smuggle a below-minimum cart through) and on the SERVER-computed
-    // subtotal — the client's own numbers are not consulted here.
+    // subtotal — the client's own numbers are not consulted here. The caller
+    // identity is passed for per-user cap counting; guests only ever consume
+    // the total cap.
     let discountCents = 0;
     let appliedPromoCode: string | null = null;
+    let appliedPromoId: string | null = null;
     if (dto.promoCode) {
-      const outcome = await this.promos.evaluate(dto.promoCode, dto.restaurantId, subtotal);
+      const outcome = await this.promos.evaluate(dto.promoCode, dto.restaurantId, subtotal, {
+        userId: userId ?? null,
+      });
       if (!outcome.ok) throw new BadRequestException(outcome.message);
       discountCents = outcome.discountCents!;
       appliedPromoCode = normalizePromoCode(dto.promoCode);
+      appliedPromoId = outcome.promo!.id;
     }
 
     const order = this.orders.create({
@@ -299,6 +305,18 @@ export class OrdersService {
       items,
     });
     const saved = await this.orders.save(order);
+    if (appliedPromoId) {
+      // Ledger redemption row AFTER the order exists (orderId FK + unique).
+      // The cap gate ran pre-save in evaluate(); closing the count→insert
+      // race window for simultaneous "last redemption" orders needs the
+      // order-create transaction (roadmap "unit-of-work" item).
+      await this.promos.recordUsage({
+        promoId: appliedPromoId,
+        orderId: saved.id,
+        userId: userId ?? null,
+        discountCents,
+      });
+    }
     const full = await this.findOne(saved.id);
     this.emit('order.created', full);
     return full;

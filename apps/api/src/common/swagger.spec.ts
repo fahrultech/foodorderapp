@@ -28,6 +28,7 @@ import { DriverOrdersController } from '../orders/driver-orders.controller';
 import { OrdersService } from '../orders/orders.service';
 import { OrderEventsService } from '../orders/order-events.service';
 import { PromosController } from '../promos/promos.controller';
+import { PromosAdminController } from '../promos/promos-admin.controller';
 import { PromosService } from '../promos/promos.service';
 import { OrderPaymentsController, PaymentsController } from '../payments/payments.controller';
 import { PaymentsService } from '../payments/payments.service';
@@ -65,6 +66,7 @@ const CONTROLLERS = [
   RestaurantOrdersController,
   DriverOrdersController,
   PromosController,
+  PromosAdminController,
   RestaurantsController,
   RestaurantReviewsController,
   ReviewsController,
@@ -200,6 +202,10 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['/notifications/push/subscriptions', 'post'],
       ['/notifications/push/subscriptions', 'delete'],
       ['/admin/overview', 'get'],
+      ['/admin/promos', 'get'],
+      ['/admin/promos', 'post'],
+      ['/admin/promos/{id}', 'patch'],
+      ['/admin/promos/{id}/usages', 'get'],
     ];
     for (const [path, method] of expected) {
       expect(doc.paths[P(path)]?.[method]).toBeDefined();
@@ -244,6 +250,10 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['/notifications/push/subscriptions', 'post'],
       ['/notifications/push/subscriptions', 'delete'],
       ['/admin/overview', 'get'],
+      ['/admin/promos', 'get'],
+      ['/admin/promos', 'post'],
+      ['/admin/promos/{id}', 'patch'],
+      ['/admin/promos/{id}/usages', 'get'],
     ] as Array<[string, string]>) {
       const op = doc.paths[P(path)]?.[method];
       const security = op.security ?? [];
@@ -375,8 +385,12 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['/notifications/push/subscriptions', 'post', 200, 'ref:PushSubscriptionResponse'],
       ['/notifications/push/subscriptions', 'delete', 200, 'ref:PushUnsubscribeResponse'],
       ['/admin/overview', 'get', 200, 'ref:AdminOverviewResponse'],
+      ['/admin/promos', 'get', 200, 'ref:AdminPromoListResponse'],
+      ['/admin/promos', 'post', 201, 'ref:AdminPromoResponse'],
+      ['/admin/promos/{id}', 'patch', 200, 'ref:AdminPromoResponse'],
+      ['/admin/promos/{id}/usages', 'get', 200, 'ref:PromoUsageListResponse'],
     ];
-    expect(SUCCESS.length).toBe(59);
+    expect(SUCCESS.length).toBe(63);
     for (const [path, method, code, kind] of SUCCESS) {
       const res = doc.paths[P(path)]?.[method]?.responses?.[String(code)];
       if (!res) throw new Error(`${method} ${path}: no ${code} response documented`);
@@ -462,6 +476,10 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['/notifications/push/subscriptions', 'post', [400, 401]],
       ['/notifications/push/subscriptions', 'delete', [400, 401]],
       ['/admin/overview', 'get', [401, 403]],
+      ['/admin/promos', 'get', [401, 403]],
+      ['/admin/promos', 'post', [400, 401, 403, 409]],
+      ['/admin/promos/{id}', 'patch', [400, 401, 403, 404, 409]],
+      ['/admin/promos/{id}/usages', 'get', [400, 401, 403, 404]],
     ];
     for (const [path, method, codes] of ERRORS) {
       const responses = doc.paths[P(path)]?.[method]?.responses ?? {};
@@ -635,11 +653,29 @@ describe('OpenAPI document (generated from the real controllers)', () => {
     expect(required('ReviewRemoveResponse')).toEqual(['removed']);
     expect(props('ReviewFeedResponse').rating.type).toBe('number');
 
-    // Promo verdicts: valid vs reason enum, registered via oneOf.
+    // Promo verdicts: valid vs reason enum, registered via oneOf. The reason
+    // set covers the expiry + usage-cap gates (Phase 5 "Coupons expiry +
+    // usage caps") alongside the original ones.
     expect(props('PromoInvalidResponse').reason.enum.sort()).toEqual(
-      ['below_min_subtotal', 'inactive', 'not_found', 'restaurant_mismatch'],
+      [
+        'below_min_subtotal',
+        'expired',
+        'inactive',
+        'not_found',
+        'not_started',
+        'per_user_cap_reached',
+        'restaurant_mismatch',
+        'total_cap_reached',
+      ],
     );
     expect(props('PromoValidResponse').discountType.enum).toEqual(['percent', 'fixed']);
+    // The valid verdict carries the redemption window + remaining-cap hints.
+    expect(props('PromoValidResponse').expiresAt.format).toBe('date-time');
+    expect(props('PromoValidResponse').expiresAt.nullable).toBe(true);
+    expect(props('PromoValidResponse').remainingUsages.type).toBe('integer');
+    expect(props('PromoUsageRowResponse').discountCents.type).toBe('integer');
+    expect(props('AdminPromoResponse').usageCount.type).toBe('integer');
+    expect(required('PromoUsageListResponse').sort()).toEqual(['items', 'limit', 'page', 'total']);
 
     // Favorite rows carry the live dish price and the hearting timestamp.
     expect(props('FavoriteDishResponse').priceCents.type).toBe('integer');

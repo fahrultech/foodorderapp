@@ -12,6 +12,7 @@ import { Order } from '../orders/order.entity';
 import { OrderItem } from '../orders/order-item.entity';
 import { Review } from '../reviews/review.entity';
 import { PromoCode } from '../promos/promo-code.entity';
+import { PromoUsage } from '../promos/promo-usage.entity';
 import { Payment } from '../payments/payment.entity';
 import { PaymentRefund } from '../payments/payment-refund.entity';
 import { PushSubscription } from '../notifications/push-subscription.entity';
@@ -26,10 +27,10 @@ describe('database/data-source', () => {
     expect(dataSourceOptions.migrationsRun).toBe(true);
   });
 
-  it('registers exactly the eighteen entities and a ts/js migration glob', () => {
-    expect(dataSourceOptions.entities).toHaveLength(18);
+  it('registers exactly the nineteen entities and a ts/js migration glob', () => {
+    expect(dataSourceOptions.entities).toHaveLength(19);
     expect(dataSourceOptions.entities).toEqual(
-      expect.arrayContaining([User, Favorite, DeliveryAddress, RefreshToken, City, Restaurant, MenuItem, MenuOptionGroup, MenuOptionChoice, Order, OrderItem, OrderStatusAudit, Review, PromoCode, Payment, PaymentRefund, PushSubscription, FeatureFlag]),
+      expect.arrayContaining([User, Favorite, DeliveryAddress, RefreshToken, City, Restaurant, MenuItem, MenuOptionGroup, MenuOptionChoice, Order, OrderItem, OrderStatusAudit, Review, PromoCode, PromoUsage, Payment, PaymentRefund, PushSubscription, FeatureFlag]),
     );
     expect(dataSourceOptions.migrations).toHaveLength(1);
     expect(dataSourceOptions.migrations[0]).toMatch(/migrations\/\*\.\{ts,js\}$/);

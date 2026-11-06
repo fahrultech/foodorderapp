@@ -47,11 +47,12 @@ function buildCreate(opts: {
       deliveryFeeCents: 300,
     })),
   } as unknown as RestaurantsService;
-  const promos = { evaluate: opts.evaluate } as unknown as PromosService;
+  const recordUsage = jest.fn();
+  const promos = { evaluate: opts.evaluate, recordUsage } as unknown as PromosService;
   const events = { publish: jest.fn() } as unknown as OrderEventsService;
   const addresses = { getOwned: jest.fn() } as unknown as AddressesService;
   const service = new OrdersService(repo, menu, restaurants, events, promos, addresses);
-  return { service, createdLines };
+  return { service, createdLines, recordUsage };
 }
 
 const baseDto = (promoCode?: string) =>
@@ -65,25 +66,60 @@ const baseDto = (promoCode?: string) =>
   }) as any;
 
 describe('OrdersService.create — promo integration', () => {
-  it('without a promoCode the promo engine is never consulted', async () => {
+  it('without a promoCode the promo engine is never consulted and nothing is recorded', async () => {
     const evaluate = jest.fn();
-    const { service, createdLines } = buildCreate({ evaluate });
+    const { service, createdLines, recordUsage } = buildCreate({ evaluate });
     await service.create(baseDto(), undefined);
     expect(evaluate).not.toHaveBeenCalled();
+    expect(recordUsage).not.toHaveBeenCalled();
     expect(createdLines[0]).toMatchObject({ subtotalCents: 1000, discountCents: 0, promoCode: null, totalCents: 1300 });
   });
 
   it('applies the server-computed discount and snapshots the normalized code', async () => {
-    const evaluate = jest.fn(async () => ({ ok: true, message: 'ok', discountCents: 100 }));
-    const { service, createdLines } = buildCreate({ evaluate });
+    const evaluate = jest.fn(async () => ({
+      ok: true as const,
+      message: 'ok',
+      discountCents: 100,
+      promo: { id: 'p-1' } as any,
+    }));
+    const { service, createdLines, recordUsage } = buildCreate({ evaluate });
     await service.create(baseDto('welcome10 '), undefined);
-    // evaluate gets the SERVER subtotal (2×500), not anything the client claimed.
-    expect(evaluate).toHaveBeenCalledWith('welcome10 ', REST_ID, 1000);
+    // evaluate gets the SERVER subtotal (2×500) and the caller identity (guest
+    // -> null) — never anything the client claimed about money.
+    expect(evaluate).toHaveBeenCalledWith('welcome10 ', REST_ID, 1000, { userId: null });
     expect(createdLines[0]).toMatchObject({
       subtotalCents: 1000,
       discountCents: 100,
       promoCode: 'WELCOME10',
       totalCents: 1200, // 1000 - 100 + 300 fee — the fee is never discounted
+    });
+    // The redemption lands in the append-only ledger, tied to the SAVED
+    // order id and the exact server discount.
+    expect(recordUsage).toHaveBeenCalledTimes(1);
+    expect(recordUsage).toHaveBeenCalledWith({
+      promoId: 'p-1',
+      orderId: ORDER_ID,
+      userId: null,
+      discountCents: 100,
+    });
+  });
+
+  it('a signed-in caller identity threads through BOTH the gate and the ledger', async () => {
+    const USER = '33333333-3333-4333-8333-333333333333';
+    const evaluate = jest.fn(async () => ({
+      ok: true as const,
+      message: 'ok',
+      discountCents: 50,
+      promo: { id: 'p-2' } as any,
+    }));
+    const { service, recordUsage } = buildCreate({ evaluate });
+    await service.create(baseDto('WELCOME10'), USER);
+    expect(evaluate).toHaveBeenCalledWith('WELCOME10', REST_ID, 1000, { userId: USER });
+    expect(recordUsage).toHaveBeenCalledWith({
+      promoId: 'p-2',
+      orderId: ORDER_ID,
+      userId: USER,
+      discountCents: 50,
     });
   });
 
@@ -93,19 +129,21 @@ describe('OrdersService.create — promo integration', () => {
       reason: 'restaurant_mismatch' as const,
       message: 'Promo code "HEMAT10" does not apply to this restaurant',
     }));
-    const { service, createdLines } = buildCreate({ evaluate });
+    const { service, createdLines, recordUsage } = buildCreate({ evaluate });
     await expect(service.create(baseDto('HEMAT10'), undefined)).rejects.toThrow(
       new BadRequestException('Promo code "HEMAT10" does not apply to this restaurant'),
     );
     expect(createdLines).toHaveLength(0);
+    expect(recordUsage).not.toHaveBeenCalled();
   });
 
   it('min-order check beats the promo: below-minimum cart never reaches evaluate', async () => {
     const evaluate = jest.fn();
-    const { service } = buildCreate({ minOrderCents: 2000, evaluate });
+    const { service, recordUsage } = buildCreate({ minOrderCents: 2000, evaluate });
     await expect(service.create(baseDto('WELCOME10'), undefined)).rejects.toBeInstanceOf(
       BadRequestException,
     );
     expect(evaluate).not.toHaveBeenCalled();
+    expect(recordUsage).not.toHaveBeenCalled();
   });
 });

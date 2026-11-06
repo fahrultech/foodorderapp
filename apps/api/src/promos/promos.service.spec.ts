@@ -1,9 +1,12 @@
 import { PromosService, normalizePromoCode } from './promos.service';
 import { PromoCode, PromoDiscountType } from './promo-code.entity';
+import { PromoUsage } from './promo-usage.entity';
 import { Repository } from 'typeorm';
 
 const REST_ID = '11111111-1111-4111-8111-111111111111';
 const OTHER_REST_ID = '22222222-2222-4222-8222-222222222222';
+const USER_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+const USER_B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 
 function promo(overrides: Partial<PromoCode> = {}): PromoCode {
   return {
@@ -16,18 +19,47 @@ function promo(overrides: Partial<PromoCode> = {}): PromoCode {
     minSubtotalCents: 0,
     restaurantId: null,
     isActive: true,
+    startsAt: null,
+    expiresAt: null,
+    maxTotalUsages: null,
+    maxPerUser: null,
     ...overrides,
   } as PromoCode;
 }
 
-/** Repo mock keyed by stored (uppercase) code. */
-function build(stored: PromoCode[]) {
+/** A redemption ledger row for promo p-1. */
+function usage(overrides: Partial<PromoUsage> = {}): Partial<PromoUsage> {
+  return { promoId: 'p-1', orderId: 'o-x', userId: null, discountCents: 100, ...overrides };
+}
+
+/**
+ * Repo mocks: the promo repo looks up by code OR id; the ledger repo counts
+ * rows exactly like TypeORM's `count({ where })` would for our fixed shape.
+ */
+function build(stored: PromoCode[], ledger: Partial<PromoUsage>[] = []) {
   const repo = {
     findOne: jest.fn(async ({ where }: any) =>
-      stored.find((p) => p.code === where.code) ?? null,
+      where.id
+        ? stored.find((p) => p.id === where.id) ?? null
+        : stored.find((p) => p.code === where.code) ?? null,
     ),
   } as unknown as Repository<PromoCode>;
-  return { service: new PromosService(repo), repo };
+  const usageRepo = {
+    count: jest.fn(async ({ where }: any) =>
+      ledger.filter(
+        (u) =>
+          u.promoId === where.promoId &&
+          (where.userId === undefined || u.userId === where.userId),
+      ).length,
+    ),
+    create: jest.fn((x: any) => x),
+    save: jest.fn(async (x: any) => ({ id: 'usage-1', ...x })),
+  } as unknown as Repository<PromoUsage>;
+  return {
+    service: new PromosService(repo, usageRepo),
+    repo,
+    usageRepo,
+  };
 }
 
 describe('normalizePromoCode', () => {
@@ -76,6 +108,111 @@ describe('PromosService.evaluate — gates', () => {
     expect(out.ok).toBe(false);
     expect(out.reason).toBe('below_min_subtotal');
     expect(out.message).toContain('200.00');
+  });
+});
+
+describe('PromosService.evaluate — expiry window (start inclusive, end exclusive)', () => {
+  const now = new Date('2026-11-06T12:00:00.000Z');
+  const at = (iso: string) => new Date(iso);
+
+  it('code before its startsAt -> not_started', async () => {
+    const { service } = build([promo({ startsAt: at('2026-11-06T12:00:01.000Z') })]);
+    const out = await service.evaluate('WELCOME10', REST_ID, 5000, { now });
+    expect(out.ok).toBe(false);
+    expect(out.reason).toBe('not_started');
+    expect(out.message).toContain('2026-11-06T12:00:01');
+  });
+
+  it('exactly at startsAt is INSIDE the window (inclusive)', async () => {
+    const { service } = build([promo({ startsAt: now })]);
+    expect((await service.evaluate('WELCOME10', REST_ID, 5000, { now })).ok).toBe(true);
+  });
+
+  it('at or after expiresAt -> expired (exclusive end)', async () => {
+    const expiry = at('2026-11-06T12:00:00.000Z');
+    const { service } = build([promo({ expiresAt: expiry })]);
+    expect((await service.evaluate('WELCOME10', REST_ID, 5000, { now: expiry })).reason).toBe('expired');
+    const { service: s2 } = build([promo({ expiresAt: at('2026-01-01T00:00:00.000Z') })]);
+    const out = await s2.evaluate('WELCOME10', REST_ID, 5000, { now });
+    expect(out.reason).toBe('expired');
+    expect(out.message).toContain('expired');
+  });
+
+  it('one millisecond before expiresAt still works', async () => {
+    const { service } = build([promo({ expiresAt: at('2026-11-06T12:00:00.001Z') })]);
+    expect((await service.evaluate('WELCOME10', REST_ID, 5000, { now })).ok).toBe(true);
+  });
+
+  it('window check runs BEFORE restaurant scope and minimums', async () => {
+    // An expired restaurant-scoped code answers `expired`, not `restaurant_mismatch`.
+    const { service } = build([
+      promo({ restaurantId: REST_ID, expiresAt: at('2026-01-01T00:00:00.000Z') }),
+    ]);
+    expect((await service.evaluate('WELCOME10', OTHER_REST_ID, 5000, { now })).reason).toBe('expired');
+  });
+});
+
+describe('PromosService.evaluate — usage caps (counted on the ledger)', () => {
+  it('total cap reached -> total_cap_reached', async () => {
+    const { service } = build(
+      [promo({ maxTotalUsages: 2 })],
+      [usage({ orderId: 'o-1' }), usage({ orderId: 'o-2' })],
+    );
+    const out = await service.evaluate('WELCOME10', REST_ID, 5000);
+    expect(out.ok).toBe(false);
+    expect(out.reason).toBe('total_cap_reached');
+  });
+
+  it('one slot left under the total cap still works', async () => {
+    const { service } = build([promo({ maxTotalUsages: 2 })], [usage({ orderId: 'o-1' })]);
+    expect((await service.evaluate('WELCOME10', REST_ID, 5000)).ok).toBe(true);
+  });
+
+  it('maxTotalUsages 0 is instantly spent (even with an empty ledger)', async () => {
+    const { service } = build([promo({ maxTotalUsages: 0 })]);
+    expect((await service.evaluate('WELCOME10', REST_ID, 5000)).reason).toBe('total_cap_reached');
+  });
+
+  it('other promos rows do not count (count is promoId-scoped)', async () => {
+    const { service } = build([promo({ maxTotalUsages: 1 })], [usage({ promoId: 'p-OTHER' })]);
+    expect((await service.evaluate('WELCOME10', REST_ID, 5000)).ok).toBe(true);
+  });
+
+  it('per-user cap counts only the caller identity', async () => {
+    const ledger = [usage({ orderId: 'o-1', userId: USER_A })];
+    const { service } = build([promo({ maxPerUser: 1 })], ledger);
+    expect((await service.evaluate('WELCOME10', REST_ID, 5000, { userId: USER_A })).reason).toBe(
+      'per_user_cap_reached',
+    );
+    // A different account has NOT spent its own slot.
+    expect((await service.evaluate('WELCOME10', REST_ID, 5000, { userId: USER_B })).ok).toBe(true);
+  });
+
+  it('guests skip the per-user cap (no provable identity) but consume the total', async () => {
+    const ledger = [usage({ orderId: 'o-1', userId: USER_A })];
+    const { service } = build([promo({ maxPerUser: 1 })], ledger);
+    expect((await service.evaluate('WELCOME10', REST_ID, 5000)).ok).toBe(true);
+    expect((await service.evaluate('WELCOME10', REST_ID, 5000, { userId: null })).ok).toBe(true);
+  });
+
+  it('caps are the LAST gate — no ledger query runs for a dead code', async () => {
+    const { service, usageRepo } = build([promo({ isActive: false, maxTotalUsages: 1 })]);
+    await service.evaluate('WELCOME10', REST_ID, 5000);
+    expect(usageRepo.count).not.toHaveBeenCalled();
+  });
+});
+
+describe('PromosService.recordUsage', () => {
+  it('appends the exact ledger input as one row', async () => {
+    const { service, usageRepo } = build([promo()]);
+    await service.recordUsage({ promoId: 'p-1', orderId: 'o-9', userId: USER_A, discountCents: 250 });
+    expect(usageRepo.create).toHaveBeenCalledWith({
+      promoId: 'p-1',
+      orderId: 'o-9',
+      userId: USER_A,
+      discountCents: 250,
+    });
+    expect(usageRepo.save).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -128,5 +265,34 @@ describe('PromosService.preview — checkout endpoint shape', () => {
     const out = await service.preview('NOPE', REST_ID, 5000);
     expect(out).toMatchObject({ valid: false, reason: 'not_found' });
     expect((out as any).discountCents).toBeUndefined();
+  });
+
+  it('valid payload carries the window + remaining redemptions', async () => {
+    const starts = new Date('2026-11-01T00:00:00.000Z');
+    const expires = new Date('2026-12-01T00:00:00.000Z');
+    const { service } = build(
+      [promo({ startsAt: starts, expiresAt: expires, maxTotalUsages: 3 })],
+      [usage({ orderId: 'o-1' }), usage({ orderId: 'o-2' })],
+    );
+    const out = await service.preview('WELCOME10', REST_ID, 5000);
+    expect(out).toMatchObject({ valid: true, startsAt: starts, expiresAt: expires, remainingUsages: 1 });
+  });
+
+  it('unlimited codes report remainingUsages null without a ledger query', async () => {
+    const { service, usageRepo } = build([promo()]);
+    const out = await service.preview('WELCOME10', REST_ID, 5000);
+    expect((out as any).remainingUsages).toBeNull();
+    expect(usageRepo.count).not.toHaveBeenCalled();
+  });
+
+  it('per-user caps surface softly in the preview for signed-in callers', async () => {
+    const { service } = build(
+      [promo({ maxPerUser: 1 })],
+      [usage({ orderId: 'o-1', userId: USER_A })],
+    );
+    const asA = await service.preview('WELCOME10', REST_ID, 5000, { userId: USER_A });
+    expect(asA).toMatchObject({ valid: false, reason: 'per_user_cap_reached' });
+    const asGuest = await service.preview('WELCOME10', REST_ID, 5000, { userId: null });
+    expect(asGuest).toMatchObject({ valid: true });
   });
 });

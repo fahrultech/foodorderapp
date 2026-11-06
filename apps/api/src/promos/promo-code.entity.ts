@@ -29,10 +29,12 @@ export enum PromoDiscountType {
  *    BEFORE the discount (and the restaurant's own min-order check runs on
  *    the same pre-discount subtotal — a promo can't bypass a minimum).
  *  - `isActive` false = rejects even if everything else matches (kill switch).
- *
- * Expiry dates and usage caps are deliberately OUT of scope here — they are
- * the separate Phase 5 roadmap item ("Coupons expiry + usage caps") and need
- * a usage-ledger table, not just columns on this row.
+ *  - `startsAt`/`expiresAt` = redemption window (start INCLUSIVE, end
+ *    EXCLUSIVE; null = open-ended on that side).
+ *  - `maxTotalUsages`/`maxPerUser` = redemption caps counted against the
+ *    append-only `promo_usages` ledger (see promo-usage.entity.ts);
+ *    null = unlimited. Guests have no provable identity, so their
+ *    redemptions count toward `maxTotalUsages` only, never `maxPerUser`.
  */
 @Entity('promo_codes')
 export class PromoCode {
@@ -72,6 +74,23 @@ export class PromoCode {
 
   @Column({ default: true })
   isActive: boolean;
+
+  /** Redemption window start, inclusive; null = usable immediately. */
+  @Column({ type: 'timestamptz', nullable: true })
+  startsAt: Date | null;
+
+  /** Redemption window end, exclusive; null = never expires. */
+  @Column({ type: 'timestamptz', nullable: true })
+  expiresAt: Date | null;
+
+  /** Max redemptions across ALL customers; null = unlimited. 0 = dead code. */
+  @Column({ type: 'int', nullable: true })
+  maxTotalUsages: number | null;
+
+  /** Max redemptions per signed-in account; null = unlimited. Guests skip
+   *  this gate (no provable identity) but still consume total cap. */
+  @Column({ type: 'int', nullable: true })
+  maxPerUser: number | null;
 
   @CreateDateColumn()
   createdAt: Date;

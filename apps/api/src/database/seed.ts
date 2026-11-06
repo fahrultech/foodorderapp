@@ -9,6 +9,7 @@ import { Favorite } from '../users/favorite.entity';
 import { DeliveryAddress } from '../users/delivery-address.entity';
 import { Review } from '../reviews/review.entity';
 import { PromoCode, PromoDiscountType } from '../promos/promo-code.entity';
+import { PromoUsage } from '../promos/promo-usage.entity';
 import { AppDataSource } from './data-source';
 import { City } from '../cities/city.entity';
 
@@ -120,7 +121,7 @@ async function main() {
   // explicitly even though the users FK cascade would clear it — a seeded DB
   // must never keep live sessions from a previous run.
   await dataSource.query(
-    'TRUNCATE TABLE user_favorites, delivery_addresses, reviews, order_items, orders, promo_codes, menu_items, restaurants, cities, refresh_tokens, users RESTART IDENTITY CASCADE',
+    'TRUNCATE TABLE user_favorites, delivery_addresses, reviews, order_items, orders, promo_usages, promo_codes, menu_items, restaurants, cities, refresh_tokens, users RESTART IDENTITY CASCADE',
   );
 
   const restaurantRepo = dataSource.getRepository(Restaurant);
@@ -257,10 +258,14 @@ async function main() {
   const bySlug = new Map(created.map((c) => [c.restaurant.slug, c]));
 
   // Promo codes so a fresh seed can demo checkout discounts end-to-end:
-  // one platform-wide percent (with cap), one restaurant-scoped fixed, and
-  // one retired code that must be *rejected* (isActive=false) to prove the
-  // kill-switch path. Codes are stored normalized-uppercase like the API does.
+  // one platform-wide percent (with cap + per-user cap), one restaurant-scoped
+  // fixed (with a far-future expiry), one retired code that must be *rejected*
+  // (isActive=false) to prove the kill-switch path — plus three codes that
+  // exist purely to demo the Phase 5 expiry/cap gates: EXPIRED25 (window
+  // over), NEXTWEEK5 (window not open) and FLASH3OFF (one redemption left).
+  // Codes are stored normalized-uppercase like the API does.
   const promoRepo = dataSource.getRepository(PromoCode);
+  const usageRepo = dataSource.getRepository(PromoUsage);
   const promoSpecs = [
     {
       code: 'WELCOME10',
@@ -271,6 +276,10 @@ async function main() {
       minSubtotalCents: 2000,
       restaurantSlug: null,
       isActive: true,
+      startsAt: null as Date | null,
+      expiresAt: null as Date | null,
+      maxTotalUsages: null as number | null,
+      maxPerUser: 3 as number | null,
     },
     {
       code: 'WARUNGHEMAT',
@@ -281,6 +290,10 @@ async function main() {
       minSubtotalCents: 3000,
       restaurantSlug: 'warung-nusantara',
       isActive: true,
+      startsAt: null,
+      expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+      maxTotalUsages: null,
+      maxPerUser: null,
     },
     {
       code: 'LAUNCH99',
@@ -291,6 +304,52 @@ async function main() {
       minSubtotalCents: 0,
       restaurantSlug: null,
       isActive: false,
+      startsAt: null,
+      expiresAt: null,
+      maxTotalUsages: null,
+      maxPerUser: null,
+    },
+    {
+      code: 'EXPIRED25',
+      description: 'Last-season code kept to demo the expired window',
+      discountType: PromoDiscountType.FIXED,
+      valueCents: 2500,
+      maxDiscountCents: null,
+      minSubtotalCents: 0,
+      restaurantSlug: null,
+      isActive: true,
+      startsAt: null,
+      expiresAt: new Date('2026-01-01T00:00:00.000Z'),
+      maxTotalUsages: null,
+      maxPerUser: null,
+    },
+    {
+      code: 'NEXTWEEK5',
+      description: 'Code that launches in a week — demo of the not_started window',
+      discountType: PromoDiscountType.FIXED,
+      valueCents: 500,
+      maxDiscountCents: null,
+      minSubtotalCents: 0,
+      restaurantSlug: null,
+      isActive: true,
+      startsAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      expiresAt: null,
+      maxTotalUsages: null,
+      maxPerUser: null,
+    },
+    {
+      code: 'FLASH3OFF',
+      description: '$3 off, one redemption allowed total — demo of the usage cap',
+      discountType: PromoDiscountType.FIXED,
+      valueCents: 300,
+      maxDiscountCents: null,
+      minSubtotalCents: 0,
+      restaurantSlug: null,
+      isActive: true,
+      startsAt: null,
+      expiresAt: null,
+      maxTotalUsages: 1,
+      maxPerUser: null,
     },
   ];
   const seededPromos = new Map<string, PromoCode>();
@@ -305,6 +364,10 @@ async function main() {
         minSubtotalCents: spec.minSubtotalCents,
         restaurantId: spec.restaurantSlug ? bySlug.get(spec.restaurantSlug)!.restaurant.id : null,
         isActive: spec.isActive,
+        startsAt: spec.startsAt,
+        expiresAt: spec.expiresAt,
+        maxTotalUsages: spec.maxTotalUsages,
+        maxPerUser: spec.maxPerUser,
       }),
     );
     seededPromos.set(saved.code, saved);
@@ -461,6 +524,19 @@ async function main() {
     );
     console.log(`  + order ${spec.code} → ${entry.restaurant.name} (${spec.status})`);
     savedOrders.set(spec.code, savedOrder);
+    if (spec.promoCode) {
+      // The promo discount above MUST have a matching redemption in the
+      // append-only ledger — cap counting (Phase 5) starts from an honest
+      // seeded history, not one that silently ignores existing redemptions.
+      await usageRepo.save(
+        usageRepo.create({
+          promoId: seededPromos.get(spec.promoCode)!.id,
+          orderId: savedOrder.id,
+          userId: spec.userId ?? null,
+          discountCents,
+        }),
+      );
+    }
   }
 
   // A few hearts for the demo customer so /users/me/favorites and the

@@ -967,8 +967,12 @@ export class ReviewRemoveResponse {
 export const PROMO_INVALID_REASONS = [
   'not_found',
   'inactive',
+  'not_started',
+  'expired',
   'restaurant_mismatch',
   'below_min_subtotal',
+  'total_cap_reached',
+  'per_user_cap_reached',
 ] as const;
 
 export class PromoValidResponse {
@@ -993,6 +997,29 @@ export class PromoValidResponse {
   @ApiProperty({ type: 'integer', description: 'subtotalCents - discountCents; the delivery fee is never discounted.' })
   discountedSubtotalCents: number;
 
+  @ApiProperty({
+    type: 'string',
+    format: 'date-time',
+    nullable: true,
+    description: 'Redemption window start (inclusive); null = usable immediately.',
+  })
+  startsAt: string | null;
+
+  @ApiProperty({
+    type: 'string',
+    format: 'date-time',
+    nullable: true,
+    description: 'Redemption window end (exclusive); null = never expires.',
+  })
+  expiresAt: string | null;
+
+  @ApiProperty({
+    type: 'integer',
+    nullable: true,
+    description: 'Redemptions left under maxTotalUsages at preview time; null = unlimited. Authoritative check re-runs at order creation.',
+  })
+  remainingUsages: number | null;
+
   @ApiProperty()
   message: string;
 }
@@ -1009,6 +1036,97 @@ export class PromoInvalidResponse {
 
   @ApiProperty()
   message: string;
+}
+
+/** One promo code as ADMINs see it: full definition + live ledger count. */
+export class AdminPromoResponse {
+  @ApiProperty({ type: 'string', format: 'uuid' })
+  id: string;
+
+  @ApiProperty({ example: 'WELCOME10', description: 'Stored normalized (uppercase, trimmed).' })
+  code: string;
+
+  @ApiProperty({ type: 'string', nullable: true })
+  description: string | null;
+
+  @ApiProperty({ enum: PromoDiscountType })
+  discountType: PromoDiscountType;
+
+  @ApiProperty({ type: 'integer', description: 'percent: 1..100 points; fixed: integer cents.' })
+  valueCents: number;
+
+  @ApiProperty({ type: 'integer', nullable: true })
+  maxDiscountCents: number | null;
+
+  @ApiProperty({ type: 'integer', description: 'Pre-discount subtotal gate, integer cents.' })
+  minSubtotalCents: number;
+
+  @ApiProperty({ type: 'string', format: 'uuid', nullable: true, description: 'null = platform-wide.' })
+  restaurantId: string | null;
+
+  @ApiProperty()
+  isActive: boolean;
+
+  @ApiProperty({ type: 'string', format: 'date-time', nullable: true, description: 'Redemption window start (inclusive).' })
+  startsAt: string | null;
+
+  @ApiProperty({ type: 'string', format: 'date-time', nullable: true, description: 'Redemption window end (exclusive).' })
+  expiresAt: string | null;
+
+  @ApiProperty({ type: 'integer', nullable: true, description: 'Total redemption cap; null = unlimited.' })
+  maxTotalUsages: number | null;
+
+  @ApiProperty({ type: 'integer', nullable: true, description: 'Per-account cap (guests exempt); null = unlimited.' })
+  maxPerUser: number | null;
+
+  @ApiProperty({ type: 'integer', description: 'Rows in the append-only redemption ledger for this code.' })
+  usageCount: number;
+
+  @ApiProperty({ type: 'string', format: 'date-time' })
+  createdAt: string;
+
+  @ApiProperty({ type: 'string', format: 'date-time' })
+  updatedAt: string;
+}
+
+export class AdminPromoListResponse {
+  @ApiProperty({ type: () => [AdminPromoResponse], description: 'Newest code first.' })
+  items: AdminPromoResponse[];
+}
+
+/** One append-only `promo_usages` ledger row. */
+export class PromoUsageRowResponse {
+  @ApiProperty({ type: 'string', format: 'uuid' })
+  id: string;
+
+  @ApiProperty({ type: 'string', format: 'uuid' })
+  promoId: string;
+
+  @ApiProperty({ type: 'string', format: 'uuid' })
+  orderId: string;
+
+  @ApiProperty({ type: 'string', format: 'uuid', nullable: true, description: 'null = guest redemption, or the account was erased (GDPR) while the count stands.' })
+  userId: string | null;
+
+  @ApiProperty({ type: 'integer', description: 'Integer cents actually discounted by this redemption.' })
+  discountCents: number;
+
+  @ApiProperty({ type: 'string', format: 'date-time' })
+  createdAt: string;
+}
+
+export class PromoUsageListResponse {
+  @ApiProperty({ type: () => [PromoUsageRowResponse], description: 'Newest redemption first.' })
+  items: PromoUsageRowResponse[];
+
+  @ApiProperty({ type: 'integer' })
+  total: number;
+
+  @ApiProperty({ type: 'integer' })
+  page: number;
+
+  @ApiProperty({ type: 'integer' })
+  limit: number;
 }
 
 // ---------------------------------------------------------------------------
