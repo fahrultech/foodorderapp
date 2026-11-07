@@ -31,6 +31,18 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   its nested `menuItems` as `GET /restaurants/:id/menu`, through the single shared
   `MenuService.attachOptionGroups` pass (one IN-query, no N+1). The web cart picker
   renders directly from the storefront payload — there is no second fetch per dish.
+- **Open/closed is DERIVED from the weekly schedule** — `restaurant_hours`
+  rows (one per weekday window `[opensAt, closesAt)`, `closesAt <= opensAt`
+  wraps past midnight) drive `isOpenNow` on every storefront read (list /
+  detail / mine) through one batched IN-query pass in
+  `RestaurantsService.attachHours`; a restaurant WITHOUT rows falls back to
+  the legacy manual `isOpen` column, where `isOpenNow` simply equals it.
+  Windows are interpreted in `restaurants.timeZone` (IANA, null =
+  server-local). Owners (admins bypass) replace the whole week via
+  PUT-semantics `PATCH /restaurants/:id/hours` — `days: []` clears the
+  schedule and hands the signal back to the manual toggle. The web UI never
+  recomputes the open/closed signal client-side; it renders the server's
+  `isOpenNow` (session 68).
 - **Cart lines are keyed by dish + selection** — `CartLine.lineKey` is
   `menuItemId` alone for option-less lines and `menuItemId|<sorted choice ids>`
   otherwise, so the same dish at two sizes is two independent lines. Every cart
@@ -581,6 +593,7 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
 users(1)──(N)orders(1)──(N)order_items(N)──(1)menu_items(N)──(1)restaurants
 users(1)──(N)restaurants  (restaurants.ownerId → users.id; nullable, FK ON DELETE SET NULL, indexed)
 cities(1)──(N)restaurants  (restaurants.cityId → cities.id; nullable for legacy rows, FK ON DELETE SET NULL, indexed; restaurants.city is the read-friendly name snapshot)
+restaurants(1)──(N)restaurant_hours  (weekly windows [opensAt, closesAt) per dayOfWeek 0..6, closesAt <= opensAt wraps past midnight; CHECK domains mirror the DTO (HH:MM 24h regex), UNIQUE (restaurantId, dayOfWeek), FK ON DELETE CASCADE; a missing weekday row = closed; restaurants.timeZone (varchar 64, IANA, null = server-local) is the interpretation zone; NO rows at all = the legacy manual isOpen column governs)
 menu_items(1)──(N)menu_option_groups(1)──(N)menu_option_choices  (both FKs ON DELETE CASCADE + indexed on the child side; a group carries minChoices/maxChoices/position, a choice carries priceDeltaCents/position — money columns integer cents with CHECK bounds mirroring the DTO)
 order_items(1)──(jsonb)optionSelections  (denormalized receipt array, NOT a relation: no FK, so option rows can be deleted without touching order history)
 users(1)──(N)reviews(1)──(1)orders(1)──(1)restaurants  (reviews: unique orderId, all FKs ON DELETE CASCADE; restaurants.rating/ratingCount are recomputed server-side on every review write)

@@ -4,6 +4,86 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
+## 2026-11-07 16:38 — Session 68 — Restaurant open hours + auto isOpen (API + web)
+
+**Built:** completed the ROADMAP item "Restaurant open hours (day-of-week
+schedule entity) + auto isOpen". Session start found the crashed session's
+WIP tree uncommitted; every file was reviewed, then the increment was
+verified end-to-end (the feature code proved sound — the WIP's *smoke script*
+and *e2e spec* carried bugs, fixed here).
+
+- `restaurant_hours` table (migration `AddRestaurantOpenHours1794121200000`,
+  20th): one row per weekly window `[opensAt, closesAt)`; `closesAt <=
+  opensAt` wraps past midnight; a weekday WITHOUT a row = closed that day.
+  CHECK domains mirror the DTO exactly (dayOfWeek 0..6, HH:MM 24h regex),
+  UNIQUE (restaurantId, dayOfWeek), FK CASCADE. `restaurants.timeZone`
+  varchar(64) nullable — the IANA zone windows are interpreted in
+  (null = server-local), validated on write via an Intl probe.
+- `open-hours.ts` — pure, side-effect-free derivation (no host-clock/zone
+  dependence in tests): `isOpenAt` checks today's windows plus yesterday's
+  wrap-past-midnight tail; an EMPTY schedule returns null = "no signal",
+  so the legacy manual `isOpen` column stays the fallback path.
+- `RestaurantsService.attachHours` — batched one-IN-query pass (same
+  contract as the option-groups attach) embeds `hours` + derived `isOpenNow`
+  on the storefront list, detail and `/restaurants/mine` reads.
+- Owner-or-admin `PATCH /restaurants/:id/hours` (PUT semantics): `days` is
+  the COMPLETE replacement; `days: []` clears the schedule and hands the
+  open status back to the manual toggle. Service guards class-validator
+  cannot express: duplicate dayOfWeek, `opensAt === closesAt` (all-day is
+  00:00-23:59), bogus IANA zone → 400 before any write; foreign owner →
+  403 (admins bypass), unknown id → 404, malformed uuid → 400.
+- Seed: three demo branches — Warung full week 07:00–23:00, Sushi-kan
+  closed Mondays (6 rows), Bu Tini's night stall wraps 17:00→02:00 — all
+  `Asia/Jakarta`; the rest stay unscheduled so both code paths ship.
+  TRUNCATE covers `restaurant_hours`.
+- Web: RestaurantCard's CLOSED overlay and the detail page's
+  "Open now / Closed right now" pill follow the SERVER-derived `isOpenNow`
+  (never recomputed client-side); the "Today HH:MM–HH:MM / Closed today"
+  line renders from the embedded schedule in the restaurant's zone; en/id
+  messages added. Swagger: `RestaurantResponse` gained `timeZone`/`hours`/
+  `isOpenNow`, new `RestaurantHoursViewResponse`, op pinned in the 64-op
+  contract.
+
+**Verified:**
+
+- API production build clean; full Jest **71 suites / 851 tests** green
+  (+2 suites / +28 tests: 12-case pure `open-hours.spec`, 5-case
+  real-ValidationPipe DTO spec incl. whitelist stripping, 11 new
+  service-spec cases for attach/replaceHours branches).
+- Web production build clean.
+- Live smoke on a scratch DB (chain 20/20 from empty): **47/47 assertions**
+  — seed embeds (7/6/0-row branches, wrap window, 3 zones), list/detail/mine
+  carry `hours`+`isOpenNow`, derived-open at the current Asia/Jakarta minute
+  (wrap window covering now) and derived-closed (future single-minute
+  window), PUT replace = exactly 1 row with rejected paths writing NOTHING,
+  400/401/403/404 matrix incl. customer-role and foreign-owner, admin
+  bypass on platform restaurants, clear → legacy fallback incl. manual
+  close/reopen deriving `isOpenNow` false/true, explicit-null zone reset,
+  direct psql probes: dayOfWeek CHECK, HH:MM CHECK, weekday UNIQUE,
+  FK-CASCADE sweep, and the runtime swagger doc serving the new op.
+  Four bugs found and fixed in the crashed session's SMOKE SCRIPT itself
+  (unbalanced quote, single-quoted SQL escaping, owner token where
+  admin/customer roles were required, top-level `has()` instead of
+  `.paths | has()`).
+- Full Playwright suite **22/22 green** on a re-seeded local DB with the
+  config's own runner (new `open-hours` spec 2/2; fixed its two
+  pagination-envelope bugs — `GET /restaurants` returns `{items,...}`).
+  Attribution note: partial failures in earlier reruns were NOT the
+  increment — a hand-booted API without the config's auth-bucket override
+  429-throttled suite logins (default 10/min); the documented runner path
+  is green.
+- Sanitizer scan: added lines carry no U+2026/`***`/`\uXXXX`; `git diff
+  --check` clean.
+
+**Left for next sessions:** `replaceHours` delete+insert is not yet
+transactional (folds into the existing "Unit-of-work" roadmap item); the
+ADMIN overview's `restaurants.open` count still reads the legacy `isOpen`
+column, not the derived status — worth a follow-up; no owner WEB UI for
+editing the weekly schedule (API-only, same as promo management); no
+"opens at HH:MM" countdown on the storefront.
+
+---
+
 ## 2026-11-06 17:38 — Session 67 — Coupons expiry + usage caps (API)
 
 **Built:** completed the ROADMAP item "Coupons expiry + usage caps" — promo
