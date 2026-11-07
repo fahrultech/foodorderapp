@@ -60,6 +60,15 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   the full menu in `GET /restaurants/:id`; `MenuBrowser` filters it in memory
   (name/description/category, case-insensitive) instead of adding a per-keystroke
   API. Category anchor ids are positional (`cat-<i>`) and stable while filtering.
+- **Cross-restaurant search is SERVER-side pg_trgm** (session 69) — public
+  `GET /api/search?q=` matches a restaurant name/description/cuisine or an
+  AVAILABLE dish name/description via trigram similarity (`col % q`, threshold
+  0.3) OR word containment (`q <% col`, threshold 0.6 — query on the LEFT;
+  `%<` was renamed in PG13) OR escaped-ILIKE substring, all served by GIN
+  `gin_trgm_ops` indexes. Ranking is the server's `GREATEST(similarity,
+  word_similarity…)` — clients render the returned order and NEVER rescore;
+  restaurant hits embed the shared `hours`/`isOpenNow` derivation, dish hits
+  carry a nested restaurant brief and integer-cents `priceCents`.
 - **Public browse routes publish server-derived SEO metadata** — each
   `/restaurants/:id` response uses the canonical restaurant row for its title,
   description, canonical URL, Open Graph card, and Twitter card. Missing

@@ -4,6 +4,77 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
+## 2026-11-07 20:00 — Session 69 — Fuzzy search with pg_trgm (API)
+
+**Built:** completed the ROADMAP item "Search: fuzzy name/description match
+with pg_trgm" — a public, relevance-ranked cross-restaurant search endpoint,
+backed by real trigram indexes, plus one honesty fix to the OpenAPI contract.
+
+- Migration `AddSearchTrgmIndexes1794207600000` (21st): `CREATE EXTENSION
+  IF NOT EXISTS pg_trgm` + four GIN `gin_trgm_ops` indexes
+  (`IDX_{restaurants,menu_items}_{name,description}_trgm`). pg_trgm is TRUSTED
+  since PG13, so the non-superuser DB owner runs it — proven on a scratch DB
+  whose owner is the app role (and on CI's `foodorder` superuser).
+- `src/search/`: `SearchModule` + public `GET /api/search?q=&limit=` (limit
+  = per-side cap, 1..25, default 10) over restaurants (name/description/
+  cuisine) and AVAILABLE dishes (name/description, JOINed restaurant brief).
+  Match = symmetric trigram `col % q` OR word containment `q <% col` OR
+  escaped-ILIKE substring (LIKE metacharacters in the query are literal);
+  ranking = server-side `GREATEST(similarity, word_similarity…) DESC` with
+  rating/price/name tie-breaks. Positional `$n` bind params throughout —
+  TypeORM's Postgres runner passes params straight to `pg`, objects are not a
+  supported convention. Restaurant hits run through the shared
+  `attachHours` (session 68) so search never recomputes open-ness on a second
+  clock; dish prices stay integer cents; pg NUMERIC `rating` is coerced to a
+  JSON number.
+- `SearchQueryDto`: `q` trimmed BEFORE validation (blank ⇒ 400), 1..100
+  chars; `limit` int 1..25. Every property decorated (whitelist:true).
+- Live smoke found a REAL bug pre-commit: `col %< q` 500s on PG16 —
+  `%<` was renamed to `<%` in PG13 and the argument order is query-left.
+  Fixed the SQL, re-pinned the spec regexes, and proved via EXPLAIN that
+  `q <% col` is index-served (planner commutates to the indexed `col %> q`).
+- Swagger: new `SearchResultsResponse`/`SearchRestaurantResultResponse`/
+  `SearchDishResultResponse`/`SearchRestaurantBriefResponse` models, `search`
+  tag, route contract-pinned as PUBLIC with a 400 envelope. BONUS contract
+  honesty fix: `MenuOptionsController` (session 65) was silently missing from
+  the swagger.spec route/SUCCESS/ERRORS/bearer lists — 6 owner ops had never
+  been pinned; all 6 registered, so the pin (71 ops) now matches reality.
+
+**Verified:**
+
+- API production build clean; full Jest **73 suites / 870 tests** green
+  (+2 suites / +19 tests: 9-case service spec pinning the generated SQL +
+  bound params + clamp/escape/mapping branches, 8-case real-HTTP DTO spec
+  incl. the whitelist-strip and trim-then-min-length paths; swagger.spec
+  re-pinned and green).
+- Live smoke on a scratch DB (21/21 migration chain from EMPTY, extension
+  created by the non-superuser owner role): **41/41 assertions** — schema
+  probes (4 GIN gin_trgm_ops indexes), `q=warung` ranks Warung Nusantara
+  first with relevance ≥0.9 + 7-row hours embed + number-typed rating,
+  contrast proof that the legacy substring `/restaurants?search=warunq` finds
+  NOTHING while fuzzy `/search` still returns Warung (and typo `sushii`→Sushi
+  Kan, `teokbokki`→Tteokbokki), description-only restaurant match (`sambal`
+  → Bu Tini), dish hits with nested restaurant + integer cents, the
+  availability filter proven by mutation (disabling Lalapan drops exactly one
+  dish hit from the same query), 400 matrix (missing/blank/limit=99) +
+  whitelist strip + limit capping + trim echo, metachar-safe `50%` (no error,
+  no wildcard match), SQL-injection probe (200, table intact at 6 rows),
+  four EXPLAIN probes showing the planner using each trigram GIN index
+  (seqscan off), and the runtime docs-json serving the op with 71 total
+  operations + public security.
+- Web build/e2e not run: API-only increment (WORKFLOW rule).
+- Sanitizer scan: added lines carry no U+2026/`***`; `git diff --check` clean.
+
+**Left for next sessions:** the web storefront is not yet wired to
+`GET /search` — header search box + results page (EN/ID), with the legacy
+`/restaurants?search` substring param either delegating or documented;
+similarity thresholds ride pg_trgm GUC defaults (0.3 / 0.6) — expose
+per-deployment tuning if recall proves too loose/tight; no synonym/pinyin
+handling; still open from session 68: transactional `replaceHours`
+(folds into "Unit-of-work"), owner web UI for the weekly schedule.
+
+---
+
 ## 2026-11-07 16:38 — Session 68 — Restaurant open hours + auto isOpen (API + web)
 
 **Built:** completed the ROADMAP item "Restaurant open hours (day-of-week
