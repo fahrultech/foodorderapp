@@ -16,6 +16,7 @@ import { RateLimitModule } from './common/rate-limit/rate-limit.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { CitiesModule } from './cities/cities.module';
 import { AdminModule } from './admin/admin.module';
+import { SearchModule } from './search/search.module';
 import { FeatureFlagsModule } from './feature-flags/feature-flags.module';
 
 @Module({
@@ -50,6 +51,7 @@ import { FeatureFlagsModule } from './feature-flags/feature-flags.module';
     NotificationsModule,
     FeatureFlagsModule,
     AdminModule,
+    SearchModule,
   ],
 })
 export class AppModule {}

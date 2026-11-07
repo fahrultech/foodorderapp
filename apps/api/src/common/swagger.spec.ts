@@ -21,7 +21,9 @@ import { AuthService } from '../auth/auth.service';
 import { HealthController } from '../health/health.controller';
 import { MenuController } from '../menu/menu.controller';
 import { MenuItemsController } from '../menu/menu-items.controller';
+import { MenuOptionsController } from '../menu/menu-options.controller';
 import { MenuService } from '../menu/menu.service';
+import { MenuOptionService } from '../menu/menu-option.service';
 import { OrdersController } from '../orders/orders.controller';
 import { RestaurantOrdersController } from '../orders/restaurant-orders.controller';
 import { DriverOrdersController } from '../orders/driver-orders.controller';
@@ -47,6 +49,8 @@ import { CitiesController } from '../cities/cities.controller';
 import { CitiesService } from '../cities/cities.service';
 import { AdminController } from '../admin/admin.controller';
 import { AdminService } from '../admin/admin.service';
+import { SearchController } from '../search/search.controller';
+import { SearchService } from '../search/search.service';
 
 /**
  * Guards the document against drifting from the actual route surface:
@@ -62,6 +66,7 @@ const CONTROLLERS = [
   HealthController,
   MenuController,
   MenuItemsController,
+  MenuOptionsController,
   OrdersController,
   RestaurantOrdersController,
   DriverOrdersController,
@@ -76,6 +81,7 @@ const CONTROLLERS = [
   NotificationsController,
   CitiesController,
   AdminController,
+  SearchController,
 ];
 
 const empty = () => ({});
@@ -86,6 +92,7 @@ const mockedProviders = [
   // but keep the mock shape honest so a future request-time test can reuse it.
   { provide: OrderEventsService, useValue: { stream: () => EMPTY } },
   { provide: MenuService, useValue: empty() },
+  { provide: MenuOptionService, useValue: empty() },
   { provide: RestaurantsService, useValue: empty() },
   { provide: ReviewsService, useValue: empty() },
   { provide: UsersService, useValue: empty() },
@@ -97,6 +104,7 @@ const mockedProviders = [
   { provide: PushService, useValue: empty() },
   { provide: CitiesService, useValue: empty() },
   { provide: AdminService, useValue: empty() },
+  { provide: SearchService, useValue: empty() },
   { provide: DataSource, useValue: { query: async () => [] } },
   { provide: JwtService, useValue: empty() },
   { provide: SlidingWindowLogStore, useValue: empty() },
@@ -161,6 +169,7 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['/users/me/addresses/{id}', 'delete'],
       ['/users/me/addresses/{id}/default', 'post'],
       ['/cities', 'get'],
+      ['/search', 'get'],
       ['/restaurants', 'get'],
       ['/restaurants', 'post'],
       ['/restaurants/meta/cuisines', 'get'],
@@ -174,6 +183,12 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['/menu/items/{id}/availability', 'patch'],
       ['/menu/items/{id}/image-upload', 'post'],
       ['/menu/items/{id}', 'delete'],
+      ['/menu/items/{itemId}/options/groups', 'post'],
+      ['/menu/items/{itemId}/options/groups/{groupId}', 'patch'],
+      ['/menu/items/{itemId}/options/groups/{groupId}', 'delete'],
+      ['/menu/items/{itemId}/options/groups/{groupId}/choices', 'post'],
+      ['/menu/items/{itemId}/options/groups/{groupId}/choices/{choiceId}', 'patch'],
+      ['/menu/items/{itemId}/options/groups/{groupId}/choices/{choiceId}', 'delete'],
       ['/orders', 'post'],
       ['/orders/my', 'get'],
       ['/orders/ops/cancel-stale', 'post'],
@@ -256,6 +271,12 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['/admin/promos/{id}', 'patch'],
       ['/admin/promos/{id}/usages', 'get'],
       ['/restaurants/{id}/hours', 'patch'],
+      ['/menu/items/{itemId}/options/groups', 'post'],
+      ['/menu/items/{itemId}/options/groups/{groupId}', 'patch'],
+      ['/menu/items/{itemId}/options/groups/{groupId}', 'delete'],
+      ['/menu/items/{itemId}/options/groups/{groupId}/choices', 'post'],
+      ['/menu/items/{itemId}/options/groups/{groupId}/choices/{choiceId}', 'patch'],
+      ['/menu/items/{itemId}/options/groups/{groupId}/choices/{choiceId}', 'delete'],
     ] as Array<[string, string]>) {
       const op = doc.paths[P(path)]?.[method];
       const security = op.security ?? [];
@@ -264,6 +285,7 @@ describe('OpenAPI document (generated from the real controllers)', () => {
     // Deliberately public (no Authorization required):
     for (const [path, method] of [
       ['/restaurants', 'get'],
+      ['/search', 'get'],
       ['/orders', 'post'], // optional auth: guest checkout
       ['/promos/validate', 'post'],
       ['/restaurants/{id}/reviews', 'get'],
@@ -363,6 +385,12 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['/menu/items/{id}/availability', 'patch', 200, 'ref:MenuItemResponse'],
       ['/menu/items/{id}/image-upload', 'post', 201, 'ref:MenuImageUploadResponse'],
       ['/menu/items/{id}', 'delete', 200, 'ref:MenuItemResponse'],
+      ['/menu/items/{itemId}/options/groups', 'post', 201, 'ref:MenuOptionGroupResponse'],
+      ['/menu/items/{itemId}/options/groups/{groupId}', 'patch', 200, 'ref:MenuOptionGroupResponse'],
+      ['/menu/items/{itemId}/options/groups/{groupId}', 'delete', 200, 'ref:MenuOptionGroupResponse'],
+      ['/menu/items/{itemId}/options/groups/{groupId}/choices', 'post', 201, 'ref:MenuOptionChoiceResponse'],
+      ['/menu/items/{itemId}/options/groups/{groupId}/choices/{choiceId}', 'patch', 200, 'ref:MenuOptionChoiceResponse'],
+      ['/menu/items/{itemId}/options/groups/{groupId}/choices/{choiceId}', 'delete', 200, 'ref:MenuOptionChoiceResponse'],
       ['/orders', 'post', 201, 'ref:OrderResponse'],
       ['/orders/my', 'get', 200, 'ref:PaginatedOrdersResponse'],
       ['/orders/ops/cancel-stale', 'post', 200, 'ref:CancelStaleResponse'],
@@ -396,8 +424,9 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['/admin/promos', 'post', 201, 'ref:AdminPromoResponse'],
       ['/admin/promos/{id}', 'patch', 200, 'ref:AdminPromoResponse'],
       ['/admin/promos/{id}/usages', 'get', 200, 'ref:PromoUsageListResponse'],
+      ['/search', 'get', 200, 'ref:SearchResultsResponse'],
     ];
-    expect(SUCCESS.length).toBe(64);
+    expect(SUCCESS.length).toBe(71);
     for (const [path, method, code, kind] of SUCCESS) {
       const res = doc.paths[P(path)]?.[method]?.responses?.[String(code)];
       if (!res) throw new Error(`${method} ${path}: no ${code} response documented`);
@@ -488,6 +517,13 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['/admin/promos', 'post', [400, 401, 403, 409]],
       ['/admin/promos/{id}', 'patch', [400, 401, 403, 404, 409]],
       ['/admin/promos/{id}/usages', 'get', [400, 401, 403, 404]],
+      ['/search', 'get', [400]],
+      ['/menu/items/{itemId}/options/groups', 'post', [400, 401, 403, 404]],
+      ['/menu/items/{itemId}/options/groups/{groupId}', 'patch', [400, 401, 403, 404]],
+      ['/menu/items/{itemId}/options/groups/{groupId}', 'delete', [400, 401, 403, 404]],
+      ['/menu/items/{itemId}/options/groups/{groupId}/choices', 'post', [400, 401, 403, 404]],
+      ['/menu/items/{itemId}/options/groups/{groupId}/choices/{choiceId}', 'patch', [400, 401, 403, 404]],
+      ['/menu/items/{itemId}/options/groups/{groupId}/choices/{choiceId}', 'delete', [400, 401, 403, 404]],
     ];
     for (const [path, method, codes] of ERRORS) {
       const responses = doc.paths[P(path)]?.[method]?.responses ?? {};

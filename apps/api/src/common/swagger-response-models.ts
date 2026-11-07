@@ -534,6 +534,133 @@ export class PaginatedRestaurantsResponse {
 }
 
 // ---------------------------------------------------------------------------
+// Search (public fuzzy storefront search, pg_trgm)
+// ---------------------------------------------------------------------------
+
+/** Restaurant hit from GET /search — a SLIM projection plus the shared
+ *  hours derivation and the server-side relevance score. */
+export class SearchRestaurantResultResponse {
+  @ApiProperty({ type: 'string', format: 'uuid' })
+  id: string;
+
+  @ApiProperty({ example: 'warung-budi' })
+  slug: string;
+
+  @ApiProperty({ example: 'Warung Budi' })
+  name: string;
+
+  @ApiProperty({ type: 'string', nullable: true, example: 'Indonesian' })
+  cuisine: string | null;
+
+  @ApiProperty({ type: 'string', nullable: true, example: 'Jakarta' })
+  city: string | null;
+
+  @ApiProperty({ type: 'string', nullable: true })
+  imageUrl: string | null;
+
+  @ApiProperty({ type: 'number', example: 4.75 })
+  rating: number;
+
+  @ApiProperty({ type: 'integer', description: 'Delivery fee in cents.' })
+  deliveryFeeCents: number;
+
+  @ApiProperty({ type: 'integer', description: 'Minimum order subtotal in cents.' })
+  minOrderCents: number;
+
+  @ApiProperty({ type: 'integer', description: 'Average prep time, minutes.' })
+  avgPrepMinutes: number;
+
+  @ApiProperty({ description: 'LEGACY manual toggle — `isOpenNow` is the one to trust.' })
+  isOpen: boolean;
+
+  @ApiProperty({ type: 'string', nullable: true, maxLength: 64, example: 'Asia/Jakarta' })
+  timeZone: string | null;
+
+  @ApiProperty({
+    type: [RestaurantHoursResponse],
+    description: 'Weekly open-hours schedule, batched from the same derivation as GET /restaurants.',
+  })
+  hours: RestaurantHoursResponse[];
+
+  @ApiProperty({ description: 'Server-derived open status at request time (never recomputed client-side).' })
+  isOpenNow: boolean;
+
+  @ApiProperty({
+    type: 'number',
+    minimum: 0,
+    maximum: 1,
+    description: 'Trigram relevance (0..1): name similarity / best word similarity across name, description, cuisine.',
+    example: 0.64,
+  })
+  relevance: number;
+}
+
+/** The owning-restaurant brief embedded on each dish hit. */
+export class SearchRestaurantBriefResponse {
+  @ApiProperty({ type: 'string', format: 'uuid' })
+  id: string;
+
+  @ApiProperty({ example: 'warung-budi' })
+  slug: string;
+
+  @ApiProperty({ example: 'Warung Budi' })
+  name: string;
+
+  @ApiProperty({ type: 'string', nullable: true, example: 'Indonesian' })
+  cuisine: string | null;
+}
+
+/** Dish hit from GET /search — only AVAILABLE items are ever returned. */
+export class SearchDishResultResponse {
+  @ApiProperty({ type: 'string', format: 'uuid' })
+  id: string;
+
+  @ApiProperty({ example: 'Nasi Goreng' })
+  name: string;
+
+  @ApiProperty({ type: 'string', nullable: true })
+  description: string | null;
+
+  @ApiProperty({ type: 'integer', description: 'Unit price in cents (integer cents, no floats).' })
+  priceCents: number;
+
+  @ApiProperty({ type: 'string', nullable: true, example: 'Mains' })
+  category: string | null;
+
+  @ApiProperty({ type: 'string', nullable: true })
+  imageUrl: string | null;
+
+  @ApiProperty({ type: 'string', format: 'uuid' })
+  restaurantId: string;
+
+  @ApiProperty({ type: () => SearchRestaurantBriefResponse })
+  restaurant: SearchRestaurantBriefResponse;
+
+  @ApiProperty({
+    type: 'number',
+    minimum: 0,
+    maximum: 1,
+    description: 'Trigram relevance (0..1) over the dish name and description.',
+    example: 0.57,
+  })
+  relevance: number;
+}
+
+export class SearchResultsResponse {
+  @ApiProperty({ description: 'The trimmed query actually executed.' })
+  query: string;
+
+  @ApiProperty({ type: 'integer', description: 'Effective per-side cap applied to both lists.' })
+  limit: number;
+
+  @ApiProperty({ type: () => [SearchRestaurantResultResponse] })
+  restaurants: SearchRestaurantResultResponse[];
+
+  @ApiProperty({ type: () => [SearchDishResultResponse] })
+  dishes: SearchDishResultResponse[];
+}
+
+// ---------------------------------------------------------------------------
 // Orders
 // ---------------------------------------------------------------------------
 

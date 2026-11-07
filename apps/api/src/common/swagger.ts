@@ -24,6 +24,7 @@ export const SWAGGER_TAGS = [
   'users',
   'cities',
   'restaurants',
+  'search',
   'menu',
   'orders',
   'driver',
@@ -78,6 +79,7 @@ export function buildSwaggerDocumentConfig() {
     .addTag('users', 'Self-service profile, favorites, delivery-address book (JWT-scoped).')
     .addTag('cities', 'Active delivery-city registry for storefront scoping.')
     .addTag('restaurants', 'Public browse/search + owner onboarding and edits.')
+    .addTag('search', 'Public fuzzy restaurant + dish search (pg_trgm trigram match, relevance-ranked).')
     .addTag('menu', 'Public dish listing + owner dish CRUD.')
     .addTag('orders', 'Checkout (guest allowed), order history, cancellation, status machine.')
     .addTag('driver', 'DRIVER-only assigned-order inbox and delivery status actions.')
