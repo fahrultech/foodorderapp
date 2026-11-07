@@ -5,6 +5,9 @@ import { getTranslations } from 'next-intl/server';
 
 export default async function RestaurantCard({ restaurant }: { restaurant: Restaurant }) {
   const t = await getTranslations('Common');
+  // Server-derived schedule status wins; the legacy manual toggle only
+  // matters for restaurants without a weekly open-hours schedule.
+  const closedNow = (restaurant.isOpenNow ?? restaurant.isOpen) === false;
   return (
     <Link
       href={`/restaurants/${restaurant.id}`}
@@ -22,7 +25,7 @@ export default async function RestaurantCard({ restaurant }: { restaurant: Resta
         ) : (
           <div className="flex h-full items-center justify-center text-4xl">🍽️</div>
         )}
-        {!restaurant.isOpen && (
+        {closedNow && (
           <div className="absolute inset-0 flex items-center justify-center bg-black/50 text-sm font-bold uppercase text-white">
             {t('closed')}
           </div>

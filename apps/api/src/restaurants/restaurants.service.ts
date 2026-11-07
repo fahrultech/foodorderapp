@@ -1,13 +1,17 @@
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   NotFoundException,
   Optional,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Brackets, Repository } from 'typeorm';
+import { Brackets, In, Repository } from 'typeorm';
 import { Restaurant } from './restaurant.entity';
+import { RestaurantHours } from './restaurant-hours.entity';
 import { CreateRestaurantDto, UpdateRestaurantDto } from './dto/restaurant.dto';
+import { UpdateRestaurantHoursDto } from './dto/restaurant-hours.dto';
+import { isOpenAt, isValidTimeZone, serverTimeZone, TIME_RE } from './open-hours';
 import { UserRole } from '../users/user.entity';
 import { isUuid } from '../common/uuid';
 import { City } from '../cities/city.entity';
@@ -20,6 +24,14 @@ export interface RestaurantQuery {
   sort?: 'rating' | 'deliveryFee' | 'newest';
   page?: number;
   limit?: number;
+}
+
+/** Shape returned by replaceHours (also the swagger view model). */
+export interface RestaurantHoursView {
+  restaurantId: string;
+  timeZone: string | null;
+  days: RestaurantHours[];
+  isOpenNow: boolean;
 }
 
 @Injectable()
@@ -35,7 +47,42 @@ export class RestaurantsService {
     // the unit harness (constructed without it) valid.
     @Optional()
     private readonly menu?: MenuService,
+    // Session 68: weekly open-hours schedule + derived `isOpenNow`, attached
+    // through ONE batched IN query (no N+1). Same @Optional contract.
+    @Optional()
+    @InjectRepository(RestaurantHours)
+    private readonly hours?: Repository<RestaurantHours>,
   ) {}
+
+  /**
+   * Batch-attach `hours` + `isOpenNow` to restaurant rows.
+   * Rule (ARCHITECTURE): rows exist -> schedule-derived; NO rows -> the
+   * legacy manual `isOpen` column. `now` is injectable for deterministic
+   * unit tests.
+   */
+  async attachHours<T extends Restaurant>(
+    rows: T[],
+    now: Date = new Date(),
+  ): Promise<T[]> {
+    if (!rows.length || !this.hours) return rows;
+    const found = await this.hours.find({
+      where: { restaurantId: In(rows.map((r) => r.id)) },
+      order: { dayOfWeek: 'ASC' },
+    });
+    const byRestaurant = new Map<string, RestaurantHours[]>();
+    for (const h of found) {
+      const list = byRestaurant.get(h.restaurantId) ?? [];
+      list.push(h);
+      byRestaurant.set(h.restaurantId, list);
+    }
+    for (const r of rows) {
+      const schedule = byRestaurant.get(r.id) ?? [];
+      (r as any).hours = schedule;
+      (r as any).isOpenNow =
+        isOpenAt(schedule, now, r.timeZone ?? serverTimeZone()) ?? r.isOpen;
+    }
+    return rows;
+  }
 
   async findAll(q: RestaurantQuery) {
     const page = Math.max(1, Number(q.page) || 1);
@@ -74,7 +121,9 @@ export class RestaurantsService {
       .skip((page - 1) * limit)
       .take(limit)
       .getManyAndCount();
-    return { items, total, page, limit };
+    // ONE batched hours query for the whole page (the batched-IN contract
+    // the option-groups attach set in session 65/66).
+    return { items: await this.attachHours(items), total, page, limit };
   }
 
   async findOne(id: string) {
@@ -86,11 +135,86 @@ export class RestaurantsService {
     if (restaurant?.menuItems?.length && this.menu) {
       restaurant.menuItems = await this.menu.attachOptionGroups(restaurant.menuItems);
     }
+    if (restaurant) await this.attachHours([restaurant]);
     return restaurant;
   }
 
   async findRestaurants() {
     return this.repo.find({ order: { name: 'ASC' } });
+  }
+
+  /**
+   * Owner-or-admin WEEKLY SCHEDULE REPLACEMENT (PUT semantics). Mirrors
+   * `updateOwned`'s ownership rules. Guards that class-validator cannot
+   * express: duplicate dayOfWeek, opensAt === closesAt (empty window — all-day
+   * is 00:00-23:59), bogus IANA zone. An empty `days` clears the schedule,
+   * handing the open status back to the legacy manual `isOpen` toggle.
+   */
+  async replaceHours(
+    id: string,
+    actor: { sub: string; role: UserRole },
+    dto: UpdateRestaurantHoursDto,
+  ): Promise<RestaurantHoursView> {
+    if (!isUuid(id)) throw new NotFoundException('Restaurant not found');
+    if (!this.hours) throw new Error('RestaurantsModule wiring missing');
+    const restaurant = await this.repo.findOne({ where: { id } });
+    if (!restaurant) throw new NotFoundException('Restaurant not found');
+    if (actor.role !== UserRole.ADMIN && restaurant.ownerId !== actor.sub) {
+      throw new ForbiddenException('You do not own this restaurant');
+    }
+
+    const days = dto.days ?? [];
+    const seen = new Set<number>();
+    for (const d of days) {
+      if (seen.has(d.dayOfWeek)) {
+        throw new BadRequestException(`Duplicate dayOfWeek ${d.dayOfWeek}`);
+      }
+      seen.add(d.dayOfWeek);
+      if (d.opensAt === d.closesAt) {
+        throw new BadRequestException(
+          'opensAt and closesAt must differ (all-day is 00:00-23:59)',
+        );
+      }
+      if (!TIME_RE.test(d.opensAt) || !TIME_RE.test(d.closesAt)) {
+        throw new BadRequestException('Times must be HH:MM in 24h form');
+      }
+    }
+    if (
+      dto.timeZone !== undefined &&
+      dto.timeZone !== null &&
+      !isValidTimeZone(dto.timeZone)
+    ) {
+      throw new BadRequestException('timeZone must be a valid IANA zone');
+    }
+
+    // Full replace: wipe then insert. No transaction yet — matches the
+    // codebase's pre-"Unit-of-work" norm; a single-owner route tolerates it.
+    await this.hours.delete({ restaurantId: id });
+    const rows = days.length
+      ? await this.hours.save(
+          days.map((d) =>
+            this.hours!.create({
+              restaurantId: id,
+              dayOfWeek: d.dayOfWeek,
+              opensAt: d.opensAt,
+              closesAt: d.closesAt,
+            }),
+          ),
+        )
+      : [];
+    if (dto.timeZone !== undefined) {
+      restaurant.timeZone = dto.timeZone;
+      await this.repo.save(restaurant);
+    }
+    const sorted = [...rows].sort((a, b) => a.dayOfWeek - b.dayOfWeek);
+    return {
+      restaurantId: id,
+      timeZone: restaurant.timeZone,
+      days: sorted,
+      isOpenNow:
+        isOpenAt(sorted, new Date(), restaurant.timeZone ?? serverTimeZone()) ??
+        restaurant.isOpen,
+    };
   }
 
   /** Slugify a name and make it unique by appending -2, -3, etc. on collision. */
@@ -138,7 +262,11 @@ export class RestaurantsService {
   }
 
   async findOwned(ownerId: string): Promise<Restaurant[]> {
-    return this.repo.find({ where: { ownerId }, order: { createdAt: 'DESC' } });
+    const rows = await this.repo.find({
+      where: { ownerId },
+      order: { createdAt: 'DESC' },
+    });
+    return this.attachHours(rows);
   }
 
   /** Owner-or-admin update: an actor may only touch restaurants they own (admins bypass). */

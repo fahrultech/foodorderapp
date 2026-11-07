@@ -6,6 +6,7 @@ import { Favorite } from '../users/favorite.entity';
 import { DeliveryAddress } from '../users/delivery-address.entity';
 import { RefreshToken } from '../auth/refresh-token.entity';
 import { Restaurant } from '../restaurants/restaurant.entity';
+import { RestaurantHours } from '../restaurants/restaurant-hours.entity';
 import { MenuItem } from '../menu/menu-item.entity';
 import { MenuOptionGroup } from '../menu/menu-option-group.entity';
 import { MenuOptionChoice } from '../menu/menu-option-choice.entity';
@@ -40,7 +41,7 @@ export const dataSourceOptions = {
   url:
     process.env.DATABASE_URL ||
     'postgresql://foodorder:foodorder@localhost:5432/foodorder',
-  entities: [User, Favorite, DeliveryAddress, RefreshToken, City, Restaurant, MenuItem, MenuOptionGroup, MenuOptionChoice, Order, OrderItem, OrderStatusAudit, Review, PromoCode, PromoUsage, Payment, PaymentRefund, PushSubscription, FeatureFlag],
+  entities: [User, Favorite, DeliveryAddress, RefreshToken, City, Restaurant, RestaurantHours, MenuItem, MenuOptionGroup, MenuOptionChoice, Order, OrderItem, OrderStatusAudit, Review, PromoCode, PromoUsage, Payment, PaymentRefund, PushSubscription, FeatureFlag],
   // Glob works for ts-node (src) and compiled output (dist) alike.
   migrations: [path.join(__dirname, 'migrations', '*.{ts,js}')],
   migrationsRun: true,

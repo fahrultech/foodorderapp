@@ -167,6 +167,7 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['/restaurants/mine', 'get'],
       ['/restaurants/{id}', 'get'],
       ['/restaurants/{id}', 'patch'],
+      ['/restaurants/{id}/hours', 'patch'],
       ['/restaurants/{restaurantId}/menu', 'get'],
       ['/restaurants/{restaurantId}/menu', 'post'],
       ['/menu/items/{id}', 'patch'],
@@ -254,6 +255,7 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['/admin/promos', 'post'],
       ['/admin/promos/{id}', 'patch'],
       ['/admin/promos/{id}/usages', 'get'],
+      ['/restaurants/{id}/hours', 'patch'],
     ] as Array<[string, string]>) {
       const op = doc.paths[P(path)]?.[method];
       const security = op.security ?? [];
@@ -305,6 +307,10 @@ describe('OpenAPI document (generated from the real controllers)', () => {
     expect(schemas['DeleteAccountDto']).toMatchObject({
       required: expect.arrayContaining(['password', 'confirmation']),
     });
+    // Open-hours schedule replacement: days is REQUIRED (PUT semantics).
+    expect(schemas['UpdateRestaurantHoursDto']).toMatchObject({
+      required: expect.arrayContaining(['days']),
+    });
     expect((schemas['DeleteAccountDto'] as any)?.properties?.confirmation).toMatchObject({
       enum: ['DELETE'],
     });
@@ -350,6 +356,7 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['/restaurants/mine', 'get', 200, 'array:RestaurantResponse'],
       ['/restaurants/{id}', 'get', 200, 'ref:RestaurantWithMenuResponse'],
       ['/restaurants/{id}', 'patch', 200, 'ref:RestaurantResponse'],
+      ['/restaurants/{id}/hours', 'patch', 200, 'ref:RestaurantHoursViewResponse'],
       ['/restaurants/{restaurantId}/menu', 'get', 200, 'array:MenuItemResponse'],
       ['/restaurants/{restaurantId}/menu', 'post', 201, 'ref:MenuItemResponse'],
       ['/menu/items/{id}', 'patch', 200, 'ref:MenuItemResponse'],
@@ -390,7 +397,7 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['/admin/promos/{id}', 'patch', 200, 'ref:AdminPromoResponse'],
       ['/admin/promos/{id}/usages', 'get', 200, 'ref:PromoUsageListResponse'],
     ];
-    expect(SUCCESS.length).toBe(63);
+    expect(SUCCESS.length).toBe(64);
     for (const [path, method, code, kind] of SUCCESS) {
       const res = doc.paths[P(path)]?.[method]?.responses?.[String(code)];
       if (!res) throw new Error(`${method} ${path}: no ${code} response documented`);
@@ -442,6 +449,7 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['/restaurants/mine', 'get', [401, 403]],
       ['/restaurants/{id}', 'get', [400, 404]],
       ['/restaurants/{id}', 'patch', [400, 401, 403, 404]],
+      ['/restaurants/{id}/hours', 'patch', [400, 401, 403, 404]],
       ['/restaurants/{restaurantId}/menu', 'get', [400]],
       ['/restaurants/{restaurantId}/menu', 'post', [400, 401, 403, 404]],
       ['/menu/items/{id}', 'patch', [400, 401, 403, 404]],

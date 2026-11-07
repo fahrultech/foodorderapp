@@ -1,4 +1,8 @@
-import { ForbiddenException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
 import { RestaurantsService } from './restaurants.service';
 import { Restaurant } from './restaurant.entity';
 import { UserRole } from '../users/user.entity';
@@ -18,6 +22,7 @@ function fakeRestaurant(overrides: Partial<Restaurant> = {}): Restaurant {
 function build(
   existing: Restaurant[] = [fakeRestaurant()],
   menu?: { attachOptionGroups: jest.Mock },
+  hours?: any,
 ) {
   const findOne = jest.fn(async ({ where }: any) => {
     if (where.slug) return existing.find((r) => r.slug === where.slug) ?? null;
@@ -43,7 +48,7 @@ function build(
     save,
     cityFindOne,
     repo,
-    service: new RestaurantsService(repo, cityRepo, menu as any),
+    service: new RestaurantsService(repo, cityRepo, menu as any, hours),
   };
 }
 
@@ -256,5 +261,178 @@ describe('RestaurantsService — owner CRUD', () => {
 
       expect(save.mock.calls[0][0]).toMatchObject({ cityId: null, city: 'Medan' });
     });
+  });
+});
+
+const SAT_NOON_WIB = new Date('2026-11-07T05:00:00Z'); // Sat 12:00 Asia/Jakarta
+
+function hoursMock(rows: any[] = []) {
+  return {
+    find: jest.fn(async () => rows),
+    delete: jest.fn(async () => ({ affected: rows.length })),
+    create: jest.fn((x: any) => x),
+    save: jest.fn(async (x: any) => x),
+  };
+}
+
+describe('RestaurantsService — open-hours attach (session 68)', () => {
+  const ID = '11111111-1111-4111-8111-111111111111';
+  const ID2 = '22222222-2222-4222-8222-222222222222';
+
+  it('derives isOpenNow from the schedule, overriding a closed manual column', async () => {
+    const hours = hoursMock([
+      { restaurantId: ID, dayOfWeek: 6, opensAt: '07:00', closesAt: '23:00' },
+    ]);
+    const { service } = build([fakeRestaurant({ id: ID })], undefined, hours);
+    const [out] = await service.attachHours(
+      [fakeRestaurant({ id: ID, timeZone: 'Asia/Jakarta', isOpen: false })],
+      SAT_NOON_WIB,
+    );
+    expect((out as any).isOpenNow).toBe(true);
+    expect((out as any).hours).toHaveLength(1);
+  });
+
+  it('falls back to the legacy manual column when the restaurant has NO rows', async () => {
+    const hours = hoursMock([]);
+    const { service } = build([], undefined, hours);
+    const [out] = await service.attachHours(
+      [fakeRestaurant({ id: ID, isOpen: false })],
+      SAT_NOON_WIB,
+    );
+    expect((out as any).isOpenNow).toBe(false);
+    expect((out as any).hours).toEqual([]);
+  });
+
+  it('loads ONE batched IN query for a whole page (no N+1)', async () => {
+    const hours = hoursMock([]);
+    const { service } = build([], undefined, hours);
+    await service.attachHours(
+      [fakeRestaurant({ id: ID }), fakeRestaurant({ id: ID2 })],
+      SAT_NOON_WIB,
+    );
+    expect(hours.find).toHaveBeenCalledTimes(1);
+  });
+
+  it('findOne and findOwned both run the attach pass', async () => {
+    const hours = hoursMock([]);
+    const { service } = build([fakeRestaurant({ id: ID })], undefined, hours);
+    const spy = jest.spyOn(service, 'attachHours');
+    await service.findOne(ID);
+    expect(spy).toHaveBeenCalledTimes(1);
+    await service.findOwned('u1');
+    expect(spy).toHaveBeenCalledTimes(2);
+  });
+
+  it('stays a no-op without the optional hours repo (unit harness shape)', async () => {
+    const { service } = build([fakeRestaurant({ id: ID })]);
+    const res = await service.findOne(ID);
+    expect((res as any).isOpenNow).toBeUndefined();
+    expect((res as any).hours).toBeUndefined();
+  });
+});
+
+describe('RestaurantsService.replaceHours (session 68)', () => {
+  const ID = '11111111-1111-4111-8111-111111111111';
+  const owner = { sub: 'u1', role: UserRole.OWNER };
+
+  it('full replace: delete, sorted insert, timeZone write, honest view', async () => {
+    const hours = hoursMock();
+    const { service, save } = build([fakeRestaurant({ id: ID })], undefined, hours);
+    const view = await service.replaceHours(ID, owner, {
+      timeZone: 'Asia/Makassar',
+      days: [
+        { dayOfWeek: 3, opensAt: '09:00', closesAt: '17:00' },
+        { dayOfWeek: 1, opensAt: '08:00', closesAt: '22:00' },
+      ],
+    } as any);
+    expect(hours.delete).toHaveBeenCalledWith({ restaurantId: ID });
+    expect(view.days.map((d) => d.dayOfWeek)).toEqual([1, 3]);
+    expect(view.restaurantId).toBe(ID);
+    expect(typeof view.isOpenNow).toBe('boolean');
+    // The IANA zone was persisted through the restaurant repo.
+    expect(save).toHaveBeenCalled();
+    expect(save.mock.calls[0][0]).toMatchObject({ timeZone: 'Asia/Makassar' });
+  });
+
+  it('omitted timeZone keeps the stored zone (no entity save)', async () => {
+    const hours = hoursMock();
+    const { service, save } = build(
+      [fakeRestaurant({ id: ID, timeZone: 'UTC' })],
+      undefined,
+      hours,
+    );
+    const view = await service.replaceHours(ID, owner, {
+      days: [{ dayOfWeek: 2, opensAt: '10:00', closesAt: '20:00' }],
+    } as any);
+    expect(save).not.toHaveBeenCalled();
+    expect(view.timeZone).toBe('UTC');
+  });
+
+  it('empty days CLEARS the schedule and the status falls back to the manual column', async () => {
+    const hours = hoursMock();
+    const { service } = build(
+      [fakeRestaurant({ id: ID, isOpen: false })],
+      undefined,
+      hours,
+    );
+    const view = await service.replaceHours(ID, owner, { days: [] } as any);
+    expect(hours.delete).toHaveBeenCalled();
+    expect(hours.save).not.toHaveBeenCalled();
+    expect(view.days).toEqual([]);
+    expect(view.isOpenNow).toBe(false); // manual column, deterministic
+  });
+
+  it('rejects a duplicate weekday and an empty window', async () => {
+    const hours = hoursMock();
+    const { service } = build([fakeRestaurant({ id: ID })], undefined, hours);
+    await expect(
+      service.replaceHours(ID, owner, {
+        days: [
+          { dayOfWeek: 1, opensAt: '08:00', closesAt: '12:00' },
+          { dayOfWeek: 1, opensAt: '13:00', closesAt: '22:00' },
+        ],
+      } as any),
+    ).rejects.toThrow(BadRequestException);
+    await expect(
+      service.replaceHours(ID, owner, {
+        days: [{ dayOfWeek: 1, opensAt: '08:00', closesAt: '08:00' }],
+      } as any),
+    ).rejects.toThrow(/must differ/);
+    expect(hours.delete).not.toHaveBeenCalled();
+  });
+
+  it('rejects a bogus IANA zone before touching anything', async () => {
+    const hours = hoursMock();
+    const { service } = build([fakeRestaurant({ id: ID })], undefined, hours);
+    await expect(
+      service.replaceHours(ID, owner, {
+        timeZone: 'Mars/Olympus',
+        days: [{ dayOfWeek: 1, opensAt: '08:00', closesAt: '22:00' }],
+      } as any),
+    ).rejects.toThrow(/valid IANA zone/);
+    expect(hours.delete).not.toHaveBeenCalled();
+    expect(hours.save).not.toHaveBeenCalled();
+  });
+
+  it('ownership rules mirror updateOwned: 403 foreign owner, 404 unknown, 404 malformed, admin bypasses', async () => {
+    const hours = hoursMock();
+    const days = [{ dayOfWeek: 1, opensAt: '08:00', closesAt: '22:00' }];
+    const { service } = build(
+      [fakeRestaurant({ id: ID, ownerId: 'someone-else' })],
+      undefined,
+      hours,
+    );
+    await expect(service.replaceHours(ID, owner, { days } as any)).rejects.toThrow(
+      ForbiddenException,
+    );
+    await expect(
+      service.replaceHours('33333333-3333-4333-8333-333333333333', owner, { days } as any),
+    ).rejects.toThrow(NotFoundException);
+    await expect(service.replaceHours('not-a-uuid', owner, { days } as any)).rejects.toThrow(
+      NotFoundException,
+    );
+    await expect(
+      service.replaceHours(ID, { sub: 'someone-else', role: UserRole.ADMIN }, { days } as any),
+    ).resolves.toMatchObject({ restaurantId: ID });
   });
 });

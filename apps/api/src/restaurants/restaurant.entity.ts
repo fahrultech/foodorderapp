@@ -81,8 +81,21 @@ export class Restaurant {
   @Column({ type: 'int', default: 30 })
   avgPrepMinutes: number;
 
+  /**
+   * LEGACY manual toggle — the ONLY open signal for restaurants WITHOUT a
+   * `restaurant_hours` schedule. Once the weekly schedule has rows,
+   * `isOpenNow` is derived from it (see open-hours.ts) and this column stops
+   * mattering for the derived status.
+   */
   @Column({ default: true })
   isOpen: boolean;
+
+  /**
+   * IANA zone the open-hours windows are interpreted in (null = server-local).
+   * Validated on write via `isValidTimeZone` — never trusted from a raw read.
+   */
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  timeZone: string | null;
 
   @OneToMany(() => MenuItem, (item) => item.restaurant)
   menuItems: MenuItem[];

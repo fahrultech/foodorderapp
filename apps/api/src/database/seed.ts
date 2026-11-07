@@ -2,6 +2,8 @@ import 'reflect-metadata';
 import * as bcrypt from 'bcryptjs';
 import { User, UserRole } from '../users/user.entity';
 import { Restaurant } from '../restaurants/restaurant.entity';
+import { RestaurantHours } from '../restaurants/restaurant-hours.entity';
+import { In } from 'typeorm';
 import { MenuItem } from '../menu/menu-item.entity';
 import { MenuOptionGroup } from '../menu/menu-option-group.entity';
 import { Order, OrderStatus } from '../orders/order.entity';
@@ -121,7 +123,7 @@ async function main() {
   // explicitly even though the users FK cascade would clear it — a seeded DB
   // must never keep live sessions from a previous run.
   await dataSource.query(
-    'TRUNCATE TABLE user_favorites, delivery_addresses, reviews, order_items, orders, promo_usages, promo_codes, menu_items, restaurants, cities, refresh_tokens, users RESTART IDENTITY CASCADE',
+    'TRUNCATE TABLE user_favorites, delivery_addresses, reviews, order_items, orders, promo_usages, promo_codes, menu_items, restaurant_hours, restaurants, cities, refresh_tokens, users RESTART IDENTITY CASCADE',
   );
 
   const restaurantRepo = dataSource.getRepository(Restaurant);
@@ -213,6 +215,44 @@ async function main() {
     created.push({ restaurant, items });
     console.log(`  + ${restaurant.name} (${items.length} items)`);
   }
+
+  // Weekly open-hours schedules (Phase 5 "Restaurant open hours",
+  // session 68). Three demo branches: full week, one weekday closed,
+  // and a past-midnight wrap (closesAt < opensAt). Restaurants left
+  // WITHOUT rows fall back to the legacy manual `isOpen` toggle —
+  // deliberately kept that way so both code paths stay exercised.
+  const hoursRepo = dataSource.getRepository(RestaurantHours);
+  const daysOfWeek = (from: number, to: number): number[] => {
+    const out: number[] = [];
+    for (let d = from; d <= to; d++) out.push(d);
+    return out;
+  };
+  const seedSchedule = (
+    slug: string,
+    days: number[],
+    opensAt: string,
+    closesAt: string,
+  ) =>
+    days.map((dayOfWeek) =>
+      hoursRepo.create({
+        restaurantId: created.find((c) => c.restaurant.slug === slug)!.restaurant.id,
+        dayOfWeek,
+        opensAt,
+        closesAt,
+      }),
+    );
+  await hoursRepo.save([
+    ...seedSchedule('warung-nusantara', daysOfWeek(0, 6), '07:00', '23:00'),
+    // Sushi-kan skips Monday (dayOfWeek 1): no row = closed that weekday.
+    ...seedSchedule('sushi-kan', [2, 3, 4, 5, 6, 0], '11:00', '21:00'),
+    // Bu Tini's night stall wraps past midnight (17:00 -> next-day 02:00).
+    ...seedSchedule('ayam-goreng-bu-tini', daysOfWeek(0, 6), '17:00', '02:00'),
+  ]);
+  await restaurantRepo.update(
+    { slug: In(['warung-nusantara', 'sushi-kan', 'ayam-goreng-bu-tini']) },
+    { timeZone: 'Asia/Jakarta' },
+  );
+  console.log('  + open-hours schedules (warung full week, sushi closed Mon, bu tini night wrap)');
 
   // Menu options/variants (Phase 5): sizes on Warung's Es Teh Manis and
   // add-ons on Nasi Goreng Spesial. Every seeded group is OPTIONAL

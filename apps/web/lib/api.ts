@@ -19,7 +19,23 @@ export interface Restaurant {
   minOrderCents: number;
   avgPrepMinutes: number;
   isOpen: boolean;
+  /** IANA zone the open-hours schedule is read in; null = server-local. */
+  timeZone?: string | null;
+  /** Weekly schedule, attached on storefront reads. Empty = no schedule. */
+  hours?: RestaurantHour[];
+  /** Server-derived open status: schedule when rows exist, else legacy `isOpen`. */
+  isOpenNow?: boolean;
   menuItems?: MenuItem[];
+}
+
+/** One weekly open-hours window; [opensAt, closesAt), wraps past midnight when closesAt <= opensAt. */
+export interface RestaurantHour {
+  id: string;
+  restaurantId: string;
+  /** 0 = Sunday ... 6 = Saturday. */
+  dayOfWeek: number;
+  opensAt: string;
+  closesAt: string;
 }
 
 /**

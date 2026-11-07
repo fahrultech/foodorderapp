@@ -5,6 +5,7 @@ import { Favorite } from '../users/favorite.entity';
 import { DeliveryAddress } from '../users/delivery-address.entity';
 import { RefreshToken } from '../auth/refresh-token.entity';
 import { Restaurant } from '../restaurants/restaurant.entity';
+import { RestaurantHours } from '../restaurants/restaurant-hours.entity';
 import { MenuItem } from '../menu/menu-item.entity';
 import { MenuOptionGroup } from '../menu/menu-option-group.entity';
 import { MenuOptionChoice } from '../menu/menu-option-choice.entity';
@@ -27,10 +28,10 @@ describe('database/data-source', () => {
     expect(dataSourceOptions.migrationsRun).toBe(true);
   });
 
-  it('registers exactly the nineteen entities and a ts/js migration glob', () => {
-    expect(dataSourceOptions.entities).toHaveLength(19);
+  it('registers exactly the twenty entities and a ts/js migration glob', () => {
+    expect(dataSourceOptions.entities).toHaveLength(20);
     expect(dataSourceOptions.entities).toEqual(
-      expect.arrayContaining([User, Favorite, DeliveryAddress, RefreshToken, City, Restaurant, MenuItem, MenuOptionGroup, MenuOptionChoice, Order, OrderItem, OrderStatusAudit, Review, PromoCode, PromoUsage, Payment, PaymentRefund, PushSubscription, FeatureFlag]),
+      expect.arrayContaining([User, Favorite, DeliveryAddress, RefreshToken, City, Restaurant, RestaurantHours, MenuItem, MenuOptionGroup, MenuOptionChoice, Order, OrderItem, OrderStatusAudit, Review, PromoCode, PromoUsage, Payment, PaymentRefund, PushSubscription, FeatureFlag]),
     );
     expect(dataSourceOptions.migrations).toHaveLength(1);
     expect(dataSourceOptions.migrations[0]).toMatch(/migrations\/\*\.\{ts,js\}$/);

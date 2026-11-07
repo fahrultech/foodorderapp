@@ -278,6 +278,44 @@ export class CityResponse {
   updatedAt: string;
 }
 
+/** One weekly open-hours window (Phase 5 "Restaurant open hours"). */
+export class RestaurantHoursResponse {
+  @ApiProperty({ type: 'string', format: 'uuid' })
+  id: string;
+
+  @ApiProperty({ type: 'string', format: 'uuid' })
+  restaurantId: string;
+
+  @ApiProperty({
+    type: 'integer',
+    minimum: 0,
+    maximum: 6,
+    description: '0 = Sunday ... 6 = Saturday (JS getDay convention).',
+  })
+  dayOfWeek: number;
+
+  @ApiProperty({ pattern: '([01]\\d|2[0-3]):[0-5]\\d', example: '08:00', description: 'Window start (inclusive), HH:MM 24h.' })
+  opensAt: string;
+
+  @ApiProperty({ pattern: '([01]\\d|2[0-3]):[0-5]\\d', example: '22:00', description: 'Window end (exclusive), HH:MM 24h; <= opensAt wraps past midnight.' })
+  closesAt: string;
+}
+
+/** Fresh view returned by the owner schedule-replacement route. */
+export class RestaurantHoursViewResponse {
+  @ApiProperty({ type: 'string', format: 'uuid' })
+  restaurantId: string;
+
+  @ApiProperty({ type: 'string', nullable: true, description: 'IANA zone; null = server-local.' })
+  timeZone: string | null;
+
+  @ApiProperty({ type: [RestaurantHoursResponse], description: 'The stored schedule, sorted by dayOfWeek.' })
+  days: RestaurantHoursResponse[];
+
+  @ApiProperty({ description: 'Derived open status at request time.' })
+  isOpenNow: boolean;
+}
+
 export class RestaurantResponse {
   @ApiProperty({ type: 'string', format: 'uuid' })
   id: string;
@@ -339,8 +377,29 @@ export class RestaurantResponse {
   @ApiProperty({ type: 'integer', description: 'Average prep time, minutes.' })
   avgPrepMinutes: number;
 
-  @ApiProperty()
+  @ApiProperty({ description: 'LEGACY manual toggle. Derived `isOpenNow` takes over once a weekly open-hours schedule has rows.' })
   isOpen: boolean;
+
+  @ApiProperty({
+    type: 'string',
+    nullable: true,
+    maxLength: 64,
+    example: 'Asia/Jakarta',
+    description: 'IANA zone the open-hours schedule is interpreted in; null = server-local.',
+  })
+  timeZone: string | null;
+
+  @ApiPropertyOptional({
+    type: [RestaurantHoursResponse],
+    description: 'Weekly open-hours schedule. Attached on storefront reads (list/detail/mine); omitted on plain entity writes.',
+  })
+  hours?: RestaurantHoursResponse[];
+
+  @ApiPropertyOptional({
+    description:
+      'Auto open status: derived from `hours` when the schedule has rows, else the legacy manual `isOpen` column. Attached wherever `hours` is.',
+  })
+  isOpenNow?: boolean;
 
   @ApiProperty({ type: 'string', format: 'date-time' })
   createdAt: string;

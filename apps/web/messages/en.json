@@ -51,7 +51,11 @@
     "reviews": "{count, plural, =1 {# review} other {# reviews}}",
     "recentReviews": "Recent reviews",
     "noReviews": "No reviews yet — the {rating}★ score is our platform baseline until diners rate their orders.",
-    "showingReviews": "Showing {shown} of {total} reviews."
+    "showingReviews": "Showing {shown} of {total} reviews.",
+    "openNow": "Open now",
+    "closedNow": "Closed right now",
+    "todayHours": "Today {opensAt}–{closesAt}",
+    "closedToday": "Closed today"
   },
   "Menu": {
     "fallbackCategory": "Menu",

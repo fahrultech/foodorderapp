@@ -21,11 +21,13 @@ import {
 import {
   ApiError,
   PaginatedRestaurantsResponse,
+  RestaurantHoursViewResponse,
   RestaurantResponse,
   RestaurantWithMenuResponse,
 } from '../common/swagger-response-models';
 import { RestaurantsService } from './restaurants.service';
 import { CreateRestaurantDto, UpdateRestaurantDto } from './dto/restaurant.dto';
+import { UpdateRestaurantHoursDto } from './dto/restaurant-hours.dto';
 import { JwtAuthGuard } from '../common/jwt-auth.guard';
 import { RolesGuard } from '../common/roles.guard';
 import { Roles } from '../common/roles.decorator';
@@ -121,5 +123,28 @@ export class RestaurantsController {
     const restaurant = await this.service.findOne(id);
     if (!restaurant) throw new NotFoundException('Restaurant not found');
     return restaurant;
+  }
+
+  /**
+   * Owner-or-admin weekly open-hours schedule (Phase 5 "auto isOpen").
+   * Declared AFTER the plain ':id' routes — Nest matches by pattern.
+   */
+  @Patch(':id/hours')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.OWNER)
+  @ApiBearerAuth()
+  @ApiParam({ name: 'id', schema: { type: 'string', format: 'uuid' } })
+  @ApiOperation({ summary: 'Owner: replace the weekly open-hours schedule', description: 'PUT semantics: `days` is the COMPLETE schedule; a weekday without a row is closed and `days: []` clears the schedule (the legacy manual `isOpen` toggle takes over again). Windows are [opensAt, closesAt) in the restaurant IANA zone; closesAt <= opensAt wraps past midnight.' })
+  @ApiOkResponse({ type: RestaurantHoursViewResponse })
+  @ApiError(400, 'Body failed validation (duplicate weekday, empty window, bogus zone).')
+  @ApiError(401, 'Missing/invalid/expired access token.')
+  @ApiError(403, 'Restaurant belongs to another owner (admins bypass).')
+  @ApiError(404, 'Unknown restaurant id.')
+  updateHours(
+    @UuidParam('id') id: string,
+    @CurrentUser() user: any,
+    @Body() dto: UpdateRestaurantHoursDto,
+  ) {
+    return this.service.replaceHours(id, { sub: user.sub, role: user.role }, dto);
   }
 }

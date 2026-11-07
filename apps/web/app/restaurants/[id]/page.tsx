@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation';
 import type { Metadata } from 'next';
 import { api, formatPrice } from '@/lib/api';
 import type { RestaurantReviewsPage } from '@/lib/api';
+import { todayWindow } from '@/lib/open-hours';
 import MenuBrowser from '@/components/MenuBrowser';
 import Stars from '@/components/Stars';
 import { getTranslations } from 'next-intl/server';
@@ -78,6 +79,15 @@ export default async function RestaurantPage({
     reviews = null;
   }
 
+  // Open-hours display (session 68): the open/closed SIGNAL is the
+  // server-derived `isOpenNow` (schedule when rows exist, legacy manual
+  // toggle otherwise). Only the "today HH:MM-HH:MM" line is derived
+  // client-side from the embedded schedule, in the restaurant's zone.
+  const schedule = restaurant.hours ?? [];
+  const hasSchedule = schedule.length > 0;
+  const closedNow = (restaurant.isOpenNow ?? restaurant.isOpen) === false;
+  const today = todayWindow(schedule, restaurant.timeZone);
+
   return (
     <div>
       <a href="/" className="text-sm font-medium text-brand-600 hover:underline">
@@ -104,6 +114,25 @@ export default async function RestaurantPage({
               ★ {restaurant.rating.toFixed(1)}
               {restaurant.ratingCount > 0 ? ` · ${t('reviews', { count: restaurant.ratingCount })}` : ''}
             </span>
+            {hasSchedule && (
+              <span
+                className={`rounded-full px-3 py-1 font-bold ${
+                  closedNow
+                    ? 'bg-red-100 text-red-800'
+                    : 'bg-emerald-100 text-emerald-800'
+                }`}
+              >
+                {closedNow ? t('closedNow') : t('openNow')}
+              </span>
+            )}
+            {today && (
+              <span className="rounded-full bg-stone-100 px-3 py-1">
+                🕐 {t('todayHours', { opensAt: today.opensAt, closesAt: today.closesAt })}
+              </span>
+            )}
+            {hasSchedule && !today && (
+              <span className="rounded-full bg-stone-100 px-3 py-1">🕐 {t('closedToday')}</span>
+            )}
             <span className="rounded-full bg-stone-100 px-3 py-1">⏱ ~{common('minutes', { count: restaurant.avgPrepMinutes })}</span>
             <span className="rounded-full bg-stone-100 px-3 py-1">
               🛵 {common('delivery', { price: formatPrice(restaurant.deliveryFeeCents) })}

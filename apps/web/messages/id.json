@@ -51,7 +51,11 @@
     "reviews": "{count} ulasan",
     "recentReviews": "Ulasan terbaru",
     "noReviews": "Belum ada ulasan — skor {rating}★ adalah nilai awal platform sampai pelanggan memberi penilaian.",
-    "showingReviews": "Menampilkan {shown} dari {total} ulasan."
+    "showingReviews": "Menampilkan {shown} dari {total} ulasan.",
+    "openNow": "Buka sekarang",
+    "closedNow": "Sedang tutup",
+    "todayHours": "Hari ini {opensAt}–{closesAt}",
+    "closedToday": "Tutup hari ini"
   },
   "Menu": {
     "fallbackCategory": "Menu",
