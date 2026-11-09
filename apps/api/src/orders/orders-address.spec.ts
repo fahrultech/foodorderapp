@@ -47,6 +47,17 @@ function buildCreate(addressRow: DeliveryAddress | null) {
       restaurantId: REST_ID,
       status: OrderStatus.PENDING,
     })),
+    // unit-of-work (session 71): create() mutates inside
+    // manager.transaction(cb) — this fake invokes cb with a minimal
+    // EntityManager and simply propagates its result.
+    manager: {
+      transaction: jest.fn(async (cb: any) =>
+        cb({
+          save: async (x: any) => ({ ...x, id: ORDER_ID }),
+          query: async () => [[{ stock: 99 }], 1],
+        }),
+      ),
+    },
   } as unknown as Repository<Order>;
   const menu = {
     findByIds: jest.fn(async () => [

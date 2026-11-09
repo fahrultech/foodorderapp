@@ -109,6 +109,21 @@ describe('MenuService — owner CRUD', () => {
       expect(itemRepo.create.mock.calls[0][0].isAvailable).toBe(false);
     });
 
+    it('stock defaults to null (UNLIMITED) and an explicit number is kept (session 71)', async () => {
+      const { service, itemRepo } = build([]);
+      await service.createForRestaurant('11111111-1111-4111-8111-111111111111', owner, {
+        name: 'Limited Dish',
+        priceCents: 100,
+        stock: 7,
+      });
+      expect(itemRepo.create.mock.calls[0][0].stock).toBe(7);
+      await service.createForRestaurant('11111111-1111-4111-8111-111111111111', owner, {
+        name: 'Open Dish',
+        priceCents: 100,
+      });
+      expect(itemRepo.create.mock.calls[1][0].stock).toBeNull();
+    });
+
     it('other owner gets 403', async () => {
       const { service } = build([]);
       await expect(
@@ -147,6 +162,21 @@ describe('MenuService — owner CRUD', () => {
       const res = await service.updateItem('33333333-3333-4333-8333-333333333333', owner, { priceCents: 2000 });
       expect((res as any).priceCents).toBe(2000);
       expect(itemRepo.save).toHaveBeenCalled();
+    });
+
+    it('stock patch is three-way: number sets, absent untouched, null clears (session 71)', async () => {
+      const { service, itemRepo } = build([fakeItem({ stock: 4 })]);
+      const id = '33333333-3333-4333-8333-333333333333';
+
+      await service.updateItem(id, owner, { stock: 12 });
+      expect(itemRepo.save.mock.calls[0][0].stock).toBe(12);
+
+      // absent stock leaves the CURRENT value untouched
+      await service.updateItem(id, owner, { name: 'Renamed' });
+      expect(itemRepo.save.mock.calls[1][0].stock).toBe(12);
+
+      await service.updateItem(id, owner, { stock: null });
+      expect(itemRepo.save.mock.calls[2][0].stock).toBeNull();
     });
 
     it('only whitelisted fields are applied — restaurantId untouched', async () => {

@@ -236,6 +236,13 @@ export class OrdersService {
 
     let subtotal = 0;
     const items: Partial<OrderItem>[] = [];
+    // Stock guard (unit-of-work, session 71): dishes with a numeric `stock`
+    // are stock-managed; `null`/absent (every seeded + legacy dish) stays
+    // UNLIMITED and earns no decrement. Duplicate cart lines of the same
+    // dish aggregate into ONE decrement; the atomic conditional UPDATE
+    // below — not the read here — is the authority (the read only decides
+    // managed-vs-unlimited and the honest 409 payload).
+    const stockDeltas = new Map<string, { name: string; quantity: number; stockAtRead: number }>();
     for (let index = 0; index < dto.items.length; index++) {
       const line = dto.items[index];
       const quantity = Math.floor(line.quantity);
@@ -248,6 +255,14 @@ export class OrdersService {
       }
       if (m.restaurantId !== dto.restaurantId) {
         throw new BadRequestException(`Item ${m.id} does not belong to this restaurant`);
+      }
+      if (typeof m.stock === 'number') {
+        const prev = stockDeltas.get(m.id);
+        stockDeltas.set(m.id, {
+          name: m.name,
+          quantity: (prev?.quantity ?? 0) + quantity,
+          stockAtRead: m.stock,
+        });
       }
       // Server-side unit price: dish base + resolved option deltas. The
       // client never sends a price; deltas already survived validation.
@@ -304,19 +319,74 @@ export class OrdersService {
       totalCents: subtotal - discountCents + restaurant.deliveryFeeCents,
       items,
     });
-    const saved = await this.orders.save(order);
-    if (appliedPromoId) {
-      // Ledger redemption row AFTER the order exists (orderId FK + unique).
-      // The cap gate ran pre-save in evaluate(); closing the count→insert
-      // race window for simultaneous "last redemption" orders needs the
-      // order-create transaction (roadmap "unit-of-work" item).
-      await this.promos.recordUsage({
-        promoId: appliedPromoId,
-        orderId: saved.id,
-        userId: userId ?? null,
-        discountCents,
-      });
-    }
+
+    // UNIT OF WORK (roadmap Phase 5, session 71): every mutation this order
+    // owns — stock decrements, the order+items rows, and the promo ledger
+    // row — commits or rolls back as ONE transaction. Reads/pricing/
+    // evaluate above stay outside (cheap idempotent work); the lock window
+    // is only the writes. Dishes decrement in sorted-id order so two
+    // concurrent multi-dish carts acquire row locks in the same sequence
+    // (deadlock mitigation, not elimination — PG still detects and aborts
+    // one side; that surfaces as a 500 the client can retry).
+    //
+    // The stock UPDATE is its OWN guard: `stock >= requested` lives in the
+    // WHERE clause, so a conditional zero-row result is the atomic truth
+    // (no read-then-write race). A dish whose owner flipped stock to null
+    // between our read and this UPDATE also matches zero rows and FAILS
+    // CLOSED — an honest 409 beats silently selling units the counter says
+    // nothing about.
+    const stockEntries = [...stockDeltas.entries()].sort((a, b) =>
+      a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0,
+    );
+    const saved = await this.orders.manager.transaction(async (em) => {
+      for (const [menuItemId, delta] of stockEntries) {
+        const result = await em.query(
+          `UPDATE "menu_items" SET "stock" = "stock" - $2
+            WHERE "id" = $1 AND "stock" IS NOT NULL AND "stock" >= $2
+            RETURNING "stock"`,
+          [menuItemId, delta.quantity],
+        );
+        // Shape reality (session 71 live smoke): this TypeORM/pg stack
+        // returns DML-with-RETURNING as a `[rows, rowCount]` TUPLE — a 0-row
+        // miss is `[[], 0]` (length 2!), not `[]`. Normalize both shapes;
+        // never trust `result.length` on the raw return.
+        const rows: Array<{ stock: number }> =
+          Array.isArray(result) && Array.isArray(result[0])
+            ? result[0]
+            : Array.isArray(result)
+              ? result
+              : [];
+        if (rows.length === 0) {
+          throw new AppException(
+            HttpStatus.CONFLICT,
+            'INSUFFICIENT_STOCK',
+            `Not enough stock for "${delta.name}" — ${delta.quantity} requested, ${delta.stockAtRead} left when the order started`,
+            {
+              menuItemId,
+              requested: delta.quantity,
+              stockAtRead: delta.stockAtRead,
+            },
+          );
+        }
+      }
+      const persisted: Order = await em.save(order);
+      if (appliedPromoId) {
+        // Ledger redemption row in the SAME transaction, under the promo
+        // row lock — this closes the "last redemption" count→insert race
+        // session 67 left documented (see PromosService.recordUsage).
+        await this.promos.recordUsage(
+          {
+            promoId: appliedPromoId,
+            orderId: persisted.id,
+            userId: userId ?? null,
+            discountCents,
+          },
+          em,
+        );
+      }
+      return persisted;
+    });
+
     const full = await this.findOne(saved.id);
     this.emit('order.created', full);
     return full;

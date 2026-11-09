@@ -22,6 +22,12 @@ function buildCreate(opts: {
   evaluate: PromosService['evaluate'];
 }) {
   const createdLines: any[] = [];
+  // unit-of-work (session 71): order save + promo ledger both run on the
+  // transaction's EntityManager; tests pin that recordUsage gets THIS em.
+  const fakeEm = {
+    save: jest.fn(async (x: any) => ({ ...x, id: ORDER_ID })),
+    query: jest.fn(async () => [[{ stock: 99 }], 1]),
+  };
   const repo = {
     create: (x: any) => {
       createdLines.push(x);
@@ -34,6 +40,9 @@ function buildCreate(opts: {
       restaurantId: REST_ID,
       status: OrderStatus.PENDING,
     })),
+    manager: {
+      transaction: jest.fn(async (cb: any) => cb(fakeEm)),
+    },
   } as unknown as Repository<Order>;
   const menu = {
     findByIds: jest.fn(async () => [
@@ -52,7 +61,7 @@ function buildCreate(opts: {
   const events = { publish: jest.fn() } as unknown as OrderEventsService;
   const addresses = { getOwned: jest.fn() } as unknown as AddressesService;
   const service = new OrdersService(repo, menu, restaurants, events, promos, addresses);
-  return { service, createdLines, recordUsage };
+  return { service, createdLines, recordUsage, fakeEm };
 }
 
 const baseDto = (promoCode?: string) =>
@@ -82,7 +91,7 @@ describe('OrdersService.create — promo integration', () => {
       discountCents: 100,
       promo: { id: 'p-1' } as any,
     }));
-    const { service, createdLines, recordUsage } = buildCreate({ evaluate });
+    const { service, createdLines, recordUsage, fakeEm } = buildCreate({ evaluate });
     await service.create(baseDto('welcome10 '), undefined);
     // evaluate gets the SERVER subtotal (2×500) and the caller identity (guest
     // -> null) — never anything the client claimed about money.
@@ -94,14 +103,18 @@ describe('OrdersService.create — promo integration', () => {
       totalCents: 1200, // 1000 - 100 + 300 fee — the fee is never discounted
     });
     // The redemption lands in the append-only ledger, tied to the SAVED
-    // order id and the exact server discount.
+    // order id and the exact server discount — and on the SAME transaction
+    // EntityManager the order was saved with (unit-of-work, session 71).
     expect(recordUsage).toHaveBeenCalledTimes(1);
-    expect(recordUsage).toHaveBeenCalledWith({
-      promoId: 'p-1',
-      orderId: ORDER_ID,
-      userId: null,
-      discountCents: 100,
-    });
+    expect(recordUsage).toHaveBeenCalledWith(
+      {
+        promoId: 'p-1',
+        orderId: ORDER_ID,
+        userId: null,
+        discountCents: 100,
+      },
+      fakeEm,
+    );
   });
 
   it('a signed-in caller identity threads through BOTH the gate and the ledger', async () => {
@@ -112,15 +125,18 @@ describe('OrdersService.create — promo integration', () => {
       discountCents: 50,
       promo: { id: 'p-2' } as any,
     }));
-    const { service, recordUsage } = buildCreate({ evaluate });
+    const { service, recordUsage, fakeEm } = buildCreate({ evaluate });
     await service.create(baseDto('WELCOME10'), USER);
     expect(evaluate).toHaveBeenCalledWith('WELCOME10', REST_ID, 1000, { userId: USER });
-    expect(recordUsage).toHaveBeenCalledWith({
-      promoId: 'p-2',
-      orderId: ORDER_ID,
-      userId: USER,
-      discountCents: 50,
-    });
+    expect(recordUsage).toHaveBeenCalledWith(
+      {
+        promoId: 'p-2',
+        orderId: ORDER_ID,
+        userId: USER,
+        discountCents: 50,
+      },
+      fakeEm,
+    );
   });
 
   it('rejects the WHOLE order with 400 when the promo does not apply', async () => {

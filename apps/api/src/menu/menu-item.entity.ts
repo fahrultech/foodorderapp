@@ -38,6 +38,18 @@ export class MenuItem {
   @Column({ type: 'int', default: 15 })
   prepMinutes: number;
 
+  /**
+   * Stock guard (docs/ROADMAP.md Phase 5 "unit-of-work", session 71):
+   * remaining sellable units, `null` = UNLIMITED (the default for every
+   * seeded and legacy dish — no behavior change until an owner opts in).
+   * Order create decrements it atomically inside its transaction
+   * (`stock >= requested` is the WHERE clause, never a read-then-write);
+   * cancellations do NOT restock yet (tracked follow-up). The DB CHECK
+   * mirrors the DTO bound so raw SQL cannot store negative stock.
+   */
+  @Column({ type: 'int', nullable: true, default: null })
+  stock: number | null;
+
   @ManyToOne(() => Restaurant, (restaurant) => restaurant.menuItems, {
     onDelete: 'CASCADE',
   })

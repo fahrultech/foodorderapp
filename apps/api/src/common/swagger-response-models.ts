@@ -494,6 +494,14 @@ export class MenuItemResponse {
   @ApiProperty({ type: 'integer', description: 'Prep time, minutes.' })
   prepMinutes: number;
 
+  @ApiPropertyOptional({
+    type: 'integer',
+    minimum: 0,
+    nullable: true,
+    description: 'Sellable units remaining (null = unlimited). Order create decrements it atomically.',
+  })
+  stock: number | null;
+
   @ApiProperty({ type: 'string', format: 'uuid' })
   restaurantId: string;
 

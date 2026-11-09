@@ -25,6 +25,15 @@ function buildCreate(input: {
   resolve: jest.Mock;
 }) {
   let captured: any = null;
+  // unit-of-work (session 71): the mutation happens on the transaction's
+  // EntityManager — capture there, the plain repo.save is never called.
+  const fakeEm = {
+    save: jest.fn(async (x: any) => {
+      captured = x;
+      return { ...x, id: ORDER_ID };
+    }),
+    query: jest.fn(async () => [[{ stock: 99 }], 1]),
+  };
   const repo = {
     create: jest.fn((x: any) => x),
     save: jest.fn(async (x: any) => {
@@ -32,6 +41,9 @@ function buildCreate(input: {
       return { ...x, id: ORDER_ID };
     }),
     findOne: jest.fn(async () => ({ ...captured, id: ORDER_ID, status: OrderStatus.PENDING })),
+    manager: {
+      transaction: jest.fn(async (cb: any) => cb(fakeEm)),
+    },
   } as unknown as Repository<Order>;
   const menu = {
     findByIds: jest.fn(async () => [
@@ -60,10 +72,11 @@ function buildCreate(input: {
   } as unknown as MenuOptionService;
   // Positional tail matches the constructor: payments/config/users/audits
   // undefined, optionPricing last.
-  return new OrdersService(
+  const service = new OrdersService(
     repo, menu, restaurants, events, promos, addresses,
     undefined, undefined, undefined, undefined, optionPricing,
   );
+  return { service, fakeEm };
 }
 
 const contact = {
@@ -83,7 +96,7 @@ describe('OrdersService.create — menu-option pricing (Phase 5)', () => {
       priceDeltaCents: 350,
     };
     const resolve = jest.fn(async () => [{ extraCents: 350, selections: [snapshot] }]);
-    const service = buildCreate({ resolve });
+    const { service } = buildCreate({ resolve });
     await service.create(
       {
         ...contact,
@@ -110,7 +123,7 @@ describe('OrdersService.create — menu-option pricing (Phase 5)', () => {
 
   it('lines without options resolve to empty selections and a null receipt', async () => {
     const resolve = jest.fn(async () => [{ extraCents: 0, selections: [] }]);
-    const service = buildCreate({ resolve });
+    const { service } = buildCreate({ resolve });
     await service.create({ ...contact, items: [{ menuItemId: ITEM_ID, quantity: 1 }] } as any, USER_ID);
     const repo: any = (service as any).orders;
     const saved = repo.create.mock.calls[0][0];
@@ -124,16 +137,26 @@ describe('OrdersService.create — menu-option pricing (Phase 5)', () => {
         '"Size" requires at least 1 selection(s) on this dish',
       );
     });
-    const service = buildCreate({ resolve });
+    const { service, fakeEm } = buildCreate({ resolve });
     await expect(
       service.create({ ...contact, items: [{ menuItemId: ITEM_ID, quantity: 1 }] } as any, USER_ID),
     ).rejects.toThrow('requires at least 1');
+    // nothing persisted on rejection — neither the plain repo NOR the
+    // transaction EntityManager (unit-of-work, session 71)
     const repo: any = (service as any).orders;
-    expect(repo.save).not.toHaveBeenCalled(); // nothing persisted on rejection
+    expect(repo.save).not.toHaveBeenCalled();
+    expect(fakeEm.save).not.toHaveBeenCalled();
   });
 
   it('pre-options harness construction (no optionPricing arg) keeps old behavior', async () => {
     let captured: any = null;
+    const fakeEm = {
+      save: jest.fn(async (x: any) => {
+        captured = x;
+        return { ...x, id: ORDER_ID };
+      }),
+      query: jest.fn(async () => [[{ stock: 99 }], 1]),
+    };
     const repo = {
       create: jest.fn((x: any) => x),
       save: jest.fn(async (x: any) => {
@@ -141,6 +164,7 @@ describe('OrdersService.create — menu-option pricing (Phase 5)', () => {
         return { ...x, id: ORDER_ID };
       }),
       findOne: jest.fn(async () => ({ ...captured, id: ORDER_ID })),
+      manager: { transaction: jest.fn(async (cb: any) => cb(fakeEm)) },
     } as unknown as Repository<Order>;
     const menu = {
       findByIds: jest.fn(async () => [

@@ -86,6 +86,18 @@ describe('Menu item DTOs — validation via global ValidationPipe', () => {
       expect(out.isAvailable).toBe(false);
       expect(out.category).toBe('Mains');
     });
+
+    it('stock guard (session 71): integers >= 0 and explicit null pass; junk rejected', async () => {
+      expect((await check(CreateMenuItemDto, { ...valid, stock: 0 }) as any).stock).toBe(0);
+      expect((await check(CreateMenuItemDto, { ...valid, stock: 7 }) as any).stock).toBe(7);
+      // explicit null = unlimited, kept as null for the service
+      expect((await check(CreateMenuItemDto, { ...valid, stock: null }) as any).stock).toBeNull();
+      for (const stock of [-1, 2.5, '3', true]) {
+        await expect(check(CreateMenuItemDto, { ...valid, stock })).rejects.toBeInstanceOf(
+          BadRequestException,
+        );
+      }
+    });
   });
 
   describe('UpdateMenuItemDto', () => {
@@ -108,6 +120,18 @@ describe('Menu item DTOs — validation via global ValidationPipe', () => {
     it('does NOT accept isAvailable — availability has its own route', async () => {
       const out: any = await check(UpdateMenuItemDto, { name: 'Ok', isAvailable: false });
       expect(out.isAvailable).toBeUndefined(); // stripped by whitelist
+    });
+
+    it('stock keeps three-way patch semantics through the real pipe (session 71)', async () => {
+      const absent: any = await check(UpdateMenuItemDto, { name: 'Ok' });
+      expect(absent.stock).toBeUndefined(); // absent must NOT arrive as null (that would clear stock)
+      const cleared: any = await check(UpdateMenuItemDto, { stock: null });
+      expect(cleared.stock).toBeNull();
+      const set: any = await check(UpdateMenuItemDto, { stock: 3 });
+      expect(set.stock).toBe(3);
+      await expect(check(UpdateMenuItemDto, { stock: -1 })).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
     });
   });
 

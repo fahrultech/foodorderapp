@@ -738,6 +738,15 @@ describe('OrdersService — live event emission (SSE bus)', () => {
       create: (x: any) => x,
       save,
       findOne: jest.fn(async () => created),
+      // unit-of-work (session 71): mutations run inside manager.transaction
+      manager: {
+        transaction: jest.fn(async (cb: any) =>
+          cb({
+            save: async (x: any) => ({ ...x, id: ORDER_ID }),
+            query: async () => [[{ stock: 99 }], 1],
+          }),
+        ),
+      },
     } as unknown as Repository<Order>;
     const menu = {
       findByIds: jest.fn(async () => [

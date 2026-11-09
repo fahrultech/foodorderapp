@@ -1,7 +1,8 @@
+import { BadRequestException } from '@nestjs/common';
+import { EntityManager, Repository } from 'typeorm';
 import { PromosService, normalizePromoCode } from './promos.service';
 import { PromoCode, PromoDiscountType } from './promo-code.entity';
 import { PromoUsage } from './promo-usage.entity';
-import { Repository } from 'typeorm';
 
 const REST_ID = '11111111-1111-4111-8111-111111111111';
 const OTHER_REST_ID = '22222222-2222-4222-8222-222222222222';
@@ -202,17 +203,62 @@ describe('PromosService.evaluate — usage caps (counted on the ledger)', () => 
   });
 });
 
-describe('PromosService.recordUsage', () => {
-  it('appends the exact ledger input as one row', async () => {
-    const { service, usageRepo } = build([promo()]);
-    await service.recordUsage({ promoId: 'p-1', orderId: 'o-9', userId: USER_A, discountCents: 250 });
-    expect(usageRepo.create).toHaveBeenCalledWith({
-      promoId: 'p-1',
-      orderId: 'o-9',
-      userId: USER_A,
-      discountCents: 250,
+/**
+ * Fake transaction EntityManager: getRepository routes to the SAME repo
+ * mocks build() wires into the service. The FOR UPDATE lock itself is DB
+ * behavior (live-smoke-proven, session 71) — the specs here pin that the
+ * calls REQUEST the lock and that the RE-CHECK happens after it, before
+ * the insert.
+ */
+function fakeTxEm(repo: Repository<PromoCode>, usageRepo: Repository<PromoUsage>) {
+  return {
+    getRepository: jest.fn((entity: any) => (entity === PromoCode ? repo : usageRepo)),
+  } as unknown as EntityManager;
+}
+
+describe('PromosService.recordUsage — transactional ledger (unit-of-work, session 71)', () => {
+  const input = { promoId: 'p-1', orderId: 'o-9', userId: USER_A, discountCents: 250 };
+
+  it('locks the promo row FOR UPDATE, then appends the exact ledger input as one row', async () => {
+    const { service, repo, usageRepo } = build([promo()]);
+    await service.recordUsage(input, fakeTxEm(repo, usageRepo));
+    expect(repo.findOne).toHaveBeenCalledWith({
+      where: { id: 'p-1' },
+      lock: { mode: 'pessimistic_write' },
     });
+    expect(usageRepo.create).toHaveBeenCalledWith(input);
     expect(usageRepo.save).toHaveBeenCalledTimes(1);
+  });
+
+  it('total cap reached post-lock -> 400 with evaluate()\'s exact message, NO insert', async () => {
+    const { service, repo, usageRepo } = build([promo({ maxTotalUsages: 1 })], [usage()]);
+    await expect(service.recordUsage(input, fakeTxEm(repo, usageRepo))).rejects.toThrow(
+      new BadRequestException('Promo code "WELCOME10" has been redeemed the maximum number of times'),
+    );
+    expect(usageRepo.save).not.toHaveBeenCalled();
+  });
+
+  it('per-user cap reached post-lock -> 400 with evaluate()\'s exact message, NO insert', async () => {
+    const { service, repo, usageRepo } = build([promo({ maxPerUser: 1 })], [usage({ userId: USER_A })]);
+    await expect(service.recordUsage(input, fakeTxEm(repo, usageRepo))).rejects.toThrow(
+      new BadRequestException('You have already used promo "WELCOME10" the maximum number of times'),
+    );
+    expect(usageRepo.save).not.toHaveBeenCalled();
+  });
+
+  it('a GUEST skips the per-user count entirely (same rule as evaluate)', async () => {
+    const { service, repo, usageRepo } = build([promo({ maxPerUser: 1 })], [usage({ userId: USER_A })]);
+    await service.recordUsage({ ...input, userId: null }, fakeTxEm(repo, usageRepo));
+    expect(usageRepo.count).not.toHaveBeenCalled();
+    expect(usageRepo.save).toHaveBeenCalledTimes(1);
+  });
+
+  it('promo deleted between evaluate and record -> 400 + rollback signal, NO insert', async () => {
+    const { service, repo, usageRepo } = build([]);
+    await expect(service.recordUsage(input, fakeTxEm(repo, usageRepo))).rejects.toThrow(
+      new BadRequestException('Promo code is no longer available'),
+    );
+    expect(usageRepo.save).not.toHaveBeenCalled();
   });
 });
 

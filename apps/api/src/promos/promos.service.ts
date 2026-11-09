@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { EntityManager, Repository } from 'typeorm';
 import { PromoCode, PromoDiscountType } from './promo-code.entity';
 import { PromoUsage } from './promo-usage.entity';
 import { Restaurant } from '../restaurants/restaurant.entity';
@@ -153,19 +153,59 @@ export class PromosService {
   }
 
   /**
-   * Append one redemption to the ledger. Called by OrdersService.create AFTER
-   * the order row exists (orderId FK + unique index). The cap gate itself ran
-   * pre-save inside evaluate(); the count→insert window between two
-   * simultaneous "last redemption" orders is a known, documented race that
-   * needs the order-create transaction (separate roadmap item) to close.
+   * Append one redemption to the ledger INSIDE the order-create
+   * transaction (unit-of-work, session 71 — this closes the count→insert
+   * race session 67 left documented). Sequence under the caller's
+   * EntityManager:
+   *   1. SELECT ... FOR UPDATE the promo row — simultaneous "last
+   *      redemption" orders serialize on this lock;
+   *   2. RE-CHECK the caps against the post-lock ledger state (whatever
+   *      other txns committed before we got the lock is now visible);
+   *   3. insert the ledger row — rolls back together with the order if
+   *      anything downstream fails.
+   * Rejection messages match `evaluate()` exactly, so the client sees one
+   * vocabulary whether the cap trips pre-save or under lock. A promo row
+   * deleted between evaluate and record answers 400 and rolls the order
+   * back too — no orphan discount.
    */
-  async recordUsage(input: {
-    promoId: string;
-    orderId: string;
-    userId: string | null;
-    discountCents: number;
-  }): Promise<PromoUsage> {
-    return this.usages.save(this.usages.create(input));
+  async recordUsage(
+    input: {
+      promoId: string;
+      orderId: string;
+      userId: string | null;
+      discountCents: number;
+    },
+    em: EntityManager,
+  ): Promise<PromoUsage> {
+    const promo = await em.getRepository(PromoCode).findOne({
+      where: { id: input.promoId },
+      lock: { mode: 'pessimistic_write' },
+    });
+    if (!promo) {
+      throw new BadRequestException('Promo code is no longer available');
+    }
+    if (promo.maxTotalUsages !== null) {
+      const used = await em
+        .getRepository(PromoUsage)
+        .count({ where: { promoId: promo.id } });
+      if (used >= promo.maxTotalUsages) {
+        throw new BadRequestException(
+          `Promo code "${promo.code}" has been redeemed the maximum number of times`,
+        );
+      }
+    }
+    if (promo.maxPerUser !== null && input.userId) {
+      const mine = await em
+        .getRepository(PromoUsage)
+        .count({ where: { promoId: promo.id, userId: input.userId } });
+      if (mine >= promo.maxPerUser) {
+        throw new BadRequestException(
+          `You have already used promo "${promo.code}" the maximum number of times`,
+        );
+      }
+    }
+    const usageRepo = em.getRepository(PromoUsage);
+    return usageRepo.save(usageRepo.create(input));
   }
 
   /**

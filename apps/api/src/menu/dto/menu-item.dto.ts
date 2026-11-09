@@ -70,6 +70,23 @@ export class CreateMenuItemDto {
   @IsOptional()
   @IsBoolean()
   isAvailable?: boolean;
+
+  /**
+   * Stock guard (session 71): remaining sellable units. Omitted or null =
+   * UNLIMITED (no decrement at order create). Validated integer >= 0; the
+   * DB CHECK mirrors the bound. Order create decrements it atomically
+   * inside its transaction and 409s the whole order when short.
+   */
+  @ApiPropertyOptional({
+    type: 'integer',
+    minimum: 0,
+    nullable: true,
+    description: 'Sellable units; null/omitted = unlimited',
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  stock?: number | null;
 }
 
 /**
@@ -117,6 +134,23 @@ export class UpdateMenuItemDto {
   @Min(1)
   @Max(240)
   prepMinutes?: number;
+
+  /**
+   * Stock guard (session 71): a NUMBER sets the sellable-unit count, an
+   * explicit `null` clears it back to UNLIMITED, an absent property leaves
+   * it untouched — the standard three-way patch semantics of this DTO
+   * (`@IsOptional()` skips null, so explicit nulls reach the service).
+   */
+  @ApiPropertyOptional({
+    type: 'integer',
+    minimum: 0,
+    nullable: true,
+    description: 'Set stock (>= 0); null clears to unlimited; omitted = untouched',
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  stock?: number | null;
 }
 
 /** Dedicated availability toggle — the whole DTO is one boolean. */

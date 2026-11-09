@@ -125,6 +125,9 @@ export class MenuService {
       imageUrl: dto.imageUrl ?? null as any,
       prepMinutes: dto.prepMinutes ?? 15,
       isAvailable: dto.isAvailable ?? true,
+      // Stock guard: null (or omitted) = unlimited — the pre-session-71
+      // semantics every existing dish already has.
+      stock: dto.stock ?? null,
     });
     return this.repo.save(item);
   }
@@ -152,6 +155,9 @@ export class MenuService {
     if (dto.category !== undefined) patch.category = dto.category as any;
     if (dto.imageUrl !== undefined) patch.imageUrl = dto.imageUrl as any;
     if (dto.prepMinutes !== undefined) patch.prepMinutes = dto.prepMinutes;
+    // Three-way stock semantics: number sets, explicit null clears to
+    // unlimited, absent untouched (same shape as the coordinate pair).
+    if (dto.stock !== undefined) patch.stock = dto.stock;
     Object.assign(item, patch);
     return this.repo.save(item);
   }
