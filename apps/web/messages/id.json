@@ -21,7 +21,8 @@
     "addresses": "Alamat",
     "myOrders": "Pesanan saya",
     "signOut": "Keluar",
-    "cart": "Keranjang"
+    "cart": "Keranjang",
+    "map": "Peta"
   },
   "LocaleSwitcher": {
     "label": "Bahasa",
@@ -82,5 +83,26 @@
     "chooseOne": "Pilih satu",
     "upTo": "Pilih hingga {count}",
     "unitPrice": "Harga satuan: {price}"
+  },
+  "Map": {
+    "metaTitle": "Peta restoran - FoodOrder",
+    "metaDescription": "Lihat semua restoran bertanda lokasi di peta dan mana yang sedang buka.",
+    "title": "Restoran di peta",
+    "subtitle": "Semua restoran dengan pin lokasi. Hijau berarti sedang buka.",
+    "ariaLabel": "Peta restoran",
+    "openNow": "Buka sekarang",
+    "closedNow": "Tutup",
+    "legendOpen": "Buka sekarang",
+    "legendClosed": "Sedang tutup",
+    "viewMenu": "Lihat menu",
+    "attributionNote": "Peta dasar oleh kontributor OpenStreetMap",
+    "placesOnMap": "{count} tempat bertanda lokasi di peta",
+    "showingFirst": "menampilkan {count} pertama dari {total}",
+    "noneMapped": "Belum ada restoran dengan pin lokasi.",
+    "listTitle": "Restoran bertanda",
+    "listAriaLabel": "Daftar restoran di peta",
+    "unmappedHidden": "{count} restoran lain tanpa lokasi (tidak muncul di peta)",
+    "apiDownTitle": "API tidak terjangkau",
+    "apiDownBody": "Jalankan backend (apps/api) atau docker compose up, lalu muat ulang."
   }
 }

@@ -264,6 +264,97 @@ describe('RestaurantsService — owner CRUD', () => {
   });
 });
 
+describe('RestaurantsService — map-pin coordinate pair (session 70)', () => {
+  const ID = '11111111-1111-4111-8111-111111111111';
+  const owner = { sub: 'u1', role: UserRole.OWNER };
+
+  it('create: stores a full pair verbatim', async () => {
+    const { service, create } = build([]);
+    await service.createForOwner('u9', {
+      name: 'Peta Resto',
+      latitude: -6.2088,
+      longitude: 106.8456,
+    } as any);
+    expect(create.mock.calls[0][0]).toMatchObject({
+      latitude: -6.2088,
+      longitude: 106.8456,
+    });
+  });
+
+  it('create: absent pair stores both null (off the map)', async () => {
+    const { service, create } = build([]);
+    await service.createForOwner('u9', { name: 'Tanpa Peta' } as any);
+    expect(create.mock.calls[0][0]).toMatchObject({
+      latitude: null,
+      longitude: null,
+    });
+  });
+
+  it('create: half pair is a 400 and NOTHING is written', async () => {
+    const { service, create } = build([]);
+    await expect(
+      service.createForOwner('u9', { name: 'Setengah', latitude: -6.2 } as any),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(create).not.toHaveBeenCalled();
+
+    await expect(
+      service.createForOwner('u9', {
+        name: 'Setengah 2',
+        latitude: null,
+        longitude: 106.8,
+      } as any),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it('update: both values MOVE the pin; both explicit nulls CLEAR it', async () => {
+    const { service, save } = build([
+      fakeRestaurant({ ownerId: 'u1', latitude: -6.1, longitude: 106.1 }),
+    ]);
+    await service.updateOwned(ID, owner, {
+      latitude: -7.5,
+      longitude: 110,
+    } as any);
+    expect(save.mock.calls[0][0]).toMatchObject({
+      latitude: -7.5,
+      longitude: 110,
+    });
+
+    await service.updateOwned(ID, owner, {
+      latitude: null,
+      longitude: null,
+    } as any);
+    expect(save.mock.calls[1][0]).toMatchObject({
+      latitude: null,
+      longitude: null,
+    });
+  });
+
+  it('update: half pair (or one null + one value) is a 400, never saves', async () => {
+    const { service, save } = build([fakeRestaurant({ ownerId: 'u1' })]);
+    for (const half of [
+      { longitude: 106.8 },
+      { latitude: -6.2, longitude: null },
+      { latitude: null, longitude: 106.8 },
+    ]) {
+      await expect(service.updateOwned(ID, owner, half as any)).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
+    }
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  it('update: a no-coordinate patch leaves the pair UNTOUCHED', async () => {
+    const { service, save } = build([
+      fakeRestaurant({ ownerId: 'u1', latitude: -6.9, longitude: 107.6 }),
+    ]);
+    await service.updateOwned(ID, owner, { name: 'Renamed Only' } as any);
+    const saved = save.mock.calls[0][0];
+    expect(saved.latitude).toBe(-6.9);
+    expect(saved.longitude).toBe(107.6);
+  });
+});
+
 const SAT_NOON_WIB = new Date('2026-11-07T05:00:00Z'); // Sat 12:00 Asia/Jakarta
 
 function hoursMock(rows: any[] = []) {

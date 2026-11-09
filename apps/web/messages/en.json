@@ -21,7 +21,8 @@
     "addresses": "Addresses",
     "myOrders": "My orders",
     "signOut": "Sign out",
-    "cart": "Cart"
+    "cart": "Cart",
+    "map": "Map"
   },
   "LocaleSwitcher": {
     "label": "Language",
@@ -82,5 +83,26 @@
     "chooseOne": "Choose one",
     "upTo": "Choose up to {count}",
     "unitPrice": "Unit price: {price}"
+  },
+  "Map": {
+    "metaTitle": "Restaurant map - FoodOrder",
+    "metaDescription": "See every restaurant with a location pin on the map and who is open right now.",
+    "title": "Restaurants on the map",
+    "subtitle": "Every restaurant with a location pin. Green means open right now.",
+    "ariaLabel": "Map of restaurants",
+    "openNow": "Open now",
+    "closedNow": "Closed",
+    "legendOpen": "Open now",
+    "legendClosed": "Closed right now",
+    "viewMenu": "View menu",
+    "attributionNote": "Tiles by OpenStreetMap contributors",
+    "placesOnMap": "{count, plural, one {# place} other {# places}} pinned on the map",
+    "showingFirst": "showing the first {count} of {total}",
+    "noneMapped": "No restaurants have location pins yet.",
+    "listTitle": "Pinned restaurants",
+    "listAriaLabel": "Restaurants shown on the map",
+    "unmappedHidden": "{count, plural, one {# more restaurant} other {# more restaurants}} without a location (off the map)",
+    "apiDownTitle": "API is not reachable",
+    "apiDownBody": "Start the backend (apps/api) or run docker compose up, then refresh."
   }
 }

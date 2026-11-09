@@ -2,6 +2,7 @@ import {
   IsBoolean,
   IsInt,
   IsNotEmpty,
+  IsNumber,
   IsOptional,
   IsString,
   IsUUID,
@@ -89,6 +90,34 @@ export class CreateRestaurantDto {
   @Min(1)
   @Max(240)
   avgPrepMinutes?: number;
+
+  // Map pin. PARTNER RULE (service guard): latitude and longitude must be
+  // provided TOGETHER — a half pair is useless geometry and answers 400.
+  @ApiPropertyOptional({
+    type: 'number',
+    minimum: -90,
+    maximum: 90,
+    example: -6.2088,
+    description: 'WGS84 decimal degrees; must come with `longitude`.',
+  })
+  @IsOptional()
+  @IsNumber({}, { message: 'latitude must be a number' })
+  @Min(-90)
+  @Max(90)
+  latitude?: number | null;
+
+  @ApiPropertyOptional({
+    type: 'number',
+    minimum: -180,
+    maximum: 180,
+    example: 106.8456,
+    description: 'WGS84 decimal degrees; must come with `latitude`.',
+  })
+  @IsOptional()
+  @IsNumber({}, { message: 'longitude must be a number' })
+  @Min(-180)
+  @Max(180)
+  longitude?: number | null;
 }
 
 /**
@@ -167,4 +196,37 @@ export class UpdateRestaurantDto {
   @IsOptional()
   @IsBoolean()
   isOpen?: boolean;
+
+  /**
+   * Map pin, same partner rule as the create DTO. Passing BOTH as `null`
+   * clears the pin (the pin itself is not the "no signal" state — a missing
+   * pair simply keeps the restaurant off the map).
+   */
+  @ApiPropertyOptional({
+    type: 'number',
+    minimum: -90,
+    maximum: 90,
+    nullable: true,
+    example: -6.2088,
+    description: 'WGS84 decimal degrees; must come with `longitude` (both null clears the pin).',
+  })
+  @IsOptional()
+  @IsNumber({}, { message: 'latitude must be a number' })
+  @Min(-90)
+  @Max(90)
+  latitude?: number | null;
+
+  @ApiPropertyOptional({
+    type: 'number',
+    minimum: -180,
+    maximum: 180,
+    nullable: true,
+    example: 106.8456,
+    description: 'WGS84 decimal degrees; must come with `latitude` (both null clears the pin).',
+  })
+  @IsOptional()
+  @IsNumber({}, { message: 'longitude must be a number' })
+  @Min(-180)
+  @Max(180)
+  longitude?: number | null;
 }

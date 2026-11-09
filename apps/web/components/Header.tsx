@@ -47,6 +47,12 @@ export default function Header({
           >
             {t('restaurants')}
           </Link>
+          <Link
+            href="/map"
+            className={pathname === '/map' ? 'font-semibold text-brand-600' : 'text-stone-600 hover:text-stone-900'}
+          >
+            {t('map')}
+          </Link>
           {/* 'loading' renders nothing on server AND first client paint -> hydration-safe. */}
           {status === 'loading' && <span className="h-9 w-20 rounded-full bg-stone-100" aria-hidden />}
           {status === 'guest' && (

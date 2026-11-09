@@ -19,6 +19,9 @@ export interface Restaurant {
   minOrderCents: number;
   avgPrepMinutes: number;
   isOpen: boolean;
+  /** Map pin (WGS84 decimal degrees); null = the restaurant is off the storefront map. */
+  latitude?: number | null;
+  longitude?: number | null;
   /** IANA zone the open-hours schedule is read in; null = server-local. */
   timeZone?: string | null;
   /** Weekly schedule, attached on storefront reads. Empty = no schedule. */
@@ -451,10 +454,11 @@ export function isUnauthorized(err: unknown): boolean {
 }
 
 export const api = {
-  listRestaurants: (params: { search?: string; cuisine?: string } = {}) => {
+  listRestaurants: (params: { search?: string; cuisine?: string; limit?: number } = {}) => {
     const qs = new URLSearchParams();
     if (params.search) qs.set('search', params.search);
     if (params.cuisine) qs.set('cuisine', params.cuisine);
+    if (params.limit) qs.set('limit', String(params.limit));
     const suffix = qs.toString() ? `?${qs.toString()}` : '';
     return request<{ items: Restaurant[]; total: number }>(`/restaurants${suffix}`);
   },

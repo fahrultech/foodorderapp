@@ -11,6 +11,13 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       changeFrequency: 'daily',
       priority: 1,
     },
+    {
+      // Public storefront map (session 70) — static entry, crawlable even
+      // while the API is down and the map itself renders a no-data state.
+      url: absoluteSiteUrl('/map'),
+      changeFrequency: 'weekly',
+      priority: 0.9,
+    },
   ];
 
   try {

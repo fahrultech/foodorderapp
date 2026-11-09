@@ -235,6 +235,30 @@ export class RestaurantsService {
     return candidate;
   }
 
+  /**
+   * MAP-PIN PARTNER GUARD (session 70): a lone latitude or longitude is
+   * useless geometry, class-validator cannot express it cross-field, and the
+   * DB CHECKs would happily accept a half pair — so the service is the single
+   * place that decides. Update semantics: the pair is replaced CLEANLY —
+   * either BOTH coordinates (set/move the pin) or BOTH explicit `null`
+   * (clear it). Any half pair (one value + one null/missing) is a 400.
+   */
+  private static resolveCoordinatePair(
+    dto: { latitude?: number | null; longitude?: number | null },
+    forUpdate: boolean,
+  ): { latitude: number | null; longitude: number | null } {
+    const lat = dto.latitude ?? null;
+    const lng = dto.longitude ?? null;
+    if ((lat === null) !== (lng === null)) {
+      throw new BadRequestException(
+        forUpdate
+          ? 'latitude and longitude must be provided together (both null clears the map pin)'
+          : 'latitude and longitude must be provided together',
+      );
+    }
+    return { latitude: lat, longitude: lng };
+  }
+
   async createForOwner(
     ownerId: string,
     dto: CreateRestaurantDto,
@@ -244,6 +268,7 @@ export class RestaurantsService {
       ? await this.cityRepo.findOne({ where: { id: dto.cityId, isActive: true } })
       : null;
     if (dto.cityId && !city) throw new NotFoundException('City not found or inactive');
+    const coordinates = RestaurantsService.resolveCoordinatePair(dto, false);
     const restaurant = this.repo.create({
       slug,
       name: dto.name,
@@ -252,6 +277,8 @@ export class RestaurantsService {
       city: city?.name ?? dto.city ?? null as any,
       cityId: city?.id ?? null,
       address: dto.address ?? null as any,
+      latitude: coordinates.latitude,
+      longitude: coordinates.longitude,
       imageUrl: dto.imageUrl ?? null as any,
       deliveryFeeCents: dto.deliveryFeeCents ?? 0,
       minOrderCents: dto.minOrderCents ?? 0,
@@ -302,6 +329,11 @@ export class RestaurantsService {
     if (dto.minOrderCents !== undefined) patch.minOrderCents = dto.minOrderCents;
     if (dto.avgPrepMinutes !== undefined) patch.avgPrepMinutes = dto.avgPrepMinutes;
     if (dto.isOpen !== undefined) patch.isOpen = dto.isOpen;
+    if (dto.latitude !== undefined || dto.longitude !== undefined) {
+      const coordinates = RestaurantsService.resolveCoordinatePair(dto, true);
+      patch.latitude = coordinates.latitude;
+      patch.longitude = coordinates.longitude;
+    }
     Object.assign(restaurant, patch);
     return this.repo.save(restaurant);
   }

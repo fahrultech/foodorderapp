@@ -19,6 +19,8 @@ const restaurants = [
   {
     slug: 'warung-nusantara',
     name: 'Warung Nusantara',
+    // Map pin (session 70). null/null keeps a restaurant OFF the storefront map.
+    latitude: -6.1945, longitude: 106.8227,
     ownedByDemoOwner: true,
     cuisine: 'Indonesian',
     city: 'Jakarta',
@@ -36,6 +38,8 @@ const restaurants = [
   {
     slug: 'sushi-kan',
     name: 'Sushi Kan',
+    // Map pin (session 70). null/null keeps a restaurant OFF the storefront map.
+    latitude: -6.2088, longitude: 106.8456,
     cuisine: 'Japanese',
     city: 'Jakarta',
     description: 'Omakase-grade sushi bar with daily-fish deliveries.',
@@ -52,6 +56,8 @@ const restaurants = [
   {
     slug: 'pasta-fresca',
     name: 'Pasta Fresca',
+    // Map pin (session 70). null/null keeps a restaurant OFF the storefront map.
+    latitude: -6.9147, longitude: 107.6098,
     cuisine: 'Italian',
     city: 'Bandung',
     description: 'Hand-made pasta and wood-fired focaccia.',
@@ -68,6 +74,8 @@ const restaurants = [
   {
     slug: 'bowl-house',
     name: 'Bowl House',
+    // Map pin (session 70). null/null keeps a restaurant OFF the storefront map.
+    latitude: null, longitude: null,
     cuisine: 'Healthy',
     city: 'Jakarta',
     description: 'Build-your-own grain bowls with local organic produce.',
@@ -83,6 +91,8 @@ const restaurants = [
   {
     slug: 'ayam-goreng-bu-tini',
     name: 'Ayam Goreng Bu Tini',
+    // Map pin (session 70). null/null keeps a restaurant OFF the storefront map.
+    latitude: -7.2575, longitude: 112.7420,
     cuisine: 'Indonesian',
     city: 'Surabaya',
     description: 'Legendary fried chicken with sambal, running since 1995.',
@@ -98,6 +108,8 @@ const restaurants = [
   {
     slug: 'seoul-street',
     name: 'Seoul Street',
+    // Map pin (session 70). null/null keeps a restaurant OFF the storefront map.
+    latitude: -6.8915, longitude: 107.6181,
     ownedByDemoOwner: true,
     cuisine: 'Korean',
     city: 'Bandung',
@@ -195,6 +207,8 @@ async function main() {
         cityId: cityByName.get(r.city)!.id,
         description: r.description,
         imageUrl: r.imageUrl,
+        latitude: r.latitude,
+        longitude: r.longitude,
         rating: r.rating,
         deliveryFeeCents: r.deliveryFeeCents,
         minOrderCents: r.minOrderCents,

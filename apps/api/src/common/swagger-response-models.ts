@@ -381,6 +381,24 @@ export class RestaurantResponse {
   isOpen: boolean;
 
   @ApiProperty({
+    type: 'number',
+    nullable: true,
+    minimum: -90,
+    maximum: 90,
+    description: 'Map pin (WGS84 decimal degrees); null = restaurant is off the storefront map.',
+  })
+  latitude: number | null;
+
+  @ApiProperty({
+    type: 'number',
+    nullable: true,
+    minimum: -180,
+    maximum: 180,
+    description: 'Map pin (WGS84 decimal degrees); null = restaurant is off the storefront map.',
+  })
+  longitude: number | null;
+
+  @ApiProperty({
     type: 'string',
     nullable: true,
     maxLength: 64,

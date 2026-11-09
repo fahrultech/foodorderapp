@@ -56,6 +56,18 @@ export class Restaurant {
   @Column({ nullable: true })
   address: string;
 
+  /**
+   * Map pin (Phase 5 "Map view of restaurants", session 70): WGS84 decimal
+   * degrees, nullable — a restaurant WITHOUT coordinates simply never appears
+   * on the map. DB CHECKs mirror the DTO bounds (-90..90 / -180..180) so a
+   * bypassed validation can never store nonsense geometry.
+   */
+  @Column({ type: 'double precision', nullable: true })
+  latitude: number | null;
+
+  @Column({ type: 'double precision', nullable: true })
+  longitude: number | null;
+
   @Column({ nullable: true })
   imageUrl: string;
 
