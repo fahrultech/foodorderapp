@@ -4,6 +4,77 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
+## 2026-11-09 18:11 — Session 72 — Restock on cancellation (API)
+
+**Built:** completed the ROADMAP follow-up "Stock restock on cancel — owner/
+admin/customer cancels and the stale-sweep must return reserved units".
+
+- Migration `AddOrderStockRestock1794466800000` (24th): two nullable columns
+  on `orders`. `stockDecrements` jsonb + `CHK_orders_stockDecrements_array`
+  (NULL OR jsonb_typeof=array) — the ledger snapshot written by `create()`
+  inside its unit-of-work transaction: exactly the per-dish aggregated units
+  the stock guard actually decremented, or NULL when it decremented nothing.
+  `stockRestockedAt` timestamp — the exactly-once CAS marker.
+- WHY A SNAPSHOT instead of re-summing `order_items`: an order placed while
+  a dish was unlimited must NOT pad the owner's counter after they switch
+  stock on later. The snapshot freezes the truth at decrement time —
+  restock returns precisely what was taken, never more, never less.
+- NEW shared module `orders/stock-restock.ts` (plain, DI-free — same
+  philosophy as `stale-order-sweep.ts`): `restockCancelledOrder(manager,
+  order)` runs ONE transaction — CAS `UPDATE orders SET stockRestockedAt =
+  $2 WHERE id = $1 AND stockRestockedAt IS NULL AND status = 'cancelled'`
+  (the zero-row result IS the exactly-once + still-cancelled guard; a
+  concurrent overwrite to a live status keeps the decrement) — then per-dish
+  `UPDATE menu_items SET stock = stock + $2 WHERE id = $1 AND stock IS NOT
+  NULL` in sorted-id order (mirrors the create-side lock sequence). A dish
+  cleared to unlimited (or deleted) mid-flight is a silent per-row no-op.
+  The `[rows, rowCount]` tuple trap is normalized and pinned in mocks.
+  Snapshot entries are re-validated defensively (duplicate ids folded,
+  junk skipped).
+- WIRED INTO ALL FOUR CANCEL PATHS: customer `cancel()`, owner/admin
+  `setStatusForRestaurant()` and `updateStatus()` (only when the transition
+  lands on `cancelled` — confirm/preparing/complete never touch the ledger),
+  the service stale-sweep wrapper, and the STANDALONE `cancel-stale` cron
+  script (same shared function — no drift between HTTP and cron).
+- Entity + OpenAPI `OrderResponse` document both fields; docs-json stays
+  71 ops (no new routes). Seed unchanged (stock stays owner-API-proven).
+
+**Verified:**
+
+- API production build clean; full Jest **76 suites / 916 tests** green
+  (+1 suite / +16 tests vs session 71: 9-case `stock-restock.spec.ts` unit
+  contract incl. tuple-shape CAS loser, 5 wiring cases proving each cancel
+  path + the sweep restock and each non-cancel transition does NOT, 2
+  create-snapshot cases in `orders-unit-of-work.spec.ts`).
+- Live smoke on a scratch DB (24-migration chain from EMPTY + seed, API on
+  :4016): **63/63 assertions** — schema/CHECK probes; customer cancel exact
+  return + marker set; re-cancel 400 with NO double-return and an unchanged
+  marker; two TRUE-concurrent customer cancels → units returned exactly
+  once; owner cancel, admin backdoor cancel; confirm does not restock but a
+  later cancel does; rejected edges (delivering cancel, completion) return
+  NOTHING and never mark; legacy-style order (NULL snapshot) cancelled
+  AFTER the owner switched stock on → counter stays at the owner's number
+  (no over-restock); dish cleared to unlimited mid-flight → cancel succeeds
+  as a no-op add with marker set; HTTP sweep on a backdated guest order →
+  report cancelled == live candidate count, guest units returned; the real
+  `node dist/scripts/cancel-stale.js` cron path → units returned, re-run
+  drains to zero with no further change; two-dish cart → both per-dish
+  adds; raw-SQL probes (`"notarray"`, object → rejected by CHECK; negative
+  stock still rejected); docs-json 71 ops with both fields present.
+- E2E **24/24 green** on fresh seed (Playwright boots API+web itself; web
+  untouched, extra JSON fields tolerated). No lockfile changes; sanitizer
+  scan of every added line clean (no ellipsis characters, no asterisk
+  masks), `git diff --check` empty.
+
+**Left for next sessions:** a repair pass for the crash window between the
+status-save commit and the restock transaction (a cancel killed in between
+leaves the order cancelled with the marker NULL and units unreturned — no
+automatic retry today; the marker makes such rows identifiable); Stripe/
+Xendit adapters (🔒 keys); the web "only N left" badge + dashboard stock
+editor; CI postgres 15/16 matrix (next top-level item).
+
+---
+
 ## 2026-11-09 15:45 — Session 71 — Unit-of-work order create + stock guard (API)
 
 **Built:** completed the ROADMAP item "Unit-of-work: wrap order create in
