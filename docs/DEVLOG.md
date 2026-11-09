@@ -4,6 +4,87 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
+## 2026-11-09 15:45 — Session 71 — Unit-of-work order create + stock guard (API)
+
+**Built:** completed the ROADMAP item "Unit-of-work: wrap order create in
+a transaction + stock guard".
+
+- Migration `AddMenuItemStock1794380400000` (23rd): `menu_items.stock`
+  nullable int + `CHK_menu_items_stock_nonnegative` (`NULL OR >= 0`)
+  mirroring the DTO bound. `NULL` = UNLIMITED and is the state of every
+  existing/seeded row — the column alone changes nothing until an owner
+  opts in. Seed intentionally NOT updated (e2e suite contract depends on
+  stable seed state; stock is proven through the owner API instead).
+- OWNER API: `stock` on Create/UpdateMenuItemDto (`@IsInt @Min(0)`,
+  explicit null passes `@IsOptional`); three-way patch semantics on
+  `PATCH /menu/items/:id` — number SETS, explicit null CLEARS to
+  unlimited, absent untouched (same shape as the session-70 coordinate
+  pair). Create stamps `stock ?? null`. No new routes — docs-json stays
+  71 ops; `MenuItemResponse.stock` documents the embed.
+- UNIT OF WORK in `OrdersService.create()`: reads/pricing/promo-evaluate
+  stay OUTSIDE; every MUTATION runs inside ONE
+  `orders.manager.transaction(cb)` — stock decrements → order+items
+  `em.save` → promo ledger row — so a rejected or failing order writes
+  NOTHING (previously order+ledger were two independent commits).
+  Live-feed emit + refetch stay post-commit, unchanged.
+- STOCK GUARD: `stock >= requested` lives in the UPDATE's WHERE clause
+  (`UPDATE ... SET stock = stock - $2 WHERE id = $1 AND stock IS NOT
+  NULL AND stock >= $2 RETURNING stock`) — the conditional zero-row
+  result IS the guard, no read-then-write race. Duplicate cart lines of
+  one dish aggregate into ONE decrement; decrements run in sorted
+  menuItemId order (deterministic lock sequence); fail-closed when an
+  owner flips stock to null mid-flight. Trip = 409 `INSUFFICIENT_STOCK`
+  (AppException envelope: menuItemId/requested/stockAtRead).
+- PROMO RACE CLOSED: `PromosService.recordUsage(input, em)` now runs ON
+  the order transaction: `SELECT ... FOR UPDATE` the promo row → RE-CHECK
+  both caps post-lock → insert ledger. Two simultaneous "last redemption"
+  orders serialize; the loser gets evaluate()'s exact 400 message and its
+  order rolls back too. Session 67's documented race comment replaced.
+
+**Verified:**
+
+- API production build clean; full Jest **75 suites / 900 tests** green
+  (+1 suite / +17 tests: 9-case `orders-unit-of-work.spec.ts`; 5-case
+  transactional `recordUsage` (lock requested, caps re-checked, guest
+  skip, vanished-promo, no-insert-on-reject); 2+2 stock cases in the menu
+  service/DTO specs; 4 create-path harnesses rewired through
+  `manager.transaction`).
+- Live smoke on a scratch DB (23-migration chain from EMPTY + seed, API
+  on :4013): **49/49 assertions** — schema probes, DTO ladder
+  (-1/1.5/"3" → 400, non-owner 403, rejected writes NOTHING), over-order
+  409 + zero rows written + stock intact, exact-fit drain to 0, stock-0
+  never sellable, duplicate-line aggregate, owner create with/without
+  stock, clear-to-unlimited round trip, raw-`UPDATE stock=-5` rejected by
+  the DB CHECK, `docs-json` still 71 ops with stock documented, and THE
+  money test: two TRUE concurrent promo orders against a cap-1 code →
+  exactly one 201 + one 400, ledger EXACTLY one row, loser wrote no
+  order/line rows.
+- Two REAL bugs the smoke caught (jest stayed green through both):
+  (1) this TypeORM/pg stack returns DML-with-RETURNING from `em.query()`
+  as a `[rows, rowCount]` TUPLE — a zero-row miss is `[[], 0]` (length 2),
+  so a naive `rows.length === 0` check NEVER tripped the guard and
+  over-orders silently committed. Proven with a raw driver probe, fixed
+  with an explicit shape normalizer; unit mocks now pin the TUPLE shapes
+  (a `[]` mock hid this for one full gate). (2) harness lesson: a bare
+  `wait` in the smoke script also waits on the backgrounded API server —
+  it must wait on the race subshell PIDs, and the boot port must be
+  verified free or a stale server silently serves an OLD build (session
+  71 hit exactly that and reported the guard "broken" when dist was fine).
+- E2E **24/24 green** on fresh seed (first run's 3 failures were the
+  documented once-per-seed trio — admin/owner-analytics/zz-driver — and
+  cleared by re-seeding, not a regression). Web untouched, no build
+  needed.
+- Sanitizer scan: added lines carry no U+2026/`***`; `git diff --check`
+  clean. No lockfile changes.
+
+**Left for next sessions:** restock on cancellation (owner/admin/customer/
+stale-sweep paths all still leave stock drained — today the ledger is
+decrement-only); storefront "only N left" badge + dashboard stock editor;
+optional: idempotency window / retry guidance for the (mitigated, not
+eliminated) multi-dish deadlock case.
+
+---
+
 ## 2026-11-09 11:20 — Session 70 — Leaflet storefront map + restaurant coordinates (API + web + e2e)
 
 **Built:** completed the ROADMAP item "Map view of restaurants (Leaflet)".

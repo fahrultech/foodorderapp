@@ -26,6 +26,15 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   `priceDeltaCents` values into `unitPriceCents` itself. A client-sent price,
   delta or `extraCents` field simply does not exist as far as the DTO is
   concerned, and any rejected selection 400s the whole order before a row is written.
+- **Order create is ONE unit of work** — every mutation a new order owns
+  (stock decrements, the order+items rows, the promo ledger row) runs inside a
+  single `orders.manager.transaction`; a rejected or failing order leaves NO
+  row anywhere. `menu_items.stock` (NULL = unlimited — the seeded default) is
+  guarded by the decrement UPDATE itself (`stock >= requested` in the WHERE,
+  zero-row = 409 `INSUFFICIENT_STOCK`), never by a read-then-write. Promo
+  caps re-check under `SELECT ... FOR UPDATE` on the same transaction, which
+  serializes simultaneous "last redemption" orders. Cancellations do NOT
+  restock yet (tracked follow-up).
 - **Storefront menu reads embed option groups** — `GET /restaurants/:id` attaches
   the same sorted `optionGroups` (choices included, `[]` when a dish has none) to
   its nested `menuItems` as `GET /restaurants/:id/menu`, through the single shared
