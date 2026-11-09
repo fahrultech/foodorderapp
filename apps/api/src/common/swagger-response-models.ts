@@ -787,6 +787,30 @@ export class OrderResponse {
   @ApiProperty({ type: 'string', nullable: true, description: 'Normalized promo-code snapshot; null when no promo applied.' })
   promoCode: string | null;
 
+  @ApiProperty({
+    type: 'array',
+    nullable: true,
+    items: {
+      type: 'object',
+      properties: {
+        menuItemId: { type: 'string', format: 'uuid' },
+        quantity: { type: 'integer' },
+      },
+    },
+    description:
+      'Stock ledger frozen at creation: units this order actually decremented, aggregated per dish; null when it decremented nothing (unlimited dishes or legacy rows). Every path into cancelled returns exactly these units, once.',
+  })
+  stockDecrements: Array<{ menuItemId: string; quantity: number }> | null;
+
+  @ApiProperty({
+    type: 'string',
+    format: 'date-time',
+    nullable: true,
+    description:
+      'Exactly-once restock marker — set by a CAS when the order\'s reserved stock was returned. NULL = not restocked (never reserved, not cancelled, or restock still pending).',
+  })
+  stockRestockedAt: string | null;
+
   @ApiProperty({ type: 'integer', description: 'Restaurant delivery fee in cents at order time.' })
   deliveryFeeCents: number;
 

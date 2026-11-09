@@ -9,6 +9,7 @@ import {
   runStaleOrderSweep,
   resolveStaleSweepConfig,
 } from '../orders/stale-order-sweep';
+import { restockCancelledOrder } from '../orders/stock-restock';
 
 /**
  * Standalone cron runner for the stale-pending-order sweep (roadmap Phase 5
@@ -73,6 +74,9 @@ async function main(): Promise<void> {
         actorRole: null,
         actorEmail: null,
       }));
+      // Return reserved stock through the SAME exactly-once path the HTTP
+      // service uses (snapshot CAS + marker) — one implementation, no drift.
+      await restockCancelledOrder(orders.manager, o);
       console.error(`cancelled ${o.code} (${o.id})`);
     },
   });

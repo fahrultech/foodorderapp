@@ -12,6 +12,7 @@ import {
 import { User } from '../users/user.entity';
 import { Restaurant } from '../restaurants/restaurant.entity';
 import { OrderItem } from './order-item.entity';
+import { StockDecrementEntry } from './stock-restock';
 
 export enum OrderStatus {
   PENDING = 'pending',
@@ -104,6 +105,24 @@ export class Order {
   /** Normalized (uppercase) promo code snapshot; null when no promo applied. */
   @Column({ type: 'varchar', length: 24, nullable: true })
   promoCode: string | null;
+
+  /**
+   * Stock ledger snapshot (restock-on-cancel): the units this order ACTUALLY
+   * decremented at creation — [{ menuItemId, quantity }, ...] aggregated per
+   * dish, written inside the create transaction. NULL = this order decremented
+   * nothing (all lines unlimited, or a legacy row from before the stock column
+   * existed), so cancelling it must return nothing. The DB CHECK pins the
+   * shape to a jsonb array.
+   */
+  @Column({ type: 'jsonb', nullable: true })
+  stockDecrements: StockDecrementEntry[] | null;
+
+  /**
+   * Exactly-once restock marker. Flipped NULL -> timestamp by the CAS inside
+   * `restockCancelledOrder`; a second concurrent cancel sees it and skips.
+   */
+  @Column({ type: 'timestamp', nullable: true })
+  stockRestockedAt: Date | null;
 
   @Column({ type: 'int', default: 0 })
   deliveryFeeCents: number;

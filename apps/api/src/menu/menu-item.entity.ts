@@ -44,8 +44,10 @@ export class MenuItem {
    * seeded and legacy dish — no behavior change until an owner opts in).
    * Order create decrements it atomically inside its transaction
    * (`stock >= requested` is the WHERE clause, never a read-then-write);
-   * cancellations do NOT restock yet (tracked follow-up). The DB CHECK
-   * mirrors the DTO bound so raw SQL cannot store negative stock.
+   * every path into `cancelled` returns the order's exact decremented
+   * units, once (restock-on-cancel: the order's `stockDecrements` snapshot
+   * + the `stockRestockedAt` CAS marker — see stock-restock.ts). The DB
+   * CHECK mirrors the DTO bound so raw SQL cannot store negative stock.
    */
   @Column({ type: 'int', nullable: true, default: null })
   stock: number | null;

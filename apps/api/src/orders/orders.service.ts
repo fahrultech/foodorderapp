@@ -36,6 +36,7 @@ import {
   StaleSweepOptions,
   StaleSweepReport,
 } from './stale-order-sweep';
+import { restockCancelledOrder } from './stock-restock';
 
 const STATUS_FLOW: Record<OrderStatus, OrderStatus[]> = {
   [OrderStatus.PENDING]: [OrderStatus.CONFIRMED, OrderStatus.CANCELLED],
@@ -338,6 +339,18 @@ export class OrdersService {
     const stockEntries = [...stockDeltas.entries()].sort((a, b) =>
       a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0,
     );
+    // Restock-on-cancel ledger (session 72): freeze what this order is about
+    // to decrement (per-dish aggregated) INTO the row, so every path into
+    // `cancelled` returns exactly these units — no more (a dish the owner
+    // switched to stock-managed AFTER this order was placed must not be
+    // padded with units this order never took), no less (duplicate cart lines
+    // already aggregated). null = this order decrements nothing.
+    order.stockDecrements = stockEntries.length
+      ? stockEntries.map(([menuItemId, delta]) => ({
+          menuItemId,
+          quantity: delta.quantity,
+        }))
+      : null;
     const saved = await this.orders.manager.transaction(async (em) => {
       for (const [menuItemId, delta] of stockEntries) {
         const result = await em.query(
@@ -617,6 +630,7 @@ export class OrdersService {
         : OrderStatusAuditSource.OWNER,
       actor,
     );
+    if (status === OrderStatus.CANCELLED) await this.restockOnCancel(saved);
     this.emit('order.updated', saved);
     return saved;
   }
@@ -693,6 +707,18 @@ export class OrdersService {
   }
 
   /**
+   * Restock every path into `cancelled` (owner portal, admin backdoor,
+   * customer self-cancel, stale sweep). Called AFTER the status write
+   * committed; the snapshot CAS inside runs as its own transaction, so the
+   * units return exactly once even if two cancels race. If this throws the
+   * DB has a real problem — let it surface (500) rather than swallow a
+   * stock-vs-reality drift.
+   */
+  private async restockOnCancel(saved: Order): Promise<void> {
+    await restockCancelledOrder(this.orders.manager, saved);
+  }
+
+  /**
    * Customer-initiated cancellation. The customer may only cancel their own
    * order, and only while the status machine still allows ->CANCELLED
    * (pending/confirmed/preparing). Once the food is out for delivery the
@@ -724,6 +750,7 @@ export class OrdersService {
       OrderStatusAuditSource.CUSTOMER,
       role ? { sub: userId, role, email } : undefined,
     );
+    await this.restockOnCancel(saved);
     this.emit('order.updated', saved);
     return saved;
   }
@@ -750,6 +777,7 @@ export class OrdersService {
       OrderStatusAuditSource.ADMIN,
       actor,
     );
+    if (status === OrderStatus.CANCELLED) await this.restockOnCancel(saved);
     this.emit('order.updated', saved);
     return saved;
   }
@@ -780,6 +808,9 @@ export class OrdersService {
           OrderStatus.CANCELLED,
           OrderStatusAuditSource.STALE_SWEEP,
         );
+        // Stale sweeps cancel stock-reserving pending orders too — return
+        // the units through the same exactly-once path the HTTP cancels use.
+        await this.restockOnCancel(order);
         this.emit('order.updated', order);
         await options.onCancelled?.(order);
       },

@@ -33,8 +33,15 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   guarded by the decrement UPDATE itself (`stock >= requested` in the WHERE,
   zero-row = 409 `INSUFFICIENT_STOCK`), never by a read-then-write. Promo
   caps re-check under `SELECT ... FOR UPDATE` on the same transaction, which
-  serializes simultaneous "last redemption" orders. Cancellations do NOT
-  restock yet (tracked follow-up).
+  serializes simultaneous "last redemption" orders. Every path into
+  `cancelled` returns the order's reserved units exactly once: creation
+  freezes a `orders.stockDecrements` jsonb snapshot (only what was ACTUALLY
+  decremented — an order with a NULL snapshot returns nothing, so an owner
+  switching stock on later cannot be inflated), and the cancel flips the
+  `stockRestockedAt`
+  CAS marker inside one transaction before adding `stock + units` per dish
+  (skips dishes cleared to unlimited; concurrent cancels cannot
+  double-return).
 - **Storefront menu reads embed option groups** — `GET /restaurants/:id` attaches
   the same sorted `optionGroups` (choices included, `[]` when a dish has none) to
   its nested `menuItems` as `GET /restaurants/:id/menu`, through the single shared

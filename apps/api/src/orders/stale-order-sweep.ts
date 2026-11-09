@@ -7,10 +7,13 @@ import { Order, OrderStatus } from './order.entity';
  *
  * A customer can place an order as a guest (checkout is open by design) and
  * simply walk away. Until a human acts on it, a `pending` order is not a
- * commitment — it holds no prep, no stock, and it pollutes the owner inbox
- * with phantom demand. This sweep drains that backlog: any order still in
- * `pending` after the stale window moves to `cancelled` through the single
- * legal edge the status machine allows out of `pending`.
+ * commitment — it holds prep capacity and (for stock-managed dishes) reserved
+ * units hostage, and it pollutes the owner inbox with phantom demand. This
+ * sweep drains that backlog: any order still in `pending` after the stale
+ * window moves to `cancelled` through the single legal edge the status
+ * machine allows out of `pending`. Reserved units are returned by the
+ * CALLERS via `restockCancelledOrder` (service + cron script both do), not
+ * here — this module stays plain, repository-shaped and dependency-free.
  *
  * Only `pending` is eligible on purpose. Once an owner has confirmed/started
  * an order, cancelling is a human decision the machine must never make, and

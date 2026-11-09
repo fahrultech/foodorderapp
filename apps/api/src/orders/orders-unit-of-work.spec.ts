@@ -259,3 +259,31 @@ describe('OrdersService.create — unit-of-work transaction (session 71)', () =>
     expect(calls).toEqual(['tx:begin', 'stock:m1x2', 'save', 'tx:end']);
   });
 });
+
+describe('OrdersService.create — stockDecrements snapshot (restock-on-cancel, session 72)', () => {
+  it('freezes exactly the aggregated decrements into the persisted order row', async () => {
+    const { service, fakeEm } = buildTx({
+      items: [item('m-limited', { stock: 10 }), item('m-unlimited', { stock: null })],
+      stockOutcome: [{ stock: 7 }],
+    });
+    await service.create(
+      dto([
+        { menuItemId: 'm-limited', quantity: 1 },
+        { menuItemId: 'm-unlimited', quantity: 2 },
+        { menuItemId: 'm-limited', quantity: 2 }, // duplicate line folds in
+      ]),
+      USER_ID,
+    );
+    // The snapshot mirrors the decrement SQL (aggregated, sorted): the
+    // cancel paths later return THESE units — never the raw item rows.
+    expect(fakeEm.save.mock.calls[0][0].stockDecrements).toEqual([
+      { menuItemId: 'm-limited', quantity: 3 },
+    ]);
+  });
+
+  it('persists null when nothing was decremented (unlimited/legacy cart)', async () => {
+    const { service, fakeEm } = buildTx({ items: [item('m1', { stock: null })] });
+    await service.create(dto([{ menuItemId: 'm1', quantity: 2 }]), USER_ID);
+    expect(fakeEm.save.mock.calls[0][0].stockDecrements).toBeNull();
+  });
+});
