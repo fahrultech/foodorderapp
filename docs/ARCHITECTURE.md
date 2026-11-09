@@ -43,6 +43,16 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   schedule and hands the signal back to the manual toggle. The web UI never
   recomputes the open/closed signal client-side; it renders the server's
   `isOpenNow` (session 68).
+- **Map pins are a coordinate PAIR** — `restaurants.latitude/longitude`
+  (WGS84 decimal degrees, nullable, DB CHECKs `-90..90` / `-180..180` mirror
+  the DTO bounds). The partner rule lives in `RestaurantsService`:
+  latitude+longitude must arrive together — a half pair (or one explicit
+  `null`) is a 400 on both owner create and update; on update BOTH `null`
+  clears the pin. The storefront `/map` (Leaflet, client-only chunk because
+  Leaflet touches `window` at import) renders a `CircleMarker` per restaurant
+  with a valid pair; missing/invalid coordinates are an off-map note, never
+  a pin — and the web render re-validates the range even though the API
+  guarantees it (session 70).
 - **Cart lines are keyed by dish + selection** — `CartLine.lineKey` is
   `menuItemId` alone for option-less lines and `menuItemId|<sorted choice ids>`
   otherwise, so the same dish at two sizes is two independent lines. Every cart

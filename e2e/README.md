@@ -73,6 +73,11 @@ browser download.
   hint with no dead pay button. Rate note: the `payments` bucket is
   10/min/IP — keep ≥60 s between full-suite runs or the second run can
   spuriously 429 (observed session 43).
+- `tests/map.spec.ts` — the Leaflet storefront `/map`: marker count equals the
+  restaurants whose API rows carry a valid latitude/longitude pair (5 of the 6
+  seeded pins; off-map Bowl House appears only in the counted note), the pinned
+  list mirrors the pins, and Warung's marker opens a popup whose menu link
+  reaches its detail page.
 - `tests/push-notifications.spec.ts` — browser push opt-in/out with mocked
   PushManager + permission APIs and intercepted notification endpoints:
   permission is untouched before the explicit bell click, subscribe sends the

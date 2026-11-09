@@ -4,6 +4,88 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
+## 2026-11-09 11:20 — Session 70 — Leaflet storefront map + restaurant coordinates (API + web + e2e)
+
+**Built:** completed the ROADMAP item "Map view of restaurants (Leaflet)".
+The item needed geometry the schema never had, so the increment is
+coordinates-API + map-page as one shipped slice.
+
+- Migration `AddRestaurantCoordinates1794294000000` (22nd):
+  `restaurants.latitude/longitude` — WGS84 decimal degrees, `double
+  precision` NULL, DB CHECKs `-90..90` / `-180..180` mirroring the DTO
+  bounds; each column checked independently so even a raw-SQL half pair
+  cannot store out-of-earth geometry. No backfill (seed owns platform pins,
+  owners set their own).
+- PARTNER RULE in `RestaurantsService.resolveCoordinatePair`: latitude and
+  longitude must travel together on BOTH owner create and update — a half
+  pair (including value+explicit-null) is a 400; on update BOTH `null`
+  clears the pin, an absent pair is untouched. class-validator cannot
+  express cross-field rules, so this is the single deciding layer (the DTO
+  spec pins that deliberate split).
+- DTOs: `@IsNumber @Min @Max` bounds on both Create/UpdateRestaurantDto
+  (`@IsOptional` lets explicit nulls through for the clear path).
+- Seed: 5 of 6 restaurants pinned with real Jakarta/Bandung/Surabaya
+  coordinates; **Bowl House deliberately stays N/N** so the off-map path is
+  exercised by every e2e run. Public reads serialize the pair automatically
+  (entity rows); swagger `RestaurantResponse` documents it (no new routes —
+  docs-json still 71 ops).
+- Web `/map` (EN/ID): server page fetches `GET /restaurants?limit=50`,
+  RE-validates pair finiteness/range before rendering (defense-in-depth per
+  ARCHITECTURE), then mounts the Leaflet map through a client boundary
+  (`dynamic(..., ssr:false)` — Leaflet touches `window` at import time).
+  Pins are `CircleMarker`s (SVG paths — no icon asset URLs through the
+  bundler), green/emerald = server-derived `isOpenNow` (legacy `isOpen`
+  fallback), grey = closed; popups link to the restaurant. An accessible
+  pinned-list below the map mirrors the markers and counts off-map
+  restaurants. Header "Map/Peta" nav; sitemap entry; deps `leaflet@1.9.4`
+  + `react-leaflet@5.0.0` installed with `--registry=https://registry.npmjs.org`
+  so every new lockfile `resolved` is runner-reachable (lockfile verified
+  0 tencentyun URLs after install).
+
+**Verified:**
+
+- API production build clean; full Jest **74 suites / 883 tests** green
+  (+1 suite / +13 tests: 7-case real-ValidationPipe DTO spec incl. the
+  whitelist-strip of `lat/lng` aliases and the pinned DTO-vs-service
+  split; 6-case service pair-guard spec: move/clear/untouched +
+  rejected-half-pair-writes-nothing on both routes).
+- Live smoke on a scratch DB (22-migration chain from EMPTY + seed):
+  **39/39 assertions** — schema probes (columns + both CHECKs), seed pin
+  exacts, list/detail embeds, owner PATCH ladder (full pair→200 + DB moved,
+  half pair→400 wrote NOTHING, value+null→400, 91/-181→400, alias strip
+  200-no-write, both-null clears, non-owner 403, admin 200), POST create
+  with pair/absent/half (rejected wrote 0 rows), raw-`UPDATE latitude=95`
+  rejected by the DB CHECK, `-90/180` extremes accepted, docs-json still
+  71 ops + `RestaurantResponse.latitude` documented + no stray `/map` API
+  route.
+- Web build clean; `/map` SSR (curl): "5 places pinned on the map", 5-row
+  pinned list with NO Bowl House, "1 more restaurant without a location",
+  sitemap includes `/map`, header link present; Indonesian cookie renders
+  the localized strings.
+- E2E **24/24 green ×2** on fresh seeds (≥60 s between runs; +2 tests:
+  marker count == API-pinned count with off-map exclusion asserted both
+  ways, and a deterministic marker→popup→detail-page walk). First run of
+  the popup test FAILED for a real reason — with pins spanning 3 cities the
+  Jakarta markers overlap within pixels, so pointer hit-testing lands on
+  whichever path is topmost; fixed by dispatching a DOM `click` on the
+  exact `nth()` path (Leaflet resolves `e.target`, no hit-test). A
+  follow-up "3 failed" run was the documented once-per-seed suite contract
+  (admin/owner-analytics/zz-driver), cleared by re-seeding — not a
+  regression.
+- Sanitizer scan: added lines carry no U+2026/`***`; `git diff --check`
+  clean. Lockfile: 0 tencentyun resolved URLs.
+
+**Left for next sessions:** owner web UI for setting the pin (the dashboard
+restaurant-profile form does not expose lat/lng yet; API + DTOs are ready);
+city-clustered viewports (a per-city map toggle or clustering would help
+once restaurants exceed a handful of cities — current fitBounds spreads
+Jakarta pins to ~2px); admin can already PATCH pins via the same route;
+search results do not carry coordinates (deliberate: `/map` reads the list
+route); `latitude`-only raw SQL rows are guarded only by the DB CHECK, not
+by the API (accepted trade-off, documented in ARCHITECTURE).
+
+---
+
 ## 2026-11-07 20:00 — Session 69 — Fuzzy search with pg_trgm (API)
 
 **Built:** completed the ROADMAP item "Search: fuzzy name/description match
