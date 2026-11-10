@@ -1,0 +1,16 @@
+[Unit]
+Description=FoodOrder restock-repair pass timer (every 30 min)
+
+[Timer]
+# Fire every 30 minutes; jitter up to 90s so many hosts don't align. With the
+# default RESTOCK_REPAIR_GRACE_MINUTES=10 a crashed cancel heals within
+# ~40 minutes of the status commit. Persistent=true catches up a missed run
+# after the host was down — which is exactly the crash scenario this pass
+# exists for.
+OnBootSec=8min
+OnUnitActiveSec=30min
+RandomizedDelaySec=90
+Persistent=true
+
+[Install]
+WantedBy=timers.target

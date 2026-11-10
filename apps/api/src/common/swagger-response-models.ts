@@ -967,6 +967,65 @@ export class CancelStaleResponse {
   orders: { id: string; code: string }[];
 }
 
+/**
+ * Session-72 follow-up: report from the restock REPAIR pass
+ * (POST /orders/ops/restock-repair). Orphans = cancelled orders that carry a
+ * non-NULL stockDecrements snapshot but a NULL stockRestockedAt — the crash
+ * window between the status commit and the restock transaction. `units` is
+ * the summed quantity the order's own snapshot accounts for; dishes cleared
+ * to unlimited in the meantime are silent per-row no-ops, exactly like the
+ * live cancel path.
+ */
+export class RestockRepairResponse {
+  @ApiProperty({
+    type: 'integer',
+    description: 'Crash grace window actually applied to this run, in minutes.',
+  })
+  graceMinutes: number;
+
+  @ApiProperty({
+    type: 'string',
+    format: 'date-time',
+    description: 'ISO instant; only orders with updatedAt strictly before this are repaired.',
+  })
+  cutoff: string;
+
+  @ApiProperty({ type: 'integer', description: 'Orphan candidates selected this run (<= limit).' })
+  scanned: number;
+
+  @ApiProperty({
+    type: 'integer',
+    description: 'Orders whose reserved units THIS run moved back (marker CAS winners).',
+  })
+  repaired: number;
+
+  @ApiProperty({
+    type: 'integer',
+    description:
+      'Candidates this run did NOT move: CAS lost to a concurrent cancel, snapshot with no usable entry, or dryRun.',
+  })
+  skipped: number;
+
+  @ApiProperty({
+    type: 'boolean',
+    description:
+      'True when the run filled its whole batch — more orphans likely remain, re-run to drain; false when the backlog is clear.',
+  })
+  capped: boolean;
+
+  @ApiProperty({
+    isArray: true,
+    type: 'object',
+    properties: {
+      id: { type: 'string' },
+      code: { type: 'string' },
+      units: { type: 'integer', description: 'Total units returned by this repair (>=1).' },
+    },
+    description: 'Repaired orders as { id, code, units } entries (oldest first).',
+  })
+  orders: { id: string; code: string; units: number }[];
+}
+
 // ---------------------------------------------------------------------------
 // Favorites
 // ---------------------------------------------------------------------------

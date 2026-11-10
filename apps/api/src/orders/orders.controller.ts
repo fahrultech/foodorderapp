@@ -24,10 +24,12 @@ import {
   NextStatusesResponse,
   OrderResponse,
   PaginatedOrdersResponse,
+  RestockRepairResponse,
 } from '../common/swagger-response-models';
 import { OrdersService } from './orders.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { CancelStaleDto } from './dto/cancel-stale.dto';
+import { RestockRepairDto } from './dto/restock-repair.dto';
 import { ListMyOrdersDto } from './dto/list-my-orders.dto';
 import { OrderStatus } from './order.entity';
 import { JwtAuthGuard } from '../common/jwt-auth.guard';
@@ -161,6 +163,29 @@ export class OrdersController {
   cancelStale(@Body() dto?: CancelStaleDto) {
     return this.service.cancelStalePending({
       staleMinutes: dto?.staleMinutes,
+      limit: dto?.limit,
+    });
+  }
+
+  /**
+   * Ops repair (ADMIN only): return reserved units for cancelled orders the
+   * restock pass missed — the crash window between the status commit and the
+   * restock transaction. Same shared exactly-once code as the standalone
+   * `ops/restock-repair.sh` cron; re-running is always safe.
+   */
+  @Post('ops/restock-repair')
+  @HttpCode(200)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Admin: repair stock missed by cancelled-order restocks', description: 'Sweeps cancelled orders that carry a non-NULL stockDecrements snapshot but a NULL stockRestockedAt (the crash window between the status commit and the restock transaction) and returns their reserved units — the exactly-once marker CAS makes re-runs and concurrency safe. Only orders untouched for the grace window (default RESTOCK_REPAIR_GRACE_MINUTES=10) are considered, so a healthy in-flight cancel is never raced. Orders with a NULL/empty snapshot are never touched (nothing was decremented). Returns scanned/repaired/skipped counts and per-order units. ADMIN role required.' })
+  @ApiOkResponse({ type: RestockRepairResponse, description: 'Repair report for this run.' })
+  @ApiError(400, 'graceMinutes or limit out of bounds / not an integer.')
+  @ApiError(401, 'Missing/invalid/expired access token.')
+  @ApiError(403, 'Valid token but role is not ADMIN.')
+  restockRepair(@Body() dto?: RestockRepairDto) {
+    return this.service.restockRepair({
+      graceMinutes: dto?.graceMinutes,
       limit: dto?.limit,
     });
   }

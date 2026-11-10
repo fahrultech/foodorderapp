@@ -1,0 +1,29 @@
+# systemd unit EXAMPLES for the FoodOrder restock REPAIR pass (not
+# installed — copy to /etc/systemd/system/ and adjust paths for your host).
+#
+#   sudo cp ops/systemd/foodorder-restock-repair.{service,timer} /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now foodorder-restock-repair.timer
+#   systemctl list-timers foodorder-restock-repair.timer   # next fire
+#
+# The service runs ops/restock-repair.sh, which returns reserved stock units
+# for cancelled orders whose restock transaction never landed (crash window
+# between the status commit and the restock commit; session-72 DEVLOG).
+# DATABASE_URL is read by the api's dotenv loader from the untracked
+# apps/api/.env (EnvironmentFile below makes it explicit); credentials are
+# never stored in this unit. Exactly-once is enforced by the marker CAS, so
+# this timer and the cancel-stale timer may run back to back without risk.
+
+[Unit]
+Description=FoodOrder restock repair for cancelled orders missed by restock
+Wants=postgresql.service
+After=network-online.target postgresql.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/ubuntu/foodorderapp
+# DATABASE_URL (and optional RESTOCK_REPAIR_*/DRY_RUN) live in the api env file.
+EnvironmentFile=-/home/ubuntu/foodorderapp/apps/api/.env
+ExecStart=/home/ubuntu/foodorderapp/ops/restock-repair.sh
+NoNewPrivileges=true
+PrivateTmp=true

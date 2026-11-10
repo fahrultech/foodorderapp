@@ -26,7 +26,7 @@ import { RATE_LIMIT_CONFIG, loadRateLimitConfig } from '../common/rate-limit/rat
  * DTO validation — not the sweep itself (that has its own unit spec).
  */
 
-const SECRET = '***';
+const SECRET = 'unit-cancel-stale-jwt';
 const ADMIN_ID = 'a0000000-0000-4000-8000-00000000000a';
 const OWNER_ID = 'b0000000-0000-4000-8000-00000000000b';
 

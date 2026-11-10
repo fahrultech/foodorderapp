@@ -37,6 +37,12 @@ import {
   StaleSweepReport,
 } from './stale-order-sweep';
 import { restockCancelledOrder } from './stock-restock';
+import {
+  runRestockRepair,
+  resolveRestockRepairConfig,
+  RestockRepairOptions,
+  RestockRepairReport,
+} from './stock-restock-repair';
 
 const STATUS_FLOW: Record<OrderStatus, OrderStatus[]> = {
   [OrderStatus.PENDING]: [OrderStatus.CONFIRMED, OrderStatus.CANCELLED],
@@ -814,6 +820,21 @@ export class OrdersService {
         this.emit('order.updated', order);
         await options.onCancelled?.(order);
       },
+    });
+  }
+
+  /**
+   * Ops repair (session-72 follow-up): return reserved units for cancelled
+   * orders the restock pass MISSED (crash window between the status commit
+   * and the restock commit). Goes through the shared plain `runRestockRepair`
+   * — the same code the standalone `restock-repair` cron script runs — so
+   * the marker CAS keeps every repair exactly-once even if a live cancel or
+   * a second scheduler is racing it.
+   */
+  async restockRepair(options: RestockRepairOptions = {}): Promise<RestockRepairReport> {
+    return runRestockRepair(this.orders.manager, {
+      config: resolveRestockRepairConfig(),
+      ...options,
     });
   }
 }
