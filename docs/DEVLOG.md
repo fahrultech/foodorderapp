@@ -4,6 +4,85 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
+## 2026-11-10 14:09 — Session 73 — Restock repair pass for crashed cancels (API)
+
+**Built:** completed the ROADMAP follow-up "Restock repair pass — cancelled
+orders whose snapshot is non-NULL but `stockRestockedAt` stayed NULL must get
+their units back" (session-72 crash window). The increment was left
+UNCOMMITTED by a crashed session (13:0x slot); this run reviewed every WIP
+file, then verified, hardened and shipped it.
+
+- NEW shared module `orders/stock-restock-repair.ts` (plain, DI-free — same
+  philosophy as `stock-restock.ts`/`stale-order-sweep.ts`): `runRestockRepair`
+  selects orphans with ONE reusable SQL predicate — `cancelled` + marker NULL
+  + `jsonb_typeof='array'` + `jsonb_array_length>0` + `updatedAt < cutoff` —
+  oldest-first, bounded, then hands each to the SAME
+  `restockCancelledOrder`, so the marker CAS keeps every repair exactly-once
+  even against a live cancel or a second scheduler. Grace window (default
+  `RESTOCK_REPAIR_GRACE_MINUTES=10`) means a healthy in-flight cancel is
+  never raced; `RESTOCK_REPAIR_BATCH=500` drains a pathological backlog
+  gradually (`capped=true` flags more remaining). NULL/empty snapshot is NOT
+  an orphan (nothing was decremented); a snapshot whose entries are ALL
+  malformed is selected, skipped, and NEVER marked — it honestly resurfaces
+  in every report until a human repairs the ledger. `dryRun` (script-only)
+  reports what a real run would return and touches nothing; a missing
+  manager answers an empty report instead of throwing; scan errors propagate.
+- ADMIN route `POST /orders/ops/restock-repair` (400/401/403 envelope) +
+  `RestockRepairDto` (`graceMinutes` 1..10080, `limit` 1..500, both
+  `@IsOptional @Type(Number) @IsInt @Min @Max`; `dryRun` deliberately NOT
+  exposed over HTTP — whitelist strips it, pinned in specs and live).
+  `OrdersService.restockRepair` delegates to the shared function — HTTP,
+  script and route all run one implementation, no drift.
+- Standalone cron `src/scripts/restock-repair.ts` (`npm run
+  restock-repair`, `DRY_RUN=1` env, per-order detail on stderr + ONE JSON
+  summary line on stdout — same machine contract as `cancel-stale`) +
+  `ops/restock-repair.sh` wrapper + systemd service/timer examples (every
+  30min + jitter + `Persistent=true` catch-up — a missed run after downtime
+  IS the crash scenario this pass exists for).
+- OpenAPI: `RestockRepairResponse` model (graceMinutes/cutoff/scanned/
+  repaired/skipped/capped/orders); contract re-pinned 71→72 ops (both path
+  lists, SUCCESS/ERROR tables, props/required probes). No migration — the
+  24-column schema from session 72 already carries everything needed.
+- SANITIZER REPAIR beyond the increment: the crashed session had copied
+  `const SECRET = '***'` from `cancel-stale.admin.spec.ts` — a session-35-era
+  masked literal living in HEAD (the `committed-credentials.spec.ts` guard
+  only catches URL-shaped masks, so it passed CI for two weeks). Restored
+  real passphrases in BOTH specs (`unit-cancel-stale-jwt`,
+  `unit-restock-repair-jwt`), codepoint-verified on disk, suites re-run.
+
+**Verified:**
+
+- API production build clean; full Jest **79 suites / 948 tests** green
+  (+3 suites / +32 tests vs session 72: 13-case unit spec incl. tuple-shape
+  mock + grace-cutoff forwarding + CAS-loser skip + dryRun-touches-nothing,
+  11-case supertest ADMIN HTTP spec, 8-case DTO bounds spec).
+- Live smoke on a scratch DB (24-migration chain from EMPTY + seed, API on
+  :4018): **58/58 assertions** — 401/403/400×3 envelope with ZERO mutation;
+  default run exact report `scanned=3 repaired=2 skipped=1` oldest-first
+  with codes + units `[3,2]`; ghost-dish snapshot entry repairs with marker
+  set and a zero-row add (counter untouched); re-run = exactly-once (junk
+  only, stock unchanged); junk stays unmarked until raw-SQL-repaired, then
+  drains; 2-min-old cancel invisible to default 10-min runs but repaired by
+  `graceMinutes:1`; `{"dryRun":true,...}` over HTTP STRIPPED and ran for
+  real; TRUE-concurrent `limit:1` pair → repaired sum EXACTLY 1 and stock
+  moved exactly once (both race outcomes observed across the two smoke runs
+  — same-orphan CAS loss, and late-scan-wins-nothing — both safe); capped=true
+  through sequential batch drain then false when clear; standalone
+  `node dist/scripts/restock-repair.js` DRY_RUN report-only (marker NULL,
+  stock unchanged), `ops/restock-repair.sh` real run (+1 unit, marker set),
+  re-run drains to zero; docs-json 72 ops with the `$ref` pinned.
+- E2E **24/24 green** on fresh seed (Playwright boots both apps; web
+  untouched). No lockfile changes. Sanitizer codepoint scan across all
+  added + untracked lines: the two `***` secrets fixed; no U+2026 remains;
+  `git diff --check` empty.
+
+**Left for next sessions:** Stripe/Xendit adapters (🔒 keys); the web "only
+N left" badge + dashboard stock editor (next sub-item); CI postgres 15/16
+matrix (next top-level); optionally an in-process interval scheduler for the
+repair pass (today: ADMIN route + systemd timer only).
+
+---
+
 ## 2026-11-09 18:11 — Session 72 — Restock on cancellation (API)
 
 **Built:** completed the ROADMAP follow-up "Stock restock on cancel — owner/

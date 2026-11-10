@@ -41,7 +41,16 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   `stockRestockedAt`
   CAS marker inside one transaction before adding `stock + units` per dish
   (skips dishes cleared to unlimited; concurrent cancels cannot
-  double-return).
+  double-return). The narrow crash window BETWEEN the two commits (status
+  saved, restock never landed) is drained by the ADMIN
+  `POST /orders/ops/restock-repair` pass and the `restock-repair` cron
+  (`ops/restock-repair.sh` + systemd timer): it selects exactly
+  cancelled + non-empty array snapshot + marker NULL orders older than
+  `RESTOCK_REPAIR_GRACE_MINUTES` (default 10 — a healthy in-flight cancel is
+  never raced) and hands each to the SAME primitive, so repairs are
+  idempotent and can never double-return. A snapshot with no usable entry is
+  honestly re-surfaced in every report — never silently marked — until an
+  operator repairs the ledger.
 - **Storefront menu reads embed option groups** — `GET /restaurants/:id` attaches
   the same sorted `optionGroups` (choices included, `[]` when a dish has none) to
   its nested `menuItems` as `GET /restaurants/:id/menu`, through the single shared
