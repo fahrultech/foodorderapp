@@ -4,6 +4,89 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
+## 2026-11-11 20:12 — Session 78 — Checkout + portal a11y pass: real label associations, ARIA tabs, aria-live order status (Web, Phase 6)
+
+**Built:**
+
+- Checkout (`/checkout`): the five `<label class=…>Text</label>`s sat beside
+  their inputs as orphans — ZERO programmatic associations (label text, not
+  wrapping, no `for`): screen-reader users heard "edit text, blank" and
+  there was no click-to-focus. All now `htmlFor` + ids (`checkout-name` …
+  `checkout-note`), including the promo input; the receipt-email help
+  paragraph is the field's accessible DESCRIPTION
+  (`aria-describedby="checkout-email-help"`); the submit-error `<p>` finally
+  got its `role="alert"` (the promo error always had one).
+- Dashboard (`/dashboard`): the status strip claimed `role=tablist`/`role=tab`
+  but implemented none of it — every tab in the tab order, no arrow keys, no
+  panel. Now the real ARIA tabs pattern: roving `tabIndex` (exactly ONE tab
+  in the order), Arrow/Home/End move+auto-select with focus following,
+  `aria-controls="inbox-panel"`, and the inbox (skeleton/empty/list+pagination)
+  wrapped in `role=tabpanel` `aria-labelledby` the ACTIVE tab (`tabIndex=-1`
+  so "browse to panel" lands there).
+- aria-live ON ORDER STATUS, the item's core ask:
+  - Dashboard: silent push-syncs repaint the inbox VISUALLY, which is
+    completely silent for assistive tech. The same snapshots are now diffed
+    (page-scoped) and mirrored into one always-mounted polite sr-only region:
+    "`FO-X is a new order, currently pending.`" / "`FO-X moved from pending
+    to confirmed.`" — and the owner's OWN action announces through the same
+    region inside the in-place patch.
+  - Tracking page (`OrderLiveFeed`): the transports trigger
+    `router.refresh()` and the badge changes silently; the island now watches
+    its server-driven `orderStatus` prop and announces
+    "Order status changed from A to B." A terminal order used to unmount the
+    whole island — the polite region STAYS mounted so the FINAL transition
+    is announced too.
+- Dish dialog (`MenuItemForm`): `role=dialog aria-modal` that leaked focus
+  behind the overlay on Tab and dumped keyboard users at `<body>` on close.
+  Added a Tab trap (cycles at both boundaries over live non-disabled
+  controls) + opener focus restore — the opener is captured DURING RENDER,
+  because a mount effect sees `autoFocus`'s input, not the button that
+  opened the dialog. (Escape-to-close already existed.)
+- Context for repeated button names: inbox cards became `role=group`
+  `aria-label="Order CODE, status"` (menu rows "Dish NAME") and the bare
+  "Details" link is `View receipt for order CODE` — no more five identical
+  "Edit" buttons in a row-by-row SR reading. Load-failure banners on
+  dashboard + menu pages got `role=alert`. Kitchen display needed nothing
+  (labels already wrap its selects, cards are named `<article>`s).
+
+**Verified:**
+
+- Full web build green on a wiped `.next`, then re-green on the exact
+  committed tree (comment-only patch after the runs).
+- API untouched: jest re-ran at session 76's baseline — 80 suites / 960
+  tests, no delta (web-only increment).
+- e2e 36/36 GREEN ×2 (31 pre-existing + 5 new `portal-a11y.spec.ts`), fresh
+  `npm run seed` before each clean run: every checkout field resolves via
+  `getByLabel` (impossible pre-session — the association IS the test) +
+  accessible description probe; roving-tabindex invariant + arrow/Home/End
+  auto-activation + focus-follows + tabpanel `aria-labelledby`; live inbox
+  region announces a REST-created order "is a new order" and the UI "✓
+  Accept" announces "moved from pending to confirmed"; dialog Shift+Tab
+  wraps INSIDE and Escape lands focus back on "+ Add dish"; tracking page
+  announces pending→confirmed→preparing over the real WS feed.
+- Honesty note: the FIRST suite run failed only the tracking test's pay
+  step — `429 RATE_LIMITED` on the payments bucket (10/min/IP; several spec
+  files pay orders in one serial minute). Harness bug per the documented
+  rate-limit pitfall, zero product involvement: `payOrder` in the new spec
+  now waits out the advertised window and retries once. Both clean runs
+  green after.
+- Sanitizer scan: 503 added lines, ZERO `***` ON DISK — the three
+  `authorization: Bearer ${token}` lines display masked but a python
+  codepoint readback of the file proves them literal. The one U+2026 was
+  intentional comment prose; reworded to keep future scans silent.
+  `git diff --check` clean.
+
+**Left for next sessions:** same pass for the remaining forms (login /
+register / addresses / order-history / receipt's OrderVerify + rating card)
+— checkout+portal were this item's scope; live regions announce PAGE-scoped
+diffs (orders on the current view/page — off-page moves stay in the tab
+counts only); a shared `useDialogFocus` hook is worth extracting if another
+dialog needs the trap (CartSwitchModal, RateOrderCard); announcement strings
+are EN-only, matching the unlocalized portal, must localize when the portal
+joins next-intl.
+
+---
+
 ## 2026-11-11 18:58 — Session 77 — Storefront states audit: a dead link is NOT a dead API (Web, Phase 6)
 
 **Built:**
