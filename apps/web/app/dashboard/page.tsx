@@ -61,6 +61,9 @@ const PAGE_SIZE = 10;
 
 type Filter = 'all' | OrderStatus;
 
+/** Status-tab strip order: "All" + the canonical status list. */
+const FILTER_TABS: Filter[] = ['all', ...ORDER_STATUSES];
+
 /**
  * Owner-side action buttons per status. Mirrors STATUS_FLOW in the API, but
  * the server is the authority: anything illegal gets a 400 anyway. `kind`
@@ -125,6 +128,11 @@ export default function DashboardPage() {
   const [reloadKey, setReloadKey] = useState(0);
   const [busyOrderId, setBusyOrderId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  // Phase 6 a11y: a silent push-sync repaints the inbox VISUALLY, which is
+  // completely silent for assistive tech. New orders and status moves found
+  // by the diff are mirrored into one polite live region (rendered below).
+  const [announcement, setAnnouncement] = useState('');
+  const tabRefs = useRef(new Map<string, HTMLButtonElement>());
 
   // --- live polling state (see file header) ---
   const [live, setLive] = useState(true);
@@ -237,6 +245,19 @@ export default function DashboardPage() {
               )
             : new Set<string>(),
         );
+        if (prev) {
+          // Announce what CHANGED between the two snapshots (page-scoped:
+          // only orders currently on this view). Same-page status moves are
+          // visible even when the order leaves the filtered set.
+          const before = new Map(prev.items.map((o) => [o.id, o.status] as const));
+          const notes: string[] = [];
+          for (const o of res.data.items) {
+            const old = before.get(o.id);
+            if (old === undefined) notes.push(`${o.code} is a new order, currently ${o.status}.`);
+            else if (old !== o.status) notes.push(`${o.code} moved from ${old} to ${o.status}.`);
+          }
+          if (notes.length) setAnnouncement(notes.join(' '));
+        }
         applyPage(res.data);
         setLastSyncAt(Date.now());
         setSyncIssue(null);
@@ -511,6 +532,7 @@ export default function DashboardPage() {
             [action.to]: d.counts[action.to] + 1,
           },
         });
+        setAnnouncement(`${order.code} moved from ${from} to ${action.to}.`);
       }
       lastActionAtRef.current = Date.now();
     } else if (res.kind === 'error') {
@@ -666,6 +688,18 @@ export default function DashboardPage() {
         </div>
       </div>
 
+      {/* Phase 6 a11y: polite live region mirroring the push-sync diff.
+          Always mounted (announcements only land when its text CHANGES). */}
+      <p
+        role="status"
+        aria-live="polite"
+        className="sr-only"
+        data-testid="dashboard-live-region"
+        aria-label="Inbox update announcements"
+      >
+        {announcement}
+      </p>
+
       {/* Portal section nav (shared with /dashboard/menu) */}
       <PortalTabs />
 
@@ -687,16 +721,47 @@ export default function DashboardPage() {
         </label>
       )}
 
-      {/* Status inbox tabs with per-status counts (counts always cover ALL statuses) */}
+      {/* Status inbox tabs with per-status counts (counts always cover ALL statuses).
+          APG tab pattern: roving tabindex (ONE tab in the tab order), arrows
+          move+select, the panel below is wired via aria-controls. */}
       <div className="mt-5 flex flex-wrap gap-2" role="tablist" aria-label="Filter orders by status">
-        {(['all', ...ORDER_STATUSES] as Filter[]).map((s) => {
+        {FILTER_TABS.map((s, i) => {
           const count =
             data == null ? null : s === 'all' ? inboxTotal : data.counts[s as OrderStatus];
           return (
             <button
               key={s}
+              id={`status-tab-${s}`}
               role="tab"
               aria-selected={filter === s}
+              aria-controls="inbox-panel"
+              tabIndex={filter === s ? 0 : -1}
+              ref={(el) => {
+                if (el) tabRefs.current.set(s, el);
+                else tabRefs.current.delete(s);
+              }}
+              onKeyDown={(e) => {
+                if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft' && e.key !== 'Home' && e.key !== 'End')
+                  return;
+                e.preventDefault();
+                const last = FILTER_TABS.length - 1;
+                const next =
+                  e.key === 'Home'
+                    ? 0
+                    : e.key === 'End'
+                      ? last
+                      : e.key === 'ArrowRight'
+                        ? i + 1 > last
+                          ? 0
+                          : i + 1
+                        : i - 1 < 0
+                          ? last
+                          : i - 1;
+                const target = FILTER_TABS[next];
+                setFilter(target);
+                setPage(1);
+                tabRefs.current.get(target)?.focus();
+              }}
               onClick={() => {
                 setFilter(s);
                 setPage(1);
@@ -723,7 +788,10 @@ export default function DashboardPage() {
       </div>
 
       {error && (
-        <p className="mt-4 flex items-center justify-between gap-3 rounded-xl bg-rose-50 px-4 py-2.5 text-sm font-semibold text-rose-700">
+        <p
+          role="alert"
+          className="mt-4 flex items-center justify-between gap-3 rounded-xl bg-rose-50 px-4 py-2.5 text-sm font-semibold text-rose-700"
+        >
           <span>{error}</span>
           <button
             onClick={() => setReloadKey((k) => k + 1)}
@@ -753,6 +821,14 @@ export default function DashboardPage() {
         </p>
       )}
 
+      {/* The status tabs' aria-controls target. tabIndex=-1 lets a
+          keyboard user land here with "browse to panel" after switching tabs. */}
+      <div
+        role="tabpanel"
+        id="inbox-panel"
+        aria-labelledby={`status-tab-${filter}`}
+        tabIndex={-1}
+      >
       {loading && !data ? (
         <div className="mt-6 space-y-4">
           {[0, 1, 2].map((i) => (
@@ -777,6 +853,8 @@ export default function DashboardPage() {
             {data.items.map((order) => (
               <div
                 key={order.id}
+                role="group"
+                aria-label={`Order ${order.code}, ${order.status}`}
                 className="rounded-2xl border border-stone-200 bg-white p-5"
                 data-testid={`inbox-card-${order.code}`}
               >
@@ -833,6 +911,7 @@ export default function DashboardPage() {
                     ))}
                     <Link
                       href={`/orders/${order.id}${order.contactEmail ? `?email=${encodeURIComponent(order.contactEmail)}` : ''}`}
+                      aria-label={`View receipt for order ${order.code}`}
                       className="rounded-lg bg-stone-900 px-3 py-1.5 text-xs font-bold text-white hover:bg-stone-700"
                     >
                       Details
@@ -868,6 +947,7 @@ export default function DashboardPage() {
           </div>
         </>
       ) : null}
+      </div>
     </div>
   );
 }

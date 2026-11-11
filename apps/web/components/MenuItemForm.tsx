@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import type { FormEvent } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import type { FormEvent, KeyboardEvent as ReactKeyboardEvent } from 'react';
 import type { MenuItem, MenuItemInput } from '@/lib/api';
 import { centsToInput, parseMoneyToCents } from '@/lib/api';
 
@@ -69,6 +69,22 @@ export default function MenuItemForm({ item, categories, onSubmit, onUpload, onC
   const [uploading, setUploading] = useState(false);
   const [uploadNotice, setUploadNotice] = useState<string | null>(null);
   const editing = item !== null;
+  const formRef = useRef<HTMLFormElement>(null);
+  // Phase 6 a11y — dialog focus choreography. The OPENER is captured during
+  // render, before the DOM commit applies `autoFocus` (a mount effect would
+  // see the name input as activeElement, not the button that opened us), and
+  // restored on unmount so keyboard users are not stranded at <body>.
+  const openerRef = useRef<Element | null>(null);
+  if (openerRef.current === null && typeof document !== 'undefined') {
+    openerRef.current = document.activeElement;
+  }
+
+  useEffect(() => {
+    return () => {
+      const opener = openerRef.current;
+      if (opener instanceof HTMLElement && opener.isConnected) opener.focus();
+    };
+  }, []);
 
   // Escape closes (backdrop click does too via the container handler).
   useEffect(() => {
@@ -156,6 +172,28 @@ export default function MenuItemForm({ item, categories, onSubmit, onUpload, onC
     }
   }
 
+  // Tab trap (Phase 6 a11y): a role=dialog whose Tab key escapes to the
+  // background page is a keyboard quicksand — every focus stop behind the
+  // overlay stays reachable. Cycle forward/backward at the boundaries.
+  function trapTab(e: ReactKeyboardEvent<HTMLFormElement>) {
+    if (e.key !== 'Tab') return;
+    const nodes = formRef.current?.querySelectorAll<HTMLElement>(
+      'input:not([disabled]), select:not([disabled]), textarea:not([disabled]), button:not([disabled]), [href], [tabindex]:not([tabindex="-1"])',
+    );
+    if (!nodes || nodes.length === 0) return;
+    const list = Array.from(nodes);
+    const first = list[0];
+    const last = list[list.length - 1];
+    const active = document.activeElement;
+    if (e.shiftKey && (active === first || active === formRef.current)) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && active === last) {
+      e.preventDefault();
+      first.focus();
+    }
+  }
+
   return (
     <div
       className="fixed inset-0 z-30 flex items-start justify-center overflow-y-auto bg-black/40 p-4 pt-12 backdrop-blur-[2px]"
@@ -164,10 +202,12 @@ export default function MenuItemForm({ item, categories, onSubmit, onUpload, onC
       }}
     >
       <form
+        ref={formRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="menu-form-title"
         onSubmit={submit}
+        onKeyDown={trapTab}
         className="relative w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl"
       >
         <h2 id="menu-form-title" className="text-lg font-extrabold">

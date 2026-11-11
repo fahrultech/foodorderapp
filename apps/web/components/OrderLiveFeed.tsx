@@ -1,7 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '@/lib/auth';
 import { POLL_INTERVAL_MS, PUSH_SYNC_DEBOUNCE_MS } from '@/lib/live-sync';
 import { useOrderFeed } from '@/lib/use-order-feed';
@@ -69,6 +69,20 @@ export default function OrderLiveFeed({
 
   const { wsUp } = useOrderFeed({ enabled, me: true, getAccessToken, handlers });
 
+  // Phase 6 a11y — aria-live on ORDER STATUS. The transports above trigger
+  // router.refresh(), the server re-renders with the new `orderStatus` and
+  // the visual badge changes — silently for assistive tech. The transition
+  // is mirrored into an always-mounted polite region (kept mounted even on
+  // terminal statuses so the FINAL transition is announced too).
+  const [announcement, setAnnouncement] = useState('');
+  const prevStatusRef = useRef(orderStatus);
+  useEffect(() => {
+    if (prevStatusRef.current === orderStatus) return;
+    const from = prevStatusRef.current;
+    prevStatusRef.current = orderStatus;
+    setAnnouncement(`Order status changed from ${from} to ${orderStatus}.`);
+  }, [orderStatus]);
+
   // Fallback transport: with the feed down, a signed-in customer still gets
   // 10s freshness via plain refreshes. Hidden tabs skip ticks; a push
   // transport that comes back up retires the interval immediately.
@@ -87,28 +101,51 @@ export default function OrderLiveFeed({
     };
   }, [enabled, wsUp, router]);
 
-  if (terminal) return null;
+  if (terminal) {
+    // No transport UI once the order is final, but the polite region STAYS
+    // mounted so the last transition (final one to completed) was announced.
+    return (
+      <span
+        aria-live="polite"
+        role="status"
+        className="sr-only"
+        data-testid="order-status-live"
+      >
+        {announcement}
+      </span>
+    );
+  }
 
   const live = authStatus === 'signedIn';
   const transport = live ? (wsUp ? 'ws' : 'poll') : 'none';
 
   return (
-    <span
-      role="status"
-      data-feed-transport={transport}
-      className="flex items-center gap-1.5 text-xs font-semibold text-stone-400"
-    >
+    <>
       <span
-        aria-hidden
-        className={`h-1.5 w-1.5 rounded-full ${
-          live ? (wsUp ? 'animate-pulse bg-emerald-500' : 'bg-amber-400') : 'bg-stone-300'
-        }`}
-      />
-      {!live
-        ? 'Reload to check for updates'
-        : wsUp
-          ? 'Live — push feed connected'
-          : 'Live — polling (push feed down)'}
-    </span>
+        aria-live="polite"
+        role="status"
+        className="sr-only"
+        data-testid="order-status-live"
+      >
+        {announcement}
+      </span>
+      <span
+        role="status"
+        data-feed-transport={transport}
+        className="flex items-center gap-1.5 text-xs font-semibold text-stone-400"
+      >
+        <span
+          aria-hidden
+          className={`h-1.5 w-1.5 rounded-full ${
+            live ? (wsUp ? 'animate-pulse bg-emerald-500' : 'bg-amber-400') : 'bg-stone-300'
+          }`}
+        />
+        {!live
+          ? 'Reload to check for updates'
+          : wsUp
+            ? 'Live — push feed connected'
+            : 'Live — polling (push feed down)'}
+      </span>
+    </>
   );
 }

@@ -301,8 +301,11 @@ export default function CheckoutPage() {
             </fieldset>
           )}
           <div>
-            <label className="mb-1 block text-sm font-medium">Your name</label>
+            <label className="mb-1 block text-sm font-medium" htmlFor="checkout-name">
+              Your name
+            </label>
             <input
+              id="checkout-name"
               required
               className={field}
               value={form.customerName}
@@ -311,8 +314,11 @@ export default function CheckoutPage() {
             />
           </div>
           <div>
-            <label className="mb-1 block text-sm font-medium">Phone</label>
+            <label className="mb-1 block text-sm font-medium" htmlFor="checkout-phone">
+              Phone
+            </label>
             <input
+              id="checkout-phone"
               required
               className={field}
               value={form.contactPhone}
@@ -321,23 +327,30 @@ export default function CheckoutPage() {
             />
           </div>
           <div>
-            <label className="mb-1 block text-sm font-medium">Contact email</label>
+            <label className="mb-1 block text-sm font-medium" htmlFor="checkout-email">
+              Contact email
+            </label>
             <input
+              id="checkout-email"
               required
               type="email"
               className={field}
               value={form.contactEmail}
               onChange={(e) => setForm((f) => ({ ...f, contactEmail: e.target.value }))}
               placeholder="you@example.com"
+              aria-describedby="checkout-email-help"
             />
-            <p className="mt-1 text-xs text-stone-500">
+            <p id="checkout-email-help" className="mt-1 text-xs text-stone-500">
               Keeps the receipt page yours: this email is what unlocks the order
               page for guests (the link alone no longer shows anything).
             </p>
           </div>
           <div>
-            <label className="mb-1 block text-sm font-medium">Delivery address</label>
+            <label className="mb-1 block text-sm font-medium" htmlFor="checkout-address">
+              Delivery address
+            </label>
             <textarea
+              id="checkout-address"
               required
               rows={3}
               className={field}
@@ -347,8 +360,11 @@ export default function CheckoutPage() {
             />
           </div>
           <div>
-            <label className="mb-1 block text-sm font-medium">Note for the restaurant</label>
+            <label className="mb-1 block text-sm font-medium" htmlFor="checkout-note">
+              Note for the restaurant
+            </label>
             <textarea
+              id="checkout-note"
               rows={2}
               className={field}
               value={form.note}
@@ -357,7 +373,12 @@ export default function CheckoutPage() {
             />
           </div>
           {error && (
-            <p className="rounded-xl bg-red-50 px-4 py-3 text-sm font-medium text-red-700">{error}</p>
+            <p
+              role="alert"
+              className="rounded-xl bg-red-50 px-4 py-3 text-sm font-medium text-red-700"
+            >
+              {error}
+            </p>
           )}
           <button
             disabled={!canSubmit}
@@ -421,11 +442,15 @@ export default function CheckoutPage() {
             </div>
           )}
           <div className="mt-3 space-y-1 border-t border-dashed border-stone-200 pt-3">
-            <label className="block text-xs font-medium uppercase tracking-wide text-stone-500">
+            <label
+              htmlFor="checkout-promo-code"
+              className="block text-xs font-medium uppercase tracking-wide text-stone-500"
+            >
               Promo code
             </label>
             <div className="flex gap-2">
               <input
+                id="checkout-promo-code"
                 className="w-full rounded-xl border border-stone-300 bg-white px-3 py-2 text-sm uppercase outline-none focus:border-brand-500"
                 value={promoInput}
                 onChange={(e) => {
