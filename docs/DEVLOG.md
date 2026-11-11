@@ -4,6 +4,76 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
+## 2026-11-11 13:43 — Session 74 — Storefront stock badges + dashboard stock editor (WEB, Phase 5 close-out)
+
+**Built:** completed the ROADMAP follow-up "Web: storefront 'only N left' badge
++ dashboard stock editor" — the last unbuilt display half of the session-71
+stock counter. The increment was left UNCOMMITTED by the crashed 10:20 slot
+(its e2e spec was the newest file in the tree); this run reviewed every WIP
+file, corrected three harness bugs, then verified and shipped it.
+
+- API delta (mirror only, no migration): `FavoriteDish.stock` — the favorites
+  row now carries the dish's live `stock` (`dish.stock ?? null`) so hearts
+  show the same truth as the storefront; `FavoriteDishResponse` gained the
+  nullable integer `stock` prop (op count stays 72, pinned in swagger.spec
+  with a new probe).
+- NEW `components/StockBadge.tsx`: amber "Only N left" pill at 1..5 tracked
+  units, red "Sold out" pill at 0 (exports `LOW_STOCK_LIMIT=5` + defensive
+  `isSoldOut`/`isLowStock`, junk negatives treated as zero), nothing for
+  NULL = unlimited. Pure display over the server value — a stale badge can
+  only look optimistic, never oversell, because order create still answers
+  409 INSUFFICIENT_STOCK server-side.
+- Storefront: badge embedded in the `MenuBrowser` dish heading;
+  `AddToCartButton` disables and re-labels "Sold out" (chips disabled too,
+  `data-testid="add-sold-out"`); favorites page maps `stock` through
+  `toMenuItem`; EN/ID messages (`soldOutBadge`, `lowStockBadge`,
+  `CartButton.soldOut`).
+- Dashboard menu manager: inline `stock: unlimited / only N left / stock: N /
+  SOLD OUT` on each row; `MenuItemForm` gained a "Limit sellable units"
+  tracker — checkbox off = unlimited, ON = whole-number >= 0 input, and the
+  three-way PATCH semantics are mirrored exactly (number SETS, unchecking
+  while tracked sends explicit `null` CLEARS, untouched stays omitted);
+  `lib/api.ts` `MenuItem.stock` + `MenuItemInput.stock` typed.
+- NEW `e2e/tests/stock.spec.ts` (2 tests): badge follows the owner counter
+  low→sold-out→unlimited incl. disabled Add, and the dialog sets/lowers/
+  clears stock across dashboard + storefront; both restore seed stock=NULL in
+  `finally` to keep the single-seed suite contract.
+- Review fixes over the crashed WIP: e2e fixture used `?q=Warung` (the list
+  route's param is `search=` — the `.find` masked it; corrected); smoke
+  harness learned the real contracts: POST /users/me/favorites is pinned
+  200 (`@HttpCode(200)`, idempotent), the error envelope is
+  `{error:{code,…}}`.
+
+**Verified:**
+
+- API production build clean; full Jest **79 suites / 949 tests** green
+  (+1 test vs session 73: the stock-mirror spec in `favorites.service`;
+  swagger probe added inside an existing test).
+- Live smoke on a scratch DB (24-migration chain from EMPTY + seed, API on
+  :4021, payment gate open): **16/16 assertions** — favorites mirror tracks
+  NULL→3→0→NULL exactly against owner three-way PATCHes; storefront detail
+  reads carry the same live numbers; sold-out order create rejected 409
+  `INSUFFICIENT_STOCK` with the orders table row count UNCHANGED and the
+  counter untouched at 0; unlimited-clear restores mirror to null; server
+  decrement still exact (5−2=3) and the favorites mirror reflects it after
+  the order; docs-json `FavoriteDishResponse.stock` integer+nullable and
+  total ops unchanged at 72.
+- Web production build clean (new required `MenuItem.stock` compiles across
+  every construction site). E2E **26/26 green** on fresh seed (Playwright
+  boots both apps; the 2 new stock specs included). NOTE: the first suite
+  run hit 3 failures caused by a STALE hand-booted API still listening on
+  :4000 (auth-bucket `RATE_LIMITED` 429s — the known 10/min trap); freeing
+  the port + re-seed made it 26/26, zero product bugs.
+- Sanitizer codepoint scan across all added + untracked lines: no U+2026,
+  no `***`; `git diff --check` empty; both messages JSONs parse.
+
+**Left for next sessions:** CI matrix postgres 15/16 compatibility (next
+unblocked ROADMAP line); `GET /orders/:id` guest-ownership fix (id
+enumeration risk); storefront empty/loading/error states audit; accessibility
+pass; `/restaurants` N+1 sweep; Stripe/Xendit adapters still 🔒 keys.
+
+---
+
 ## 2026-11-10 14:09 — Session 73 — Restock repair pass for crashed cancels (API)
 
 **Built:** completed the ROADMAP follow-up "Restock repair pass — cancelled
