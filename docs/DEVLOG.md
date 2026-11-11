@@ -4,6 +4,81 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
+## 2026-11-11 17:20 — Session 76 — Receipt ownership: `GET /orders/:id` now proves a key, not just the uuid (API+Web, Phase 6)
+
+**Built:**
+
+- API: `orders.contactEmail` nullable varchar(254) (25th migration) +
+  `CreateOrderDto.contactEmail` (`@IsEmail`, optional for API clients; the
+  storefront always collects it). Stored normalized through ONE shared
+  `normalizeContactEmail` (trim+lowercase) feeding both the write path and
+  the read comparison — they can never drift on casing/whitespace.
+  New `OrdersService.findOneForViewer(id, viewer?, contactEmail?)` ladder:
+  ADMIN bearer → owning-customer bearer (`sub === order.userId`) → ANY
+  presenter of the stored proof email (case-insensitive) — everything else
+  throws the SAME `NotFoundException` an unknown id produces (message
+  identical: the route never confirms existence, matching the cancel
+  route's convention). `GET /orders/:id` switched to
+  `OptionalJwtAuthGuard` + `contactEmail` query; `findOne` stays the
+  unguarded internal loader (create-echo, status flows, event fan-out).
+  Orders stored WITHOUT an email (legacy rows, API clients that omitted it)
+  simply have no guest rung — documented, asserted.
+- GDPR parity: account export now carries `contactEmail`; erasure nulls it
+  alongside the rest of the contact block. Seed gives every demo order a
+  deterministic proof email (FO-SEED1..10) so receipt reads work e2e.
+- Web: checkout gained a required "Contact email" field (prefilled from the
+  account when signed in); the post-order redirect carries `?email=`, and
+  history/dashboard/admin links append the proof from their (already
+  JWT-scoped) rows. The receipt SSR page feeds `?email=` to the API; on a
+  denial it renders the new `OrderVerify` island, which auto-probes the
+  bearer rung for signed-in viewers (re-entering the server render with the
+  fetched row's own stored email — never typed) and offers guests a typed
+  email unlock; a wrong answer stays indistinguishable from an unknown
+  order.
+
+**Verified:**
+- api build green; jest 80 suites / 960 tests (session 75: 79/949 → +1
+  suite / +11 tests — new `orders-ownership.spec.ts` pins the whole ladder:
+  normalization, ADMIN/owner/proof rungs, foreign bearer answering the
+  IDENTICAL 404 as an unknown id, NULL-stored-email orders having no guest
+  rung, guest orders being owner-token-inert, single repo touch). Re-pinned:
+  the GDPR erasure payload + the uuid-route sweep now points
+  `GET /orders/{id}` at the `findOneForViewer` mock.
+- Live smoke 30/30 on a from-EMPTY scratch DB (25/25 migrations + seed):
+  mixed-case proof stored lowercased and matched case-insensitively; bare
+  uuid / wrong proof / foreign bearer all 404 with `NOT_FOUND` envelope;
+  correct proof 200; ADMIN bearer 200; proof unlocks for ANY presenter
+  (checkout-redirect model); NULL-email order dead for guests; malformed
+  uuid still 400 (`BAD_REQUEST`) before the ladder; junk email at create
+  400 with the field named, rejected path wrote NOTHING (DB count) and no
+  stored value violates `lower(contactEmail)`; untouched neighbours
+  (`next-statuses`, `GET /orders/:id/payments`, GDPR export with the new
+  key) green; docs-json registers the `contactEmail` query and the surface
+  is unchanged at 72 ops. Two smoke-harness bugs found+fixed (unquoted
+  camelCase identifier folded by psql; stale 71-op pin from session 69).
+- web build green; e2e 28/28 GREEN ×2 (fresh `npm run seed` between runs):
+  +2 new `order-access.spec.ts` tests — guest bare-link receipt shows the
+  verify card, wrong email stays 404-shaped, typed (uppercase) proof
+  unlocks via URL handoff; a signed-in customer opening the BARE url is
+  auto-unlocked through the bearer rung and lands carrying the email.
+  guest-order-smoke / menu-options / pay-order checkout helpers type the
+  new required field; live-feed's API-created order stores the demo proof
+  email (its bare-URL tracking page now flows through the island).
+  Honesty note: the FIRST full run was 27/28 — pay-order's GUEST variant
+  shared a helper that missed the required email input; fixed in-spec,
+  then ×2 green above.
+
+**Left for next sessions:** same ladder for `GET /orders/:id/next-statuses`
+(still public; leaks only the status-machine edge of an existing order —
+low but same class); a rate bucket on the proof endpoint if email guessing
+ever matters; guest status emails can now unlock via the new column
+(session-45 gap); i18n for the checkout email label + OrderVerify copy
+(EN-only storefront surfaces today); no auth-cookie SSR session exists, so
+`?email=` in the URL is the proof transport (history-visible — revisit if
+the app grows real users).
+
+---
+
 ## 2026-11-11 15:52 — Session 75 — CI matrix Postgres 15/16 + a schema-drift gate that actually gates (CI, Phase 5)
 
 **Built:** `.github/workflows/ci.yml` only — no app code touched.

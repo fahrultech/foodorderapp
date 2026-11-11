@@ -147,6 +147,15 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   leaked); restaurant-side progression goes through the owner-scoped
   `PATCH /restaurants/:id/orders/:orderId/status` route, and the generic
   `PATCH /orders/:id/status` path is admin-only (it used to be open).
+- **Receipt reads prove a key, never just the uuid** — `GET /orders/:id`
+  answers for the order's own customer (bearer `sub`), for ADMIN (bearer +
+  role), or for ANY viewer who presents the order's stored `contactEmail`
+  normalized case-insensitively (collected at checkout; the storefront
+  carries it as `?email=` in the checkout redirect, history links and the
+  OrderVerify island). Everything else gets the same 404 as an unknown id —
+  existence is never confirmed, matching the cancel route's convention.
+  Orders stored without an email (legacy rows, API clients that omitted it)
+  simply have no guest rung.
 - **Driver assignment is a separate, exact-role API boundary** — users may carry
   the `driver` role, while orders keep a nullable indexed `driverId` FK to users
   (`ON DELETE SET NULL`). Owners (or admins through the established owner-route
