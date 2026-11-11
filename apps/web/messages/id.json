@@ -69,10 +69,13 @@
     "empty": "Restoran ini belum memiliki menu.",
     "noMatchesTitle": "Tidak ada hidangan yang cocok.",
     "noMatchesBody": "Coba nama, bahan, atau kategori lain.",
-    "clearSearch": "Hapus pencarian"
+    "clearSearch": "Hapus pencarian",
+    "lowStockBadge": "Tinggal {count} lagi",
+    "soldOutBadge": "Habis"
   },
   "CartButton": {
     "unavailable": "Tidak tersedia",
+    "soldOut": "Habis",
     "added": "Ditambahkan ✓",
     "addWithCount": "Tambah ({count} di keranjang)",
     "add": "Tambah",

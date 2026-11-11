@@ -94,11 +94,18 @@ describe('FavoritesService', () => {
         isAvailable: true,
         prepMinutes: 15,
         restaurantId: 'r1',
+        stock: null, // untracked dish mirrors NULL (session 74)
         restaurantName: 'Warung Nusantara',
         restaurantSlug: 'warung-nusantara',
         restaurantIsOpen: true,
         favoritedAt: expect.any(Date),
       });
+    });
+
+    it("mirrors the dish's live stock counter onto the favorite row", async () => {
+      const h = build(null, { rows: [fakeFavorite(fakeDish({ stock: 3 }))] });
+      const res = await h.service.list('u1');
+      expect(res.items[0].stock).toBe(3);
     });
 
     it('drops rows whose dish vanished (defensive against FK drift)', async () => {

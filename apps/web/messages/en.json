@@ -69,10 +69,13 @@
     "empty": "This restaurant has no menu items yet.",
     "noMatchesTitle": "No dishes match your search.",
     "noMatchesBody": "Try a different name, ingredient, or category.",
-    "clearSearch": "Clear search"
+    "clearSearch": "Clear search",
+    "lowStockBadge": "Only {count} left",
+    "soldOutBadge": "Sold out"
   },
   "CartButton": {
     "unavailable": "Unavailable",
+    "soldOut": "Sold out",
     "added": "Added ✓",
     "addWithCount": "Add ({count} in cart)",
     "add": "Add",

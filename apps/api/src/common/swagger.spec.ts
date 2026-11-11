@@ -739,6 +739,8 @@ describe('OpenAPI document (generated from the real controllers)', () => {
     // Favorite rows carry the live dish price and the hearting timestamp.
     expect(props('FavoriteDishResponse').priceCents.type).toBe('integer');
     expect(props('FavoriteDishResponse').favoritedAt.format).toBe('date-time');
+    // Session 74: favorites mirror the live stock counter (null = unlimited).
+    expect(props('FavoriteDishResponse').stock).toMatchObject({ type: 'integer', nullable: true });
     expect(refOf(props('FavoriteAddResponse').item)).toBe('#/components/schemas/FavoriteDishResponse');
 
     // RestaurantWithMenu = Restaurant + embedded menuItems.

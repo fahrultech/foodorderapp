@@ -20,6 +20,7 @@ function toMenuItem(f: FavoriteDish): MenuItem {
     isAvailable: f.isAvailable,
     prepMinutes: f.prepMinutes,
     restaurantId: f.restaurantId,
+    stock: f.stock ?? null,
   };
 }
 

@@ -5,6 +5,7 @@ import type { MenuItem, Restaurant } from '@/lib/api';
 import { formatPrice } from '@/lib/api';
 import AddToCartButton from '@/components/AddToCartButton';
 import FavoriteButton from '@/components/FavoriteButton';
+import StockBadge from '@/components/StockBadge';
 import { useTranslations } from 'next-intl';
 
 interface DishGroup {
@@ -131,7 +132,10 @@ export default function MenuBrowser({ restaurant }: { restaurant: Restaurant }) 
                   <div key={item.id} className="p-4">
                     <div className="flex items-center gap-4">
                       <div className="min-w-0 flex-1">
-                        <h3 className="font-semibold">{item.name}</h3>
+                        <h3 className="font-semibold">
+                          {item.name}
+                          <StockBadge item={item} />
+                        </h3>
                         {item.description && (
                           <p className="mt-0.5 truncate text-sm text-stone-500">{item.description}</p>
                         )}

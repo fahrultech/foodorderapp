@@ -16,6 +16,8 @@ export interface FavoriteDish {
   isAvailable: boolean;
   prepMinutes: number;
   restaurantId: string;
+  /** Sellable units mirrored from the dish (NULL = unlimited) — session 74. */
+  stock: number | null;
   restaurantName: string;
   restaurantSlug: string;
   restaurantIsOpen: boolean;
@@ -41,6 +43,7 @@ function toFavoriteDish(fav: Favorite): FavoriteDish {
     isAvailable: dish.isAvailable,
     prepMinutes: dish.prepMinutes,
     restaurantId: dish.restaurantId,
+    stock: dish.stock ?? null,
     restaurantName: rest?.name ?? 'Restaurant',
     restaurantSlug: rest?.slug ?? '',
     restaurantIsOpen: rest?.isOpen ?? false,

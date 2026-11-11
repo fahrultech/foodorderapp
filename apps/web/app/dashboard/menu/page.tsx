@@ -390,6 +390,15 @@ export default function MenuManagerPage() {
                       </p>
                       <p className="mt-0.5 text-xs text-stone-500">
                         {formatPrice(m.priceCents)} · {m.prepMinutes} min
+                        {m.stock === null ? (
+                          <span className="text-stone-400"> · stock: unlimited</span>
+                        ) : m.stock === 0 ? (
+                          <span className="font-bold uppercase text-rose-600"> · sold out</span>
+                        ) : (
+                          <span className={m.stock <= 5 ? 'font-bold text-amber-700' : undefined}>
+                            {' '}· {m.stock <= 5 ? `only ${m.stock} left` : `stock: ${m.stock}`}
+                          </span>
+                        )}
                         {m.description ? (
                           <span className="hidden sm:inline"> · {m.description.slice(0, 60)}{m.description.length > 60 ? '…' : ''}</span>
                         ) : null}

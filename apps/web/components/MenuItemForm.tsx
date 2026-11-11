@@ -24,6 +24,9 @@ interface FieldState {
   imageUrl: string;
   prepMinutes: string;
   isAvailable: boolean;
+  /** Stock tracker: OFF = unlimited (null/omitted), ON = a whole number >= 0. */
+  trackStock: boolean;
+  stock: string;
 }
 
 function initial(item: MenuItem | null): FieldState {
@@ -35,6 +38,8 @@ function initial(item: MenuItem | null): FieldState {
     imageUrl: item?.imageUrl ?? '',
     prepMinutes: item ? String(item.prepMinutes) : '',
     isAvailable: true,
+    trackStock: item ? item.stock !== null && item.stock !== undefined : false,
+    stock: item?.stock != null ? String(item.stock) : '',
   };
 }
 
@@ -97,6 +102,17 @@ export default function MenuItemForm({ item, categories, onSubmit, onUpload, onC
       }
       prepMinutes = Number(prepRaw);
     }
+    // Stock mirrors CreateMenuItemDto (@IsInt @Min(0)) — no upper bound.
+    const stockRaw = f.stock.trim();
+    let stockValue: number | null | undefined; // undefined = leave untouched
+    if (f.trackStock) {
+      if (!/^\d+$/.test(stockRaw)) {
+        return setError('Stock must be a whole number of units (0 or more), or switch stock tracking off for unlimited.');
+      }
+      stockValue = Number(stockRaw);
+    } else if (editing && item.stock !== null) {
+      stockValue = null; // explicit clear back to unlimited
+    }
 
     setBusy(true);
     const input: MenuItemInput = {
@@ -106,6 +122,7 @@ export default function MenuItemForm({ item, categories, onSubmit, onUpload, onC
       category: f.category.trim() || null,
       imageUrl: f.imageUrl.trim() || null,
       ...(prepMinutes !== undefined ? { prepMinutes } : {}),
+      ...(stockValue !== undefined ? { stock: stockValue } : {}),
       ...(editing ? {} : { isAvailable: f.isAvailable }),
     };
     const err = await onSubmit(input);
@@ -237,6 +254,40 @@ export default function MenuItemForm({ item, categories, onSubmit, onUpload, onC
                 ))}
               </datalist>
             </div>
+          </div>
+
+          <div className="rounded-xl border border-dashed border-stone-300 bg-stone-50 p-3">
+            <label className="flex items-center gap-2 text-sm font-semibold text-stone-700">
+              <input
+                type="checkbox"
+                checked={f.trackStock}
+                onChange={(e) => set('trackStock', e.target.checked)}
+                className="h-4 w-4 rounded border-stone-300"
+                disabled={busy}
+                data-testid="mi-track-stock"
+              />
+              Limit sellable units
+              <span className="font-normal text-stone-400">
+                (off = unlimited; every order decrements the counter server-side)
+              </span>
+            </label>
+            {f.trackStock && (
+              <div className="mt-2">
+                <label className={labelCls} htmlFor="mi-stock">
+                  Units left
+                </label>
+                <input
+                  id="mi-stock"
+                  className={inputCls}
+                  value={f.stock}
+                  onChange={(e) => set('stock', e.target.value)}
+                  inputMode="numeric"
+                  placeholder="e.g. 12 (0 = sold out)"
+                  disabled={busy}
+                  data-testid="mi-stock"
+                />
+              </div>
+            )}
           </div>
 
           <div>

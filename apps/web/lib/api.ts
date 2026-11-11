@@ -79,6 +79,8 @@ export interface MenuItem {
   isAvailable: boolean;
   prepMinutes: number;
   restaurantId: string;
+  /** Sellable units; null = unlimited. Present on every menu read. */
+  stock: number | null;
   /** Present on public menu reads ([] when the dish has none). */
   optionGroups?: MenuOptionGroup[];
 }
@@ -99,6 +101,12 @@ export interface MenuItemInput {
   prepMinutes?: number;
   /** Create-only: start the dish hidden (draft). Updates go via the availability route. */
   isAvailable?: boolean;
+  /**
+   * Three-way stock semantics (session-71 DTO): a number (>= 0 integer) SETS
+   * stock, an explicit `null` CLEARS it to unlimited, omission leaves the
+   * current value untouched.
+   */
+  stock?: number | null;
 }
 
 export interface MenuImageUpload {
@@ -266,6 +274,8 @@ export interface FavoriteDish {
   isAvailable: boolean;
   prepMinutes: number;
   restaurantId: string;
+  /** Sellable units mirrored from the dish (null = unlimited) — session 74. */
+  stock: number | null;
   restaurantName: string;
   restaurantSlug: string;
   restaurantIsOpen: boolean;

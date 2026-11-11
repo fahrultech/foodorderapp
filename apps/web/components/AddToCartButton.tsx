@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react';
 import type { MenuItem, Restaurant } from '@/lib/api';
 import { formatPrice } from '@/lib/api';
 import { useCart, type CartLineOption } from '@/lib/cart';
+import { isSoldOut } from '@/components/StockBadge';
 import { useTranslations } from 'next-intl';
 
 interface Props {
@@ -60,6 +61,9 @@ export default function AddToCartButton({ item, restaurant }: Props) {
     ? groups.find((g) => (selected[g.id]?.length ?? 0) < g.minChoices)
     : undefined;
   const inCart = quantityOf(item.id);
+  // Session 74: a tracked counter at zero is as un-addable as an unlisted
+  // dish — pure UX courtesy on top of the server's 409 INSUFFICIENT_STOCK.
+  const soldOut = isSoldOut(item);
 
   function toggle(groupId: string, choiceId: string, maxChoices: number) {
     setSelected((prev) => {
@@ -87,18 +91,21 @@ export default function AddToCartButton({ item, restaurant }: Props) {
 
   const label = !item.isAvailable
     ? t('unavailable')
-    : missingGroup
-      ? t('chooseOptions', { name: missingGroup.name })
-      : added
-        ? t('added')
-        : inCart
-          ? t('addWithCount', { count: inCart })
-          : t('add');
+    : soldOut
+      ? t('soldOut')
+      : missingGroup
+        ? t('chooseOptions', { name: missingGroup.name })
+        : added
+          ? t('added')
+          : inCart
+            ? t('addWithCount', { count: inCart })
+            : t('add');
 
   const addButton = (
     <button
       onClick={onClick}
-      disabled={!item.isAvailable || !!missingGroup}
+      disabled={!item.isAvailable || !!missingGroup || soldOut}
+      data-testid={soldOut ? 'add-sold-out' : undefined}
       className="rounded-xl bg-brand-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-700 disabled:cursor-not-allowed disabled:bg-stone-300"
     >
       {label}
@@ -134,7 +141,7 @@ export default function AddToCartButton({ item, restaurant }: Props) {
                       key={c.id}
                       type="button"
                       aria-pressed={on}
-                      disabled={blocked || !item.isAvailable}
+                      disabled={blocked || !item.isAvailable || soldOut}
                       onClick={() => toggle(g.id, c.id, g.maxChoices)}
                       className={`rounded-full border px-3 py-1 text-xs font-medium transition ${
                         on

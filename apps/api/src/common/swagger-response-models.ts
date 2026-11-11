@@ -1058,6 +1058,9 @@ export class FavoriteDishResponse {
   @ApiProperty({ type: 'string', format: 'uuid' })
   restaurantId: string;
 
+  @ApiProperty({ type: 'integer', nullable: true, description: 'Live sellable units (null = unlimited).' })
+  stock: number | null;
+
   @ApiProperty()
   restaurantName: string;
 
