@@ -45,7 +45,10 @@
     "clear": "Clear ✕",
     "apiDownTitle": "API is not reachable",
     "apiDownBody": "Start the backend (<api>apps/api</api>) or run <docker>docker compose up</docker>, then refresh.",
-    "noResults": "No restaurants match your search."
+    "noResults": "No restaurants match your search.",
+    "noResultsTitle": "No matches",
+    "noResultsFor": "Nothing matches {filters}. Try a different dish, cuisine, or clear the filters.",
+    "clearFilters": "Clear search & filters ✕"
   },
   "Restaurant": {
     "allRestaurants": "← All restaurants",
@@ -107,5 +110,11 @@
     "unmappedHidden": "{count, plural, one {# more restaurant} other {# more restaurants}} without a location (off the map)",
     "apiDownTitle": "API is not reachable",
     "apiDownBody": "Start the backend (apps/api) or run docker compose up, then refresh."
+  },
+  "Offline": {
+    "title": "We can’t reach our servers right now",
+    "body": "This page didn’t load because the FoodOrder API is unreachable. The restaurant itself is fine — please try again in a moment.",
+    "retry": "Try again",
+    "allRestaurants": "Browse all restaurants"
   }
 }

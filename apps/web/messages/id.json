@@ -45,7 +45,10 @@
     "clear": "Hapus ✕",
     "apiDownTitle": "API tidak dapat dijangkau",
     "apiDownBody": "Jalankan backend (<api>apps/api</api>) atau <docker>docker compose up</docker>, lalu muat ulang.",
-    "noResults": "Tidak ada restoran yang cocok dengan pencarian Anda."
+    "noResults": "Tidak ada restoran yang cocok dengan pencarian Anda.",
+    "noResultsTitle": "Tidak ada yang cocok",
+    "noResultsFor": "Tidak ada yang cocok dengan {filters}. Coba hidangan, jenis kuliner lain, atau hapus filter.",
+    "clearFilters": "Hapus pencarian & filter ✕"
   },
   "Restaurant": {
     "allRestaurants": "← Semua restoran",
@@ -107,5 +110,11 @@
     "unmappedHidden": "{count} restoran lain tanpa lokasi (tidak muncul di peta)",
     "apiDownTitle": "API tidak terjangkau",
     "apiDownBody": "Jalankan backend (apps/api) atau docker compose up, lalu muat ulang."
+  },
+  "Offline": {
+    "title": "Server kami sedang tidak dapat dijangkau",
+    "body": "Halaman ini gagal dimuat karena API FoodOrder tidak terjangkau. Restorannya baik-baik saja — coba lagi sebentar.",
+    "retry": "Coba lagi",
+    "allRestaurants": "Lihat semua restoran"
   }
 }

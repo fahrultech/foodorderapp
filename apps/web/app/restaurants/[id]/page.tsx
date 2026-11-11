@@ -1,8 +1,9 @@
 import { notFound } from 'next/navigation';
 import type { Metadata } from 'next';
-import { api, formatPrice } from '@/lib/api';
+import { api, formatPrice, isApiDown } from '@/lib/api';
 import type { RestaurantReviewsPage } from '@/lib/api';
 import { todayWindow } from '@/lib/open-hours';
+import ApiOffline from '@/components/ApiOffline';
 import MenuBrowser from '@/components/MenuBrowser';
 import Stars from '@/components/Stars';
 import { getTranslations } from 'next-intl/server';
@@ -48,13 +49,29 @@ export async function generateMetadata({
         images: restaurant.imageUrl ? [restaurant.imageUrl] : undefined,
       },
     };
-  } catch {
+  } catch (err) {
+    if (isApiDown(err)) {
+      // Transient outage: do NOT title this "not found" and do NOT noindex
+      // it — the page is alive again the moment the API is, matching the
+      // offline card the body will render.
+      return { title: 'Restaurant temporarily unavailable — FoodOrder' };
+    }
     return {
       title: 'Restaurant not found — FoodOrder',
       robots: { index: false, follow: false },
     };
   }
 }
+
+// NOTE: deliberately NO loading.tsx anywhere ABOVE this segment (neither
+// here nor the root). A Suspense boundary from ANY parent level flushes the
+// shell with HTTP 200 before the page promise settles, downgrading the
+// `notFound()` below to a soft-404 — sitemap crawlers would see dead
+// restaurant links as alive. Boundaries also duplicate resolved content in
+// a hidden template, breaking strict-mode DOM asserts (proven live:
+// map.spec's 'places pinned' locator resolved to 2 elements, session 77).
+// States audits concluded zero route-level boundaries at current API
+// latency; client surfaces (history/favorites) keep their own skeletons.
 
 export default async function RestaurantPage({
   params,
@@ -67,7 +84,14 @@ export default async function RestaurantPage({
   let restaurant;
   try {
     restaurant = await api.getRestaurant(id);
-  } catch {
+  } catch (err) {
+    // States audit: a dead link and a dead API are DIFFERENT news. Unknown /
+    // removed restaurants (the API's own 4xx) answer the not-found page; a
+    // network drop or 5xx renders the offline card so we never tell diners
+    // a perfectly alive kitchen vanished.
+    if (isApiDown(err)) {
+      return <ApiOffline retryHref={`/restaurants/${id}`} />;
+    }
     notFound();
   }
   // Review feed is best-effort: a page without reviews still renders (and the

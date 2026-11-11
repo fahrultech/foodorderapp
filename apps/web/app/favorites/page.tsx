@@ -26,7 +26,7 @@ function toMenuItem(f: FavoriteDish): MenuItem {
 
 export default function FavoritesPage() {
   const { status, user } = useAuth();
-  const { items, loaded } = useFavorites();
+  const { items, loaded, error, refresh } = useFavorites();
 
   const pending = status === 'loading' || (status === 'signedIn' && !loaded);
 
@@ -35,6 +35,25 @@ export default function FavoritesPage() {
       <h1 className="text-2xl font-bold">
         Saved dishes <span aria-hidden>♥</span>
       </h1>
+
+      {/* A failed load is NOT an empty list: tell the user why instead of
+          rendering the "Nothing saved" card over stale/absent data. */}
+      {status === 'signedIn' && !pending && error && (
+        <div
+          role="alert"
+          data-testid="favorites-error"
+          className="mt-8 rounded-2xl border border-rose-200 bg-rose-50 p-6 text-center"
+        >
+          <p className="text-lg font-semibold text-rose-800">Couldn’t load your saved dishes.</p>
+          <p className="mt-1 text-sm text-rose-700">{error}</p>
+          <button
+            onClick={() => void refresh()}
+            className="mt-4 rounded-xl bg-rose-700 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-800"
+          >
+            Try again
+          </button>
+        </div>
+      )}
 
       {status === 'guest' && (
         <div className="mt-8 rounded-2xl border border-dashed border-stone-300 bg-stone-50 p-10 text-center">
@@ -59,7 +78,7 @@ export default function FavoritesPage() {
         </ul>
       )}
 
-      {status === 'signedIn' && !pending && items.length === 0 && (
+      {status === 'signedIn' && !pending && !error && items.length === 0 && (
         <div className="mt-8 rounded-2xl border border-dashed border-stone-300 bg-stone-50 p-10 text-center">
           <p className="text-lg font-semibold text-stone-700">
             Nothing saved{user ? `, ${user.name}` : ''} — yet.

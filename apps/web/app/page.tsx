@@ -87,7 +87,24 @@ export default async function HomePage({
         </div>
       ) : restaurants.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-stone-300 bg-white p-10 text-center text-stone-500">
-          {t('noResults')}
+          {q || cuisine ? (
+            <>
+              <p className="text-lg font-semibold text-stone-700">{t('noResultsTitle')}</p>
+              <p className="mt-2 text-sm">
+                {t('noResultsFor', {
+                  filters: [q && `“${q.trim()}”`, cuisine].filter(Boolean).join(' · '),
+                })}
+              </p>
+              <a
+                href="/"
+                className="mt-4 inline-block rounded-xl bg-stone-900 px-4 py-2 text-sm font-semibold text-white hover:bg-stone-700"
+              >
+                {t('clearFilters')}
+              </a>
+            </>
+          ) : (
+            t('noResults')
+          )}
         </div>
       ) : (
         <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">

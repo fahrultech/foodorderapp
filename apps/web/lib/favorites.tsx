@@ -27,6 +27,13 @@ interface FavoritesContextValue {
   loaded: boolean;
   /** All favorite rows, newest first (drives the /favorites page). */
   items: FavoriteDish[];
+  /**
+   * Human message when the LAST load failed (API down / server error).
+   * Null while healthy. The /favorites page must show this instead of the
+   * "Nothing saved yet" empty card — a dead API is not an empty list
+   * (Phase 6 states audit).
+   */
+  error: string | null;
   isFavorite: (menuItemId: string) => boolean;
   /**
    * Heart/un-heart. Optimistic: flips immediately, rolls back and refetches
@@ -44,6 +51,7 @@ export function FavoritesProvider({ children }: { children: React.ReactNode }) {
 
   const [items, setItems] = useState<FavoriteDish[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   // Requests in flight per dish id — double-clicks never stack a POST+DELETE.
   const busy = useRef<Set<string>>(new Set());
   // Load token: bump on logout/user switch so a slow response for the
@@ -54,13 +62,24 @@ export function FavoritesProvider({ children }: { children: React.ReactNode }) {
     if (!signedIn) {
       loadSeq.current += 1;
       setItems([]);
+      setError(null);
       setLoaded(true);
       return;
     }
     const seq = ++loadSeq.current;
     const res = await authedCall(getAccessToken, logout, (t) => api.listMyFavorites(t));
     if (seq !== loadSeq.current) return; // a newer load/user switch won
-    if (res.ok) setItems(res.data.items);
+    if (res.ok) {
+      setItems(res.data.items);
+      setError(null);
+    } else if (res.kind === 'error') {
+      // Keep the last-known items (hearts stay painted) but tell the
+      // /favorites page WHY the list may be stale — never let a failed
+      // load fall through to the "Nothing saved" empty card.
+      setError(res.message);
+    } else {
+      setError(null); // signedOut: the page renders its sign-in prompt
+    }
     setLoaded(true);
   }, [signedIn, user?.id, getAccessToken, logout]);
 
@@ -119,8 +138,8 @@ export function FavoritesProvider({ children }: { children: React.ReactNode }) {
   );
 
   const value = useMemo(
-    () => ({ loaded, items, isFavorite, toggle, refresh }),
-    [loaded, items, isFavorite, toggle, refresh],
+    () => ({ loaded, items, error, isFavorite, toggle, refresh }),
+    [loaded, items, error, isFavorite, toggle, refresh],
   );
 
   return <FavoritesContext.Provider value={value}>{children}</FavoritesContext.Provider>;

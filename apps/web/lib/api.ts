@@ -472,6 +472,19 @@ export function isUnauthorized(err: unknown): boolean {
   return err instanceof ApiError && err.status === 401;
 }
 
+/**
+ * True when a failed request means "the API itself is unreachable" — a
+ * network drop (raw fetch throws TypeError, never an ApiError) or a 5xx.
+ * 4xx answers are the opposite news: the API is alive and says the resource
+ * is gone/rejected, so the caller may render a not-found instead of an
+ * offline banner. Splitting the two is the point (Phase 6 states audit):
+ * a dead backend must never masquerade as a deleted restaurant.
+ */
+export function isApiDown(err: unknown): boolean {
+  if (!(err instanceof ApiError)) return true;
+  return err.status >= 500;
+}
+
 export const api = {
   listRestaurants: (params: { search?: string; cuisine?: string; limit?: number } = {}) => {
     const qs = new URLSearchParams();
