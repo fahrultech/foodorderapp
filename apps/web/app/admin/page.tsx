@@ -198,7 +198,7 @@ export default function AdminPage() {
                 <tbody className="divide-y divide-stone-100">
                   {data.recentOrders.map((order) => (
                     <tr key={order.id}>
-                      <td className="px-4 py-3"><Link href={`/orders/${order.id}`} className="font-bold text-brand-600 hover:underline">{order.code}</Link></td>
+                      <td className="px-4 py-3"><Link href={`/orders/${order.id}${order.contactEmail ? `?email=${encodeURIComponent(order.contactEmail)}` : ''}`} className="font-bold text-brand-600 hover:underline">{order.code}</Link></td>
                       <td className="px-4 py-3 text-stone-600">{order.restaurantName ?? 'Unknown'}</td>
                       <td className="px-4 py-3 text-stone-600">{order.customerName}</td>
                       <td className="px-4 py-3"><StatusBadge status={order.status} /></td>

@@ -148,6 +148,12 @@ export interface CreateOrderPayload {
   customerName: string;
   contactPhone: string;
   deliveryAddress: string;
+  /**
+   * Receipt access proof (API Phase 6): stored lowercased on the order;
+   * `GET /orders/:id` only unlocks for a guest who presents it. The
+   * storefront always collects it; the API keeps it optional for old clients.
+   */
+  contactEmail?: string;
   note?: string;
   /** Optional promo code; the server re-validates it at create time. */
   promoCode?: string;
@@ -187,6 +193,8 @@ export interface Order {
   totalCents: number;
   customerName: string;
   contactPhone: string;
+  /** Stored receipt-proof email (null on legacy/API orders without one). */
+  contactEmail: string | null;
   deliveryAddress: string;
   note: string | null;
   items: Array<{
@@ -409,6 +417,7 @@ export interface AdminOverview {
     status: OrderStatus;
     totalCents: number;
     customerName: string;
+    contactEmail: string | null;
     userId: string | null;
     restaurantId: string;
     restaurantName: string | null;
@@ -479,7 +488,23 @@ export const api = {
   /** Live promo-code preview for checkout. Soft 200: read `valid`, never throw on a bad code. */
   validatePromo: (payload: { code: string; restaurantId: string; subtotalCents: number }) =>
     request<PromoPreview>('/promos/validate', { method: 'POST', body: JSON.stringify(payload) }),
-  getOrder: (id: string) => request<Order>(`/orders/${id}`),
+  /**
+   * Receipt read (Phase 6 ownership fix). A guest passes the checkout email
+   * as `contactEmail`; a signed-in caller passes `accessToken` so owner/ADMIN
+   * bearer paths work. Wrong or missing proof answers the same 404 as an
+   * unknown id.
+   */
+  getOrder: (
+    id: string,
+    opts: { contactEmail?: string; accessToken?: string } = {},
+  ) => {
+    const qs = opts.contactEmail
+      ? `?contactEmail=${encodeURIComponent(opts.contactEmail)}`
+      : '';
+    return request<Order>(`/orders/${id}${qs}`, {
+      headers: opts.accessToken ? bearer(opts.accessToken) : undefined,
+    });
+  },
   /**
    * Paginated order history for the signed-in customer. Server caps limit at
    * 50 and returns newest-first; `status` must be one of ORDER_STATUSES.

@@ -82,6 +82,7 @@ test('cart lines per selection flow through checkout onto the receipt', async ({
   await expect(page.getByTestId('checkout-total')).toHaveText('$43.50');
   await page.getByPlaceholder('Jane Doe').fill('Options E2E');
   await page.getByPlaceholder('+62 812 3456 7890').fill('+62 812 0000 5678');
+  await page.getByPlaceholder('you@example.com').fill('options-e2e@example.com');
   await page.getByPlaceholder('Street, number, city, landmarks…').fill('7 Selector Street, Jakarta');
   await page.getByRole('button', { name: /Place order — \$43\.50/ }).click();
 

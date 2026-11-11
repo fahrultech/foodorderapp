@@ -57,6 +57,10 @@ async function createOrder(
       items: [{ menuItemId: fixture.menuItemId, quantity: 1 }],
       customerName: 'Live Feed Tester',
       contactPhone: '081200003700',
+      // Receipt proof (Phase 6): the tracking page opens on the BARE order
+      // url; the SSR read carries no bearer, so the OrderVerify island
+      // auto-unlocks via demo's token and re-enters with THIS stored email.
+      contactEmail: 'demo@foodorder.app',
       deliveryAddress: 'Jl. Merdeka No. 37, Jakarta',
     },
     headers: token ? { authorization: `Bearer ${token}` } : {},

@@ -2,6 +2,7 @@ import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   IsArray,
+  IsEmail,
   IsInt,
   IsNotEmpty,
   IsOptional,
@@ -9,6 +10,7 @@ import {
   IsUUID,
   Matches,
   Max,
+  MaxLength,
   Min,
   ValidateNested,
 } from 'class-validator';
@@ -74,6 +76,21 @@ export class CreateOrderDto {
   @IsString()
   @Matches(/^\+?[0-9 ()-]{7,20}$/, { message: 'contactPhone looks invalid' })
   contactPhone?: string;
+
+  /**
+   * Receipt access proof (Phase 6 ownership fix). Optional at the API level
+   * so existing clients keep working, but every order WITHOUT it has no
+   * guest-view path on `GET /orders/:id` — the storefront checkout always
+   * collects it. Normalized (trim + lowercase) by the service before save.
+   */
+  @ApiPropertyOptional({
+    description: 'Contact email; doubles as the proof required to view a guest receipt. Stored lowercased.',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(254)
+  @IsEmail({}, { message: 'contactEmail looks invalid' })
+  contactEmail?: string;
 
   @ApiPropertyOptional({ description: 'Required unless deliveryAddressId is given' })
   @IsOptional()

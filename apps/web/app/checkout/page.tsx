@@ -20,7 +20,7 @@ type PricingState = 'loading' | 'ready' | 'unavailable';
 
 export default function CheckoutPage() {
   const router = useRouter();
-  const { status, getAccessToken } = useAuth();
+  const { status, user, getAccessToken } = useAuth();
   const { lines, subtotalCents, restaurantId, restaurantName, clear } = useCart();
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -33,6 +33,7 @@ export default function CheckoutPage() {
   const [form, setForm] = useState({
     customerName: '',
     contactPhone: '',
+    contactEmail: '',
     deliveryAddress: '',
     note: '',
   });
@@ -73,6 +74,14 @@ export default function CheckoutPage() {
       active = false;
     };
   }, [status, getAccessToken]);
+
+  // Receipt-proof email: prefill the account address for signed-in
+  // customers (editable either way). Guests MUST type one — it is the only
+  // key that unlocks their receipt page later (API Phase 6).
+  useEffect(() => {
+    if (status !== 'signedIn' || !user?.email) return;
+    setForm((f) => (f.contactEmail ? f : { ...f, contactEmail: user.email }));
+  }, [status, user]);
 
   /** Any hand-edit of a contact field disclaims the saved-address selection. */
   function setContactField(key: 'customerName' | 'contactPhone' | 'deliveryAddress', value: string) {
@@ -180,6 +189,9 @@ export default function CheckoutPage() {
         customerName: form.customerName,
         contactPhone: form.contactPhone,
         deliveryAddress: form.deliveryAddress,
+        // Receipt access proof — the order page reads it back as the guest
+        // credential; the server lowercases/trims it before storing.
+        contactEmail: form.contactEmail.trim() || undefined,
         note: form.note || undefined,
         // When a saved row is selected we send its id: the server ignores the
         // echoed fields above and copies its own stored text onto the order.
@@ -192,8 +204,11 @@ export default function CheckoutPage() {
       // ?pay=1: the order page elevates the payment card. Only meaningful for
       // signed-in customers — payment is JWT-gated server-side, so guests land
       // on the panel's "sign in to pay" hint instead of a dead button.
+      const proof = form.contactEmail.trim()
+        ? `&email=${encodeURIComponent(form.contactEmail.trim())}`
+        : '';
       router.push(
-        `/orders/${order.id}?code=${order.code}${status === 'signedIn' ? '&pay=1' : ''}`,
+        `/orders/${order.id}?code=${order.code}${proof}${status === 'signedIn' ? '&pay=1' : ''}`,
       );
     } catch (err: any) {
       setError(err.message || 'Could not place the order');
@@ -304,6 +319,21 @@ export default function CheckoutPage() {
               onChange={(e) => setContactField('contactPhone', e.target.value)}
               placeholder="+62 812 3456 7890"
             />
+          </div>
+          <div>
+            <label className="mb-1 block text-sm font-medium">Contact email</label>
+            <input
+              required
+              type="email"
+              className={field}
+              value={form.contactEmail}
+              onChange={(e) => setForm((f) => ({ ...f, contactEmail: e.target.value }))}
+              placeholder="you@example.com"
+            />
+            <p className="mt-1 text-xs text-stone-500">
+              Keeps the receipt page yours: this email is what unlocks the order
+              page for guests (the link alone no longer shows anything).
+            </p>
           </div>
           <div>
             <label className="mb-1 block text-sm font-medium">Delivery address</label>

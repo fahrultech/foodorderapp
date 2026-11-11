@@ -443,6 +443,7 @@ async function main() {
     status: OrderStatus;
     customerName: string;
     contactPhone: string;
+    contactEmail: string;
     deliveryAddress: string;
     note?: string;
     userId?: string;
@@ -453,6 +454,7 @@ async function main() {
     {
       slug: 'warung-nusantara', code: 'FO-SEED1', status: OrderStatus.PENDING,
       customerName: 'Demo Customer', contactPhone: '+62 812 3456 7890',
+      contactEmail: 'demo@foodorder.app',
       deliveryAddress: 'Jl. Sudirman No. 1, Jakarta', userId: demoCustomer.id,
       note: 'Extra sambal on the side, please.', lines: [[0, 1], [4, 2]],
       promoCode: 'WELCOME10', // subtotal 2800 ≥ 2000 → 10% = 280 off
@@ -460,33 +462,39 @@ async function main() {
     {
       slug: 'warung-nusantara', code: 'FO-SEED2', status: OrderStatus.CONFIRMED,
       customerName: 'Ayu Lestari', contactPhone: '+62 813 1111 2222',
+      contactEmail: 'ayu.lestari@example.com',
       deliveryAddress: 'Jl. Kebon Sirih No. 12, Jakarta', lines: [[1, 1], [2, 1]],
     },
     {
       slug: 'warung-nusantara', code: 'FO-SEED3', status: OrderStatus.PREPARING,
       customerName: 'Budi Hartono', contactPhone: '+62 821 3333 4444',
+      contactEmail: 'budi.hartono@example.com',
       deliveryAddress: 'Kompleks Melati Blok C4, Jakarta', lines: [[3, 1], [0, 1]],
       driverId: demoDriver.id,
     },
     {
       slug: 'warung-nusantara', code: 'FO-SEED4', status: OrderStatus.COMPLETED,
       customerName: 'Sinta Dewi', contactPhone: '+62 855 5555 6666',
+      contactEmail: 'sinta.dewi@example.com',
       deliveryAddress: 'Jl. Merdeka No. 7, Jakarta', lines: [[0, 2], [4, 1]],
     },
     {
       slug: 'seoul-street', code: 'FO-SEED5', status: OrderStatus.PENDING,
       customerName: 'Rina Park', contactPhone: '+62 878 7777 8888',
+      contactEmail: 'rina.park@example.com',
       deliveryAddress: 'Jl. Dago No. 45, Bandung', note: 'Less spicy on the tteokbokki.',
       lines: [[0, 1], [1, 2]],
     },
     {
       slug: 'seoul-street', code: 'FO-SEED6', status: OrderStatus.CANCELLED,
       customerName: 'Andi Wijaya', contactPhone: '+62 812 9999 0000',
+      contactEmail: 'andi.wijaya@example.com',
       deliveryAddress: 'Jl. Cihampelas No. 9, Bandung', lines: [[2, 1]],
     },
     {
       slug: 'sushi-kan', code: 'FO-SEED7', status: OrderStatus.PENDING,
       customerName: 'Maya Tanaka', contactPhone: '+62 811 2222 3333',
+      contactEmail: 'maya.tanaka@example.com',
       deliveryAddress: 'Jl. Senopati No. 21, Jakarta', lines: [[0, 1], [3, 2]],
     },
     // Completed orders owned by the demo customer — the review seeds below
@@ -495,18 +503,21 @@ async function main() {
     {
       slug: 'warung-nusantara', code: 'FO-SEED8', status: OrderStatus.COMPLETED,
       customerName: 'Demo Customer', contactPhone: '+62 812 3456 7890',
+      contactEmail: 'demo@foodorder.app',
       deliveryAddress: 'Jl. Sudirman No. 1, Jakarta', userId: demoCustomer.id,
       lines: [[0, 1]],
     },
     {
       slug: 'warung-nusantara', code: 'FO-SEED9', status: OrderStatus.COMPLETED,
       customerName: 'Demo Customer', contactPhone: '+62 812 3456 7890',
+      contactEmail: 'demo@foodorder.app',
       deliveryAddress: 'Jl. Sudirman No. 1, Jakarta', userId: demoCustomer.id,
       lines: [[4, 1]],
     },
     {
       slug: 'seoul-street', code: 'FO-SEED10', status: OrderStatus.COMPLETED,
       customerName: 'Demo Customer', contactPhone: '+62 878 1234 5678',
+      contactEmail: 'demo@foodorder.app',
       deliveryAddress: 'Jl. Dago No. 45, Bandung', userId: demoCustomer.id,
       lines: [[0, 1], [2, 1]],
     },
@@ -564,6 +575,7 @@ async function main() {
         driverId: spec.driverId ?? null,
         customerName: spec.customerName,
         contactPhone: spec.contactPhone,
+        contactEmail: spec.contactEmail,
         deliveryAddress: spec.deliveryAddress,
         note: spec.note ?? null as any,
         status: spec.status,

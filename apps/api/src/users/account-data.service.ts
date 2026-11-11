@@ -54,6 +54,7 @@ function mapOrder(row: Order) {
     totalCents: row.totalCents,
     customerName: row.customerName,
     contactPhone: row.contactPhone,
+    contactEmail: row.contactEmail ?? null,
     deliveryAddress: row.deliveryAddress,
     note: row.note ?? null,
     items: (row.items ?? []).map((item) => ({
@@ -249,7 +250,7 @@ export class AccountDataService {
       const affectedRestaurantIds = [...new Set(affectedReviewRows.map((review) => review.restaurantId))];
       const anonymized = await orders.update(
         { userId },
-        { customerName: 'Deleted user', contactPhone: '[deleted]', deliveryAddress: '[deleted]', note: null },
+        { customerName: 'Deleted user', contactPhone: '[deleted]', contactEmail: null, deliveryAddress: '[deleted]', note: null },
       );
       await refunds.update({ actingAdminId: userId }, { actingAdminEmail: null });
       const unassignedOrders = await orders.count({ where: { driverId: userId } });

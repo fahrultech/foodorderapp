@@ -823,6 +823,9 @@ export class OrderResponse {
   @ApiProperty()
   contactPhone: string;
 
+  @ApiProperty({ type: 'string', nullable: true, description: 'Contact email collected at checkout (stored normalized). Doubles as the guest receipt-view proof for GET /orders/{id}; null on legacy rows and orders that omitted it.' })
+  contactEmail: string | null;
+
   @ApiProperty({ type: 'string' })
   deliveryAddress: string;
 

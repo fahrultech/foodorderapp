@@ -4,6 +4,7 @@ import OrderTimeline from '@/components/OrderTimeline';
 import OrderLiveFeed from '@/components/OrderLiveFeed';
 import RateOrderCard from '@/components/RateOrderCard';
 import PaymentPanel from '@/components/PaymentPanel';
+import OrderVerify from '@/components/OrderVerify';
 
 export const dynamic = 'force-dynamic';
 
@@ -21,18 +22,27 @@ export default async function OrderPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ code?: string; pay?: string }>;
+  searchParams: Promise<{ code?: string; pay?: string; email?: string }>;
 }) {
   const { id } = await params;
-  const { code, pay } = await searchParams;
+  const { code, pay, email } = await searchParams;
   let order;
   try {
-    order = await api.getOrder(id);
+    // Phase 6 ownership fix: the uuid alone no longer reads a receipt. The
+    // checkout redirect (and history links) carry the contact email as the
+    // guest proof; without it this read 404s — same as an unknown order —
+    // and the OrderVerify island below offers the remaining keys (bearer
+    // token for owner/ADMIN, or the email typed by hand).
+    order = await api.getOrder(id, { contactEmail: email });
   } catch {
     return (
       <div className="mx-auto max-w-lg rounded-2xl border border-dashed border-stone-300 bg-white p-10 text-center">
         <h1 className="text-xl font-bold">Order not found</h1>
-        <p className="mt-1 text-sm text-stone-500">The API may be offline, or the link is wrong.</p>
+        <p className="mt-1 text-sm text-stone-500">
+          The API may be offline, the link is wrong, or the receipt needs its
+          email key (open it from the checkout redirect or your order history).
+        </p>
+        <OrderVerify orderId={id} />
         <Link href="/" className="mt-6 inline-block text-sm font-semibold text-brand-600 hover:underline">
           ← Back to restaurants
         </Link>

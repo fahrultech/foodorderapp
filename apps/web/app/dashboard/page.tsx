@@ -832,7 +832,7 @@ export default function DashboardPage() {
                       </button>
                     ))}
                     <Link
-                      href={`/orders/${order.id}`}
+                      href={`/orders/${order.id}${order.contactEmail ? `?email=${encodeURIComponent(order.contactEmail)}` : ''}`}
                       className="rounded-lg bg-stone-900 px-3 py-1.5 text-xs font-bold text-white hover:bg-stone-700"
                     >
                       Details

@@ -97,6 +97,7 @@ test('guest browses, orders, and lands on the confirmation page', async ({ page 
   // --- Place the order (guest: server prices from its own cart) ---
   await page.getByPlaceholder('Jane Doe').fill('E2E Tester');
   await page.getByPlaceholder('+62 812 3456 7890').fill('+62 812 0000 1234');
+  await page.getByPlaceholder('you@example.com').fill('e2e-guest@example.com');
   await page.getByPlaceholder('Street, number, city, landmarks…').fill('1 Test Street, Jakarta');
   await page.getByPlaceholder('e.g. no chili, gate code 1234').fill('extra kerupuk');
   await page.getByRole('button', { name: /Place order — \$39\.00/ }).click();

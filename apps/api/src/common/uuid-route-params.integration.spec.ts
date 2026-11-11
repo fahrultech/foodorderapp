@@ -79,6 +79,7 @@ function mocks() {
     } as unknown as MenuService,
     orders: {
       findOne: jest.fn(async (id: string) => ({ id })),
+      findOneForViewer: jest.fn(async (id: string) => ({ id })),
       nextStatuses: jest.fn(async () => ['confirmed']),
       cancel: jest.fn(async (id: string) => ({ id })),
       updateStatus: jest.fn(async () => ({ id: 'x' })),
@@ -270,7 +271,7 @@ describe('uuid route params — ParseUUIDPipe sweep (live HTTP, production pipes
     ['GET', (id) => `/api/restaurants/${id}`, m.restaurants.findOne as jest.Mock],
     ['PATCH', (id) => `/api/restaurants/${id}`, m.restaurants.updateOwned as jest.Mock,
       { name: 'X' }],
-    ['GET', (id) => `/api/orders/${id}`, m.orders.findOne as jest.Mock],
+    ['GET', (id) => `/api/orders/${id}`, m.orders.findOneForViewer as jest.Mock],
     ['GET', (id) => `/api/orders/${id}/next-statuses`, m.orders.nextStatuses as jest.Mock],
     ['POST', (id) => `/api/orders/${id}/cancel`, m.orders.cancel as jest.Mock],
     ['PATCH', (id) => `/api/orders/${id}/status?status=confirmed`, m.orders.updateStatus as jest.Mock],

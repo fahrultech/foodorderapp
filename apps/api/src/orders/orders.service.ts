@@ -64,6 +64,18 @@ const STATUS_TIMESTAMP_FIELD: Partial<
   [OrderStatus.CANCELLED]: 'cancelledAt',
 };
 
+/**
+ * Receipt proof normalization (Phase 6 ownership fix): trim + lowercase.
+ * ONE function feeds both the write path (`create` stores the order's
+ * `contactEmail`) and the read path (`findOneForViewer` compares the
+ * presented proof), so the two can never drift on casing/whitespace.
+ * Empty/undefined collapse to null.
+ */
+export function normalizeContactEmail(value: string | undefined | null): string | null {
+  const v = value?.trim().toLowerCase();
+  return v ? v : null;
+}
+
 @Injectable()
 export class OrdersService {
   constructor(
@@ -315,6 +327,7 @@ export class OrdersService {
       userId: userId ?? null,
       customerName: contact.customerName,
       contactPhone: contact.contactPhone,
+      contactEmail: normalizeContactEmail(dto.contactEmail),
       deliveryAddress: contact.deliveryAddress,
       note: dto.note,
       subtotalCents: subtotal,
@@ -419,6 +432,35 @@ export class OrdersService {
     });
     if (!order) throw new NotFoundException('Order not found');
     return order;
+  }
+
+  /**
+   * Receipt read for the PUBLIC `GET /orders/:id` surface (Phase 6
+   * ownership fix). `findOne` above stays the unguarded internal loader
+   * (create-echo, status flows, event fan-out) — this is the authorization
+   * edge the HTTP route uses. Access ladder:
+   *
+   * 1. ADMIN bearer (the admin panel reads receipts for oversight);
+   * 2. the order's own customer (bearer `sub === order.userId`);
+   * 3. anyone who presents the order's stored `contactEmail` — the guest
+   *    checkout proof, compared normalized and case-insensitively. Orders
+   *    with a NULL stored email (legacy rows, API clients that omitted it)
+   *    simply have no rung 3.
+   *
+   * Everything else answers the SAME 404 as an unknown id — no existence
+   * oracle, same convention as the customer cancel route.
+   */
+  async findOneForViewer(
+    id: string,
+    viewer?: { sub: string; role?: UserRole },
+    contactEmail?: string,
+  ) {
+    const order = await this.findOne(id);
+    if (viewer?.role === UserRole.ADMIN) return order;
+    if (viewer && order.userId && order.userId === viewer.sub) return order;
+    const proof = normalizeContactEmail(contactEmail);
+    if (proof && order.contactEmail && proof === order.contactEmail) return order;
+    throw new NotFoundException('Order not found');
   }
 
   /**

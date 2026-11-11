@@ -38,6 +38,10 @@ async function fillCheckoutAndSubmit(page: Page) {
   await expect(page.getByTestId('checkout-total')).toHaveText('$21.00');
   await page.getByPlaceholder('Jane Doe').fill('Pay E2E');
   await page.getByPlaceholder('+62 812 3456 7890').fill('+62 812 0000 9999');
+  // Receipt proof (Phase 6): typed explicitly so the guest variant of this
+  // helper also satisfies the now-required email field (signed-in runs just
+  // overwrite the prefilled account address).
+  await page.getByPlaceholder('you@example.com').fill('pay-e2e@example.com');
   await page.getByPlaceholder('Street, number, city, landmarks…').fill('9 Payment Lane, Jakarta');
   await page.getByRole('button', { name: /Place order — \$21\.00/ }).click();
   await expect(page).toHaveURL(/\/orders\/[0-9a-f-]{36}\?code=FO-/);

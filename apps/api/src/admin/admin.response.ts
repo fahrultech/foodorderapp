@@ -49,6 +49,7 @@ export class AdminOrderRowResponse {
   @ApiProperty({ enum: OrderStatus }) status: OrderStatus;
   @ApiProperty({ type: 'integer', description: 'Server-computed order total in cents.' }) totalCents: number;
   @ApiProperty() customerName: string;
+  @ApiProperty({ type: 'string', nullable: true, description: 'Stored contact email — lets the overview link carry the receipt-view proof.' }) contactEmail: string | null;
   @ApiProperty({ type: 'string', format: 'uuid', nullable: true }) userId: string | null;
   @ApiProperty({ type: 'string', format: 'uuid' }) restaurantId: string;
   @ApiProperty({ type: 'string', nullable: true }) restaurantName: string | null;

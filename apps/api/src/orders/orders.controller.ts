@@ -92,14 +92,31 @@ export class OrdersController {
     return this.service.cancel(id, user.sub, user.role, user.email);
   }
 
+    /**
+   * The receipt view (Phase 6 ownership fix). No longer open to whoever
+   * knows the uuid: a bearer token unlocks it for the order's own customer
+   * (and for ADMIN oversight); a guest must present the order's stored
+   * contact email as `?contactEmail=`. Everything else gets the plain 404 —
+   * unknown ids and failed proofs are indistinguishable (no existence leak).
+   */
   @Get(':id')
+  @UseGuards(OptionalJwtAuthGuard)
   @ApiParam({ name: 'id', schema: { type: 'string', format: 'uuid' } })
-  @ApiOperation({ summary: 'One order incl. line items (public by id — order number receipt view)', description: 'No auth: this powers the post-checkout receipt page for guest orders. It exposes only that one order\u2019s snapshot.' })
+  @ApiQuery({ name: 'contactEmail', required: false, description: 'Guest proof: the email given at checkout, compared case-insensitively. Unnecessary when a bearer token already identifies the owner (or an ADMIN).' })
+  @ApiOperation({ summary: 'One order incl. line items — owner bearer, ADMIN, or the checkout contact-email proof', description: 'Powers the post-checkout receipt. A valid access token for the customer who owns the order (or any ADMIN) unlocks it; without one the caller must present contactEmail matching what was stored at checkout. Wrong or missing proof answers the same 404 as an unknown id — the uuid alone no longer reads a receipt.' })
   @ApiOkResponse({ type: OrderResponse, description: 'Includes the embedded restaurant summary.' })
   @ApiError(400, 'Malformed (non-UUID) order id.')
-  @ApiError(404, 'Unknown order id.')
-  one(@UuidParam('id') id: string) {
-    return this.service.findOne(id);
+  @ApiError(404, 'Unknown order id, or the caller is neither the owner nor an admin, and did not present the stored contact email (existence is never confirmed).')
+  one(
+    @UuidParam('id') id: string,
+    @CurrentUser() user?: any,
+    @Query('contactEmail') contactEmail?: string,
+  ) {
+    return this.service.findOneForViewer(
+      id,
+      user ? { sub: user.sub, role: user.role } : undefined,
+      contactEmail,
+    );
   }
 
   @Get(':id/next-statuses')

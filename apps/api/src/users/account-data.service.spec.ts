@@ -137,7 +137,7 @@ describe('AccountDataService', () => {
     expect(h.dataSource.transaction).toHaveBeenCalledTimes(1);
     expect(h.repositories.get(Order).update).toHaveBeenCalledWith(
       { userId: 'user-1' },
-      { customerName: 'Deleted user', contactPhone: '[deleted]', deliveryAddress: '[deleted]', note: null },
+      { customerName: 'Deleted user', contactPhone: '[deleted]', contactEmail: null, deliveryAddress: '[deleted]', note: null },
     );
     expect(h.repositories.get(PaymentRefund).update).toHaveBeenCalledWith(
       { actingAdminId: 'user-1' },

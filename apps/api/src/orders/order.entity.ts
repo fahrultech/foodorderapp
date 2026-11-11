@@ -136,6 +136,16 @@ export class Order {
   @Column()
   contactPhone: string;
 
+  /**
+   * Normalized (trimmed+lowercased) contact email collected at checkout —
+   * the GUEST RECEIPT PROOF. `GET /orders/:id` unlocks for a bearer-less
+   * viewer only when they present this exact value (owner token and ADMIN
+   * bypass it). NULL on legacy rows and API orders that omitted the field:
+   * such orders have no guest-view path, by design (no existence oracle).
+   */
+  @Column({ type: 'varchar', length: 254, nullable: true })
+  contactEmail: string | null;
+
   @Column({ type: 'text' })
   deliveryAddress: string;
 
