@@ -4,6 +4,93 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
+## 2026-11-11 18:58 — Session 77 — Storefront states audit: a dead link is NOT a dead API (Web, Phase 6)
+
+**Built:**
+
+- Web: the storefront SSR now splits "resource gone" from "API
+  unreachable". New `isApiDown` in `lib/api.ts` classifies before any UI
+  touches the error: a non-`ApiError` throw (network) or any 5xx is an
+  outage; the API's own 4xx (unknown restaurant, malformed-uuid 400) is a
+  genuine dead link. `/restaurants/[id]` previously folded EVERY failure
+  into `notFound()` — a backend restart made every alive kitchen look
+  permanently deleted. Outages render the new localized `ApiOffline` card
+  (data-testid, EN+ID `Offline` namespace); dead links keep `notFound()`.
+- `generateMetadata` got the same ladder: transient outage titles the page
+  "Restaurant temporarily unavailable — FoodOrder" and deliberately does
+  NOT `noindex` it (a noindex during a blip poisons the SERP until the
+  next recrawl); only a real dead link keeps "Restaurant not found" +
+  noindex.
+- Home: a filtered no-results search now names WHAT was filtered (`“query”`
+  and/or the cuisine chip) with a "Clear search & filters ✕" escape
+  CTA; the bare "No restaurants match your search." remains for a truly
+  empty DB. Both cards localized EN + ID.
+- Favorites: `FavoritesProvider` now EXPOSES the load error it already
+  received from `authedCall` and discarded. `/favorites` renders a
+  failure card with a working "Try again" instead of lying "Nothing saved
+  yet — tap the heart on any dish" over a dead API. A toggle-time refresh
+  failure keeps the stale list and paints the banner above it; the
+  empty-card branch is gated on `!error`.
+- The audit's loading-state verdict: ZERO route-level `loading.tsx`,
+  DELIBERATELY. Adding boundaries made Next flush the shell with HTTP 200
+  before the page settled — downgrading sitemap-listed dead restaurant
+  links to soft-404s — and the boundary template duplicates the resolved
+  segment in a hidden div, which broke map.spec's strict-mode locator
+  (resolved 2 elements; caught live). Attribution done with a HEAD
+  worktree build (hard 404, proving the regression came from MY
+  boundaries, not from the split). Home/restaurant/map wait for the full
+  render; client surfaces keep their existing inline skeletons (order
+  history, favorites pending cards).
+- ARCHITECTURE.md: durable rule "dead links and a dead API are different
+  news" incl. the no-`loading.tsx`-above-`notFound()` corollary.
+- `GET /orders/:id`'s receipt page NOT split on purpose: its single
+  lumped card ("the API may be offline, the link is wrong, or the receipt
+  needs its email key") is session 76's deliberate
+  denial-indistinguishable contract — splitting there WOULD leak existence
+  shape. Documented, untouched.
+- E2E: new `empty-states.spec.ts` (3 tests): dead link answers hard 404 +
+  no offline testid; home no-results names the query and the clear CTA
+  restores the grid; signed-in favorites with the browser-side fetch
+  aborted shows the failure card (never "Nothing saved") and recovers on
+  retry after the route is released.
+
+**Verified:**
+- Full web build green on a wiped `.next` (clean 13.6s compile, 19 pages).
+- Live SSR curl smoke 14/14 against a real `next start` + real API
+  (script output to a file after the pipe-hang trap fired again — the
+  first run's "timeout" was the script's nohup'd restart holding the
+  pipe, zero product impact): API up → home grid, no-results card (query
+  AND cuisine-only variants), restaurant page 200, unknown uuid = HARD
+  HTTP 404, malformed uuid = 404 (API 400 counts as dead link, by
+  design); API stopped → restaurant offline card at 200 + "temporarily
+  unavailable" title, unknown uuid ALSO offline (honest: cannot know a
+  link is dead while the API is down), home + map keep their apiDown
+  cards. The "could not be found" grep clause was a harness bug (that
+  phrase ships in every streamed page's RSC payload) — assertions moved
+  to data-testid/status.
+- e2e 31/31 GREEN ×2 (28 pre-existing + 3 new), fresh `npm run seed`
+  before each clean run. Honesty note: an intermediate third full run
+  failed ONLY `admin.spec`'s nav-click → heading 10s timeout — transient,
+  not reproducible on either side of it; both clean runs green.
+- API side untouched this session — jest stays at session 76's 80 suites
+  / 960 tests.
+- Sanitizer scan: zero `***` in every added line (118 tracked + the new
+  files); the only U+2026s are legitimate EN/ID UI prose ellipses (same
+  class as HEAD's "Search restaurants or dishes…" — and the two skeleton
+  files that used one are no longer in the tree). `git diff --check` clean.
+
+**Left for next sessions:** the accessibility pass on checkout+dashboard
+(next Phase 6 item) can reuse `isApiDown` for its error surfaces; the
+receipt island's EN-only copy (session 76 note) still stands; if real API
+latency ever appears, route skeletons need a design that keeps
+`notFound()` statuses HARD (e.g. PPR or co-located Suspense BELOW the
+page's own data await — do NOT just re-add loading.tsx); dedupe the
+restaurant page's double fetch (metadata + body each hit
+`GET /restaurants/:id`); session 69's `/api/search` fuzzy endpoint still
+has no storefront UI surface.
+
+---
+
 ## 2026-11-11 17:20 — Session 76 — Receipt ownership: `GET /orders/:id` now proves a key, not just the uuid (API+Web, Phase 6)
 
 **Built:**

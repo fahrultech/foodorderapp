@@ -140,6 +140,21 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   `CartProvider` storage, so a previously visited cart can be reviewed and edited
   offline; the cart surfaces connectivity state and states that checkout needs a
   connection. This avoids caching authenticated order/admin HTML or API truth.
+- **Dead links and a dead API are different news** — storefront SSR never
+  conflates "resource gone" with "API unreachable" (`isApiDown` in
+  `lib/api.ts`: a non-`ApiError` network throw or any 5xx is the latter, the
+  API's own 4xx is the former). `/restaurants/[id]` answers a HARD HTTP 404
+  only when the API said 4xx (unknown id and malformed-uuid 400 both count
+  as dead, by design); anything else renders the localized `ApiOffline` card
+  at 200 with a "temporarily unavailable" title and deliberately NO noindex
+  — the page revives with the API. Corollary the code must respect: no
+  `loading.tsx` may sit ABOVE a segment that can call `notFound()`, because
+  a Suspense boundary from any parent level flushes the shell with 200
+  before the page settles, downgrading sitemap-visible dead restaurant links
+  to soft-404s (and the hidden boundary template duplicates resolved
+  content in the DOM, which breaks strict-mode locators). Both halves proven
+  live against `next start` during the states audit (session 77): no
+  boundaries -> unknown/malformed uuid = 404; API stopped -> offline card.
 - **Order status machine** — transitions validated server-side
   (`pending→confirmed→preparing→delivering→completed`, cancellable through preparing).
   `POST /orders/:id/cancel` lets the *customer* use exactly that machine edge
