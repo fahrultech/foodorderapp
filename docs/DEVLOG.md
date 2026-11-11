@@ -4,6 +4,65 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
+## 2026-11-11 15:52 — Session 75 — CI matrix Postgres 15/16 + a schema-drift gate that actually gates (CI, Phase 5)
+
+**Built:** `.github/workflows/ci.yml` only — no app code touched.
+
+- `db-bootstrap` job now runs a `strategy.matrix.pg: ['15','16']`
+  (`postgres:${{ matrix.pg }}-alpine` service containers, `fail-fast: false`
+  so one leg's verdict never hides the other's). The full bootstrap chain —
+  migrations → seed → schema/seed asserts → drift gate — must prove out
+  identically on both majors. The e2e job deliberately stays pinned to 16:
+  doubling the Chromium suite adds no schema-compatibility signal.
+- Rewrote the schema-drift gate, which was **vacuously green the whole time**.
+  Two independent bugs: (1) TypeORM writes generated migrations as
+  `<timestamp>-DriftCheck.ts`, so the old `grep '^DriftCheck'` anchor never
+  matched even a real drift file; (2) the "entities match migrations" state
+  does NOT produce "No changes in database schema were found" — it produces a
+  permanent 31-statement diff of known introspection noise (migration-only
+  CHECK drops, migration-only trgm/GIN index drops, explicit-FK-name →
+  TypeORM-hash rename pairs), so "any file = fail" would always fail if the
+  grep had ever matched. New gate: extract the generated `up()` statements,
+  filter exactly those three noise classes, and fail on ANYTHING ELSE with
+  the offending SQL printed. A future migration-only CHECK/index keeps
+  passing automatically; an entity column no migration applies does not.
+  Noise set verified byte-identical on PG15.19 vs PG16.
+
+**Verified:**
+- Local PG15.19 (throwaway `postgres:15-alpine` container, trust auth):
+  full chain green — 24/24 migrations recorded, seed ok, 11-table assert ok,
+  core-row asserts ok; compiled API booted against it and 9/9 curl probes
+  passed (trigram typo search, `<%` dish rows, `isOpenNow`/hours tz logic,
+  coordinates, cities).
+- Drift diff on a PRISTINE fresh-migrated DB is 31 statements on BOTH PG15
+  and PG16 (normalized sorted diff empty).
+- The CI drift step extracted verbatim from the YAML and run under `bash -e`
+  exactly as Actions does: PASS ("no real drift") on both pristine DBs, and
+  a NEGATIVE probe — extra `drift_probe` column injected into the PG15 DB —
+  FAILS rc=1 printing exactly `ALTER TABLE "restaurants" DROP COLUMN
+  "drift_probe"`.
+- YAML parses; matrix/image assertions pass; the sanitizer line-continuation
+  for the trust-auth value still decodes to `trust`; zero U+2026/`***` in
+  the workflow file; `git diff --check` clean.
+- api gates unchanged as expected (no src edits): build ok, jest 79 suites /
+  949 tests — identical to session 74's counts.
+- Incident found mid-verification (honesty note): `migrationsRun: true` +
+  the app glob `migrations/*.{ts,js}` meant a DriftCheck file that existed
+  briefly in `src/` got compiled into `dist/` and was AUTO-APPLIED by an API
+  boot to the local scratch DB and the dev DB (renamed FKs to hashes,
+  dropped the 4 trgm + migration-only CHECKs) — which is why an early gate
+  probe falsely reported "zero changes". Both databases were rebuilt
+  pristine afterwards (24/24 migrations, trgm=4, checks=22, reseeded) and
+  the stale compiled artifact purged; the FINAL gate numbers above are from
+  the pristine state. `nest build` does not delete orphan dist files —
+  keep that in mind whenever a throwaway migration is generated.
+
+**Left for next sessions:** regenerate the drift gate's noise filter if
+entities ever start declaring their own `@Check`s (noise shrinks by design,
+gate stays valid); `deleteOutDir`/`nest build --deleteOutDir` so stale dist
+migrations can never auto-apply on boot; Stripe/Xendit payment adapters
+still 🔒 API keys.
+
 ## 2026-11-11 13:43 — Session 74 — Storefront stock badges + dashboard stock editor (WEB, Phase 5 close-out)
 
 **Built:** completed the ROADMAP follow-up "Web: storefront 'only N left' badge
