@@ -104,6 +104,16 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   word_similarity…)` — clients render the returned order and NEVER rescore;
   restaurant hits embed the shared `hours`/`isOpenNow` derivation, dish hits
   carry a nested restaurant brief and integer-cents `priceCents`.
+- **The storefront list path is CONSTANT-STATEMENT by contract** (session 79,
+  query-logger-proven): `GET /restaurants` emits at most 3 statements per
+  request regardless of `limit` (list + count + ONE batched-IN hours pass;
+  an empty page skips the hours pass — nothing to batch) and
+  `GET /restaurants/meta/cuisines` is a single `SELECT DISTINCT cuisine` —
+  never a full-row entity load with in-process de-dup. The `search=` filter is
+  `col ILIKE` with LIKE metacharacters escaped (identical case-insensitive
+  substring semantics, pg_trgm-indexable); the `city=` filter is a single
+  WHERE with an EXISTS semi-join — a `leftJoin` here would flip TypeORM into
+  its DISTINCT-ids strategy and re-add a 4th statement.
 - **Public browse routes publish server-derived SEO metadata** — each
   `/restaurants/:id` response uses the canonical restaurant row for its title,
   description, canonical URL, Open Graph card, and Twitter card. Missing

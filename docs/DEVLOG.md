@@ -4,6 +4,72 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
+## 2026-11-12 11:38 — Session 79 — Storefront list-path perf sweep: query-logger verdict, ILIKE-indexable search, DISTINCT cuisines, EXISTS city filter (API, Phase 6)
+
+**Built:**
+
+- First a MEASUREMENT, not a guess: Postgres `log_statement='all'` scoped
+  to a throwaway DB (seed + inflation to 8,994 restaurants / 53,955 menu
+  items), API booted against it, every list shape curl'd inside
+  marker-bracketed windows, statement counts read back from the server log
+  + `EXPLAIN (ANALYZE, BUFFERS)`. Full findings in docs/PERFORMANCE.md.
+  Verdict: the roadmap's `menuItemCount subqueries` hint is stale — the
+  list already emits a CONSTANT 3 statements at any limit (no N+1). What
+  the logger DID catch, now fixed:
+- `search=` filter: `LOWER(col) LIKE '%t%'` is a function call on the
+  column — un-indexable by construction. Now `col ILIKE` (IDENTICAL
+  case-insensitive substring semantics, verified row-for-row on the probe
+  DB) served by the session-69 GIN `gin_trgm_ops` indexes. Metacharacters
+  (`% _ \`) now ESCAPED — typed literally, matching the `/api/search`
+  rule; the escape moved to `common/like-escape.ts` (search.service
+  re-exports it, its specs pin the same behavior). Swagger query doc notes
+  the literal-metacharacter rule. New migration (26th):
+  `IDX_restaurants_cuisine_trgm` — the search OR's second arm had no
+  index and a bitmap OR only forms when EVERY arm does.
+- `city=` filter: `leftJoin('r.cityEntity')` + skip/take made TypeORM run
+  its DISTINCT-ids two-query strategy — a 4th statement per request
+  (probe-proven). Now a single-WHERE EXISTS semi-join with the identical
+  match rule (registry slug/name, legacy NULL-cityId snapshot): back to 3.
+- `GET /restaurants/meta/cuisines`: replaced the FULL-table entity load
+  (all 21 columns × 9k rows, 3.1 MB quicksort, de-dup in Node) with one
+  `SELECT DISTINCT cuisine` (`distinctCuisines()`; `findRestaurants()` is
+  gone — it had no other callers). Same 12-value answer, ~40x narrower
+  scan, no per-request 9k-object hydration.
+- Deliberately NOT added: sort indexes. Top-N over 374 buffered pages
+  is sub-ms at 9k rows — PERFORMANCE.md's own overfitting warning
+  applies; the decision is documented instead.
+
+**Verified:**
+
+- Build green; jest 80 suites / 965 tests (+5 new `query shapes (perf
+  contract)` specs pinning the ILIKE arms + escaping, the no-leftJoin
+  EXISTS city filter, the DISTINCT-cuisine query, and the batched-IN
+  hours contract — suite count unchanged 80→80).
+- Live query-logger probe re-run AFTER the change on the same inflated
+  DB: city 4→3 statements; cuisines statement text is now the narrow
+  DISTINCT (was the width-331 full-row fetch); searchbowl 3; limit1 vs
+  limit50 both 3 (no-N+1 holds). EXPLAIN: selective `sate` search touches
+  10 shared buffers vs 374 full-scan; `bowl` BitmapOrs both trgm indexes
+  (cost 553→489); cuisine-arm `east` served by the new index.
+- Endpoint behavior curls: cuisines identical list sorted; `search=house`
+  total 1499; metachar `search=50%` 0 rows (no crash, literal); city
+  case-insensitive total 2998, unknown city 0; combined search+cuisine+
+  city 150.
+- Full migration chain from EMPTY DB: 26 migrations incl. the new index
+  apply green via `migration:run`; probe DB got it via boot `migrationsRun`.
+- Web untouched — e2e 36/36 GREEN (fresh seed) since cuisines/search feed
+  the homepage chips + search bars.
+- Sanitizer scan: added lines codepoint-clean (no ellipsis characters, no
+  masked-credential triplets); the escape-regex and swagger backslashes
+  verified literal on disk.
+  `git diff --check` clean.
+
+**Left for next sessions:** PERFORMANCE.md recs 1 and 5 (off-host load
+generator through real TLS ingress; authenticated scenarios with isolated
+accounts) remain open; if restaurant cardinality grows 10x+, revisit the
+rating-DESC index decision with fresh telemetry.
+
+
 ## 2026-11-11 20:12 — Session 78 — Checkout + portal a11y pass: real label associations, ARIA tabs, aria-live order status (Web, Phase 6)
 
 **Built:**
