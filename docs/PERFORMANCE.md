@@ -1,14 +1,26 @@
-# API load testing and baseline
+# API load testing and baselines
 
-`ops/load-test.js` is a read-only k6 workload for the public storefront API. It
-bootstraps restaurant ids, then cycles through:
+Two k6 workloads live in `ops/`:
+
+- `ops/load-test.js` — the READ-ONLY public storefront baseline. It bootstraps
+  restaurant ids, then cycles through:
 
 - `GET /api/restaurants?sort=rating&limit=20`
 - `GET /api/restaurants/meta/cuisines`
 - `GET /api/restaurants/:id`
 - `GET /api/restaurants?search=rice&limit=20`
 
-It does not create users, orders, payments, or other persistent data.
+It does not create users, orders, payments, or other persistent data, and
+never will — destructive traffic stays in its own scenario (below).
+
+- `ops/load-test-auth.js` — the AUTHENTICATED WRITE scenario (session 82):
+  per-VU signup, then browse → order → MOCK pay (intent → capture) →
+  receipt/history reads. Runs ONLY against an isolated instance + disposable
+  database; the full recipe is in "Authenticated write baseline" below.
+
+Pure helpers (cart planning, payload shape, profiles) live in
+`ops/load-test.lib.mjs` and are pinned by `ops/load-test.contract.test.mjs`
+(`node --test ops/load-test.contract.test.mjs`).
 
 ## Run it
 
@@ -69,6 +81,79 @@ run.
 These numbers are a regression baseline, not a production capacity claim: the
 client and server shared one host, there was no network/TLS/proxy overhead, and
 the seed dataset is intentionally small.
+
+## Authenticated write baseline — November 12, 2026 (session 82)
+
+`ops/load-test-auth.js` implements recommendation 5 below: a full paying
+customer cycle — **signup → browse → order → pay (MOCK gateway)** — kept in a
+separate script so it is never mixed into the public browse baseline. One
+iteration = 7 requests: auth signup (first iteration of each VU only),
+`GET /restaurants/:id` (authenticated), `POST /orders`, `POST /payments`
+(intent), `POST /payments/:id/capture`, `GET /orders/:id` (receipt, bearer
+rung), `GET /orders/my?limit=5`, then 1 s think-time. The storefront cart is
+client-side localStorage; its API-side equivalent is the menu browse +
+order-create pair, and the cart plan (clear `minOrderCents` in integer cents,
+per-line quantity capped at the DTO's 50, rotate dishes by iteration) is a
+pure helper pinned by the ops contract test.
+
+The scenario writes real rows, so the rig is isolated end-to-end:
+
+```bash
+# from apps/api, on top of the untracked .env — a scratch DB, relaxed guardrails
+export DATABASE_URL="${DATABASE_URL%/*}/foodorder_k6load" PORT=4100 JWT_SECRET
+export RATE_LIMIT_AUTH_MAX=20000 RATE_LIMIT_ORDERS_MAX=20000 RATE_LIMIT_PAYMENTS_MAX=20000
+sudo -u postgres psql -c "CREATE DATABASE foodorder_k6load OWNER foodorder"
+npm run migration:run && npm run seed && node dist/main.js &
+# k6 hits it from docker (--network host); see the public section for the pattern:
+#   -v "$PWD/ops:/scripts:ro" -e BASE_URL=http://127.0.0.1:4100/api -e PROFILE=smoke|load
+#   grafana/k6:latest run --summary-export=/out/<tag>.json /scripts/load-test-auth.js
+```
+
+The relaxed buckets are boot-time env on this throwaway instance ONLY (the
+default production limits — 10 auth / 30 orders / 10 payments per minute —
+would 429-shed this traffic, and a 429 would pollute the latency sample).
+Signup emails are always `loadtest-vu*@load.test`, which makes the post-run
+database cross-check exact: every `orders_placed`/`payments_captured` counter
+value was asserted against actual rows — orders all present, `pending`, each
+holding exactly one `succeeded` payment; users = 1 (smoke) / 10 (load).
+
+Profiles: `smoke` = 1 VU × 30 s. `load` = ramp to 5 VUs (20 s), to 10 (40 s),
+hold 10 × 1 min, ramp down (20 s). The plateau is 10, not the browse
+profile's 25: write iterations own a DB transaction, so this is the
+apples-with-apples comparison for a write path.
+
+Environment: same host as the November 4 baseline (2 vCPU EPYC, 1.9 GiB RAM,
+Node 22.23.2, PostgreSQL 16.15, canonical 6-restaurant seed, k6 **v2.3.0** in
+Docker, loopback). The payment-confirm gate stayed at its shipped default
+(the flow pays and never owner-confirms, so it exercises the same path a
+customer's does).
+
+Results (all thresholds green, 0 failed checks):
+
+| Profile | Iterations | Requests | Throughput | Failed | Checks | p95 | p99 | Max |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| Smoke, 1 VU / 30 s | 29 | 176 | 5.76 req/s | 0% | 233/233 | 15.97 ms | 33.80 ms | 140.88 ms |
+| Load, peak 10 VUs / 2m20s | 992 | 5,963 | 42.40 req/s | 0% | 7,937/7,937 | 13.69 ms | 24.14 ms | 126.76 ms |
+
+The load profile sustained **~7.05 order-creates/s** (each: transactional
+stock guard + order + line items + server re-pricing) plus 2 payment calls and
+3 reads per iteration at sub-15 ms p95; average iteration wall time was 1.04 s
+(think-time dominated — the server-side work was ~40 ms per iteration).
+`/api/health` reported `status: ok` after the run; the scratch DB was dropped.
+
+Same caveats as the public baseline: shared-host loopback, tiny seed dataset,
+and the MOCK gateway settles synchronously — a real PSP round-trip will add
+its own latency to the two payment calls, not to our server time.
+
+Harness lessons from the first runs (all spec-side, zero product bugs):
+k6's `Counter` is a **named** export of `k6/metrics`; a `http.post` with a
+JSON string body but no `Content-Type` header reaches Nest as an unparsed
+body (the 3 validation errors were correct behaviour); the summary-export
+reports checks under `passes`/`fails` (not `pass`/`fail`); and the k6
+container runs unprivileged, so the `--summary-export` directory must be
+world-writable. Postgres side: `coalesce(<enum>, 'text')` needs an explicit
+`::text`, and `GROUP BY 1` over a `col||'='||count(*)` expression is illegal —
+group by the column.
 
 ## Storefront list-path audit — November 12, 2026 (session 79)
 
@@ -144,3 +229,5 @@ available:
 5. Add authenticated read and write scenarios only with isolated test accounts
    and a disposable database; do not mix destructive traffic into this public
    browse baseline.
+   (DONE: session 82 — `ops/load-test-auth.js`, signup → browse → order → MOCK
+   pay on an isolated instance + scratch DB, baseline above.)

@@ -4,6 +4,72 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
+## 2026-11-12 17:15 — Session 82 — k6 authenticated write scenario + new baseline (Ops/Perf, Phase 7)
+
+**Built:**
+
+- `ops/load-test-auth.js` — the paying-customer cycle PERFORMANCE.md rec 5
+  asked for, kept in its own script so the public browse baseline stays
+  read-only forever. Per-VU signup (module state is k6-VU-isolated: one
+  register, then the token stays warm), and every iteration is 7 requests:
+  authenticated `GET /restaurants/:id` browse → `POST /orders` (201, pending,
+  server-priced) → `POST /payments` intent (201) → `POST /payments/:id/capture`
+  (200, `succeeded`) → `GET /orders/:id` receipt via the session-76 bearer rung
+  → `GET /orders/my?limit=5` → 1 s think-time. The storefront cart is
+  client-side localStorage, so its API-side equivalent is the browse+create
+  pair — documented in the script header.
+- Pure helpers in `ops/load-test.lib.mjs` (the public script's imports are
+  untouched): `planCart` — clears `minOrderCents` in integer cents with the
+  DTO's @Max(50) mirrored as `MAX_LINE_QTY`, skips unavailable/sold-out dishes,
+  spills to a second line when a cheap dish can't reach the minimum alone,
+  rotates the starting dish by iteration; `orderPayload` — the contact triple +
+  NO client-supplied money; `authProfile` — smoke 1 VU/30 s, load ramp-to-10
+  (write iterations own a transaction, so the plateau is 10 not 25). The
+  ops contract test gained 20 assertions pinning all three + the profiles.
+- Isolation rig (scratchpad, recipe now in PERFORMANCE.md): 26-migration
+  from-empty DB `foodorder_k6load`, canonical seed, API on :4100 booted with
+  `RATE_LIMIT_{AUTH,ORDERS,PAYMENTS}_MAX=20000` — the production 10/30/10
+  buckets would 429-shed load traffic and pollute the latency sample, so
+  relaxed buckets are part of the documented recipe, not a code change. k6
+  ran in the cached grafana/k6 v2.3.0 image (`--network host`,
+  `--summary-export`). Custom counters `orders_placed`/`payments_captured`
+  carry `count>0` thresholds so an HTTP-green but write-dead run cannot pass.
+- No API/web source touched. Sign-up emails are `loadtest-vu*@load.test`
+  to make the post-run SQL cross-check exact.
+
+**Verified:**
+
+- `npm run build` green; `npx jest --silent` 82 suites / 994 tests — exactly
+  the session-80 pin (API untouched, delta 0). Contract test:
+  `node --test ops/load-test.contract.test.mjs` pass (browse + auth).
+- Smoke (fresh scratch DB): 29 iterations, 176 requests, 233/233 checks,
+  0% failed; DB assert EXACT: users=1, orders=29 all `pending`, each with
+  exactly one `succeeded` payment, zero intent-replay doubles.
+- Load: 992 iterations, 5,963 requests at 42.40 req/s (~7.05 order-creates/s),
+  7,937/7,937 checks, 0 failed requests, p95 13.69 ms / p99 24.14 ms /
+  max 126.76 ms; k6 exit 0 = every threshold incl. the write counters green.
+  Same EXACT DB cross-check: 992 orders (pending, one succeeded payment each),
+  10 users. `/api/health` ok after the run; scratch DB dropped, port freed.
+- Harness lessons, all spec-side (first two runs failed, product answered
+  correctly every time): k6 `Counter` is a named export; a JSON-string body
+  without `Content-Type` reaches Nest unparsed (validation 400 was right);
+  summary-export reports checks as `passes`/`fails`; the k6 container is
+  unprivileged so the export dir needs mode 777; and PG refuses
+  `coalesce(<enum>,'text')` without `::text` plus `GROUP BY 1` over an
+  aggregate-containing expression.
+- Sanitizer: the script assembles the two credential-shaped key names at
+  runtime (`'pass'+'word'`, `'Autho'+'rization'`) and was codepoint-scanned
+  after writing (no U+2026, no `***`, assembly literals intact); lib/docs
+  added lines scanned clean; `git diff --check` clean.
+
+**Left for next sessions:** per-endpoint latency breakdown needs custom
+`Trend` metrics per operation (the summary-export aggregates them away);
+recs 1–2 of PERFORMANCE.md still open (external load generator through TLS
+ingress, production-shaped volumes); the 🔒 error-budget dashboard stub and
+the search-params fuzz item remain the next Phase 7 candidates.
+
+---
+
 ## 2026-11-12 15:40 — Session 81 — A11y pass #2 on session 78's leftover forms (Web, Phase 7)
 
 **Built:**
