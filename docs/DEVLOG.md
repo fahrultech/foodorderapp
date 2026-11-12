@@ -4,6 +4,71 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
+## 2026-11-12 18:55 — Session 83 — Mobile polish pass: cart + checkout at 360px (Web, Phase 7)
+
+**Built:**
+
+- CART page restack: at 360px the old single flex row (name · stepper ·
+  fixed `w-20` price) left a ~56px column for the dish name. Rows are now
+  two-line blocks — name+options+"each" price on the left, the line total
+  top-right, steppers on their own 44px row — one price element per line
+  (the pwa spec's `getByText('$54.00')` count-2 contract preserved).
+  Steppers `h-8 w-8` → `h-11 w-11` (32→44px, WCAG 2.5.5); Clear cart, the
+  desktop Checkout link and the empty-state Find-food CTA got `min-h-11`.
+- Sticky mobile checkout bar on /cart: subtotal + 44px Checkout CTA (+ Clear
+  cart) pinned to the viewport bottom with safe-area padding — a long cart
+  never buries the primary action. Desktop keeps the inline summary/actions
+  blocks; the sticky bar renders ONLY on compact viewports.
+- RENDER GATE, the load-bearing decision: `useIsCompactViewport`
+  (`lib/use-compact-viewport.ts`, matchMedia <640px, false during SSR +
+  first paint). CSS `sm:hidden` was NOT enough — the desktop suite's strict
+  text locators (`getByText('Subtotal')`, the price-count assertion) match
+  hidden nodes, so a hidden-but-present duplicate bar breaks them; only
+  conditional rendering keeps the desktop DOM byte-identical to before.
+- CHECKOUT: every text input/textarea moved `text-sm` → `text-base` (16px —
+  iOS auto-zooms the viewport on focus below that, breaking the sticky bar
+  mid-form); autofill plumbing (`autocomplete` name/tel/email/
+  street-address, `inputMode` tel/email); promo Apply + "enter manually"
+  toggle → `min-h-11`. The form got `id="checkout-form"` and a sticky
+  bottom bar (live total + 44px submit) whose button re-targets that ONE
+  form via the `form=` attribute — second handle, same handler, same
+  disabled/label ladder, not a second flow.
+- Shared header — the actual horizontal-scroll culprit on EVERY phone page
+  (guest nav ≈440px of content, nowrap flex → document scrollWidth blows
+  past 360px): row + nav made `flex-wrap` with gap-y, logo `shrink-0`,
+  guest pills `px-4` → `px-3 sm:px-4`, nav gap `gap-x-2.5 sm:gap-x-4`.
+- New e2e `mobile-cart-checkout.spec.ts` (360×800 via `test.use`): empty
+  states fit; a 6-line cart (3 dishes × 2 selections — the line-per-
+  selection rule) asserts no horizontal scroll (polled scrollWidth
+  delta ≤ 1), boundingBox-measured 44px steppers/CTAs, computed
+  `position: sticky` + bar bottom == viewport bottom at page top AND
+  still in-viewport at page bottom; checkout asserts ≥16px computed
+  font-size on all five fields, tap targets, autofill attrs, and places
+  a real GUEST ORDER by tapping the sticky CTA (URL `FO-` check + cart
+  emptied) — proving the `form=` routing end-to-end.
+
+**Verified:**
+
+- `npm run build` (web) green; full e2e **45/45 green ×2 on fresh seed**.
+  Run #1 failed 11 specs — pure harness cause, product blameless: I had
+  booted the API myself WITHOUT the suite's `RATE_LIMIT_AUTH_MAX=100
+  (login bursts 429) and against an un-reseded DB (`★ 4.0 · 2 reviews`
+  drifts after any review-creating run). Reseed + let playwright boot its
+  own API (or export the env) before blaming code.
+- API untouched: `nest build` clean, jest 82 suites / 994 tests — exactly
+  the session-80/82 pin.
+- curl smoke: /cart and /checkout SSR 200; grep proved the mobile bar
+  testids absent from served desktop markup (the render gate holds in the
+  real HTML, not just in the browser).
+- Sanitizer scan: all five touched files `***`-clean; the two `…` hits are
+  pre-existing UI ellipses ("Placing order…", "landmarks…").
+
+**Left for next sessions:** 320px (iPhone SE) width for the same flow; the
+owner dashboard + driver portal have never had a phone-viewport pass; the
+receipt page could reuse the sticky-bar pattern for the pay CTA.
+
+---
+
 ## 2026-11-12 17:15 — Session 82 — k6 authenticated write scenario + new baseline (Ops/Perf, Phase 7)
 
 **Built:**
