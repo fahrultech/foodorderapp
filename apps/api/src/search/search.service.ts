@@ -10,13 +10,12 @@ export const SEARCH_DEFAULT_LIMIT = 10;
 export const SEARCH_MAX_LIMIT = 25;
 
 /**
- * Escape ILIKE metacharacters. The backslash is the default LIKE escape
- * character; without this, a query like `50%` or `a_b` would match wildcards
- * instead of the literal text the user typed.
+ * Shared "what you type is what matches" escape (session 79 moved the
+ * definition to common/like-escape.ts so the GET /restaurants search
+ * filter uses the exact same rule; re-exported for existing importers).
  */
-export function escapeLike(q: string): string {
-  return q.replace(/[\\%_]/g, (c) => `\\${c}`);
-}
+export { escapeLike } from '../common/like-escape';
+import { escapeLike } from '../common/like-escape';
 
 /**
  * Relevance = trigram similarity of the whole name plus the best WORD

@@ -527,3 +527,125 @@ describe('RestaurantsService.replaceHours (session 68)', () => {
     ).resolves.toMatchObject({ restaurantId: ID });
   });
 });
+
+
+/**
+ * Session 79 — PERF CONTRACT (docs/ROADMAP.md Phase 6 "N+1 sweep on the
+ * /restaurants list"). The live query-logger proved the list path emits a
+ * CONSTANT 3 statements regardless of limit (no N+1; the session recorded
+ * it again post-change). These specs pin the query shapes that replaced the
+ * measured bottlenecks so a future refactor cannot silently resurrect the
+ * full-table entity load, the un-indexable LIKE, or the join-based city
+ * filter's extra DISTINCT-ids statement.
+ */
+describe('RestaurantsService.findAll — query shapes (perf contract)', () => {
+  function qbHarness(rawRows: any[] = []) {
+    const andWhereArgs: { sql: any; params?: any }[] = [];
+    const other: string[] = [];
+    const track = (method: string) => (...args: any[]) => {
+      if (method === 'andWhere') andWhereArgs.push({ sql: args[0], params: args[1] });
+      else other.push(method);
+      return qb;
+    };
+    const qb: any = {
+      andWhere: track('andWhere'),
+      orWhere: track('orWhere'),
+      leftJoin: track('leftJoin'),
+      orderBy: track('orderBy'),
+      skip: track('skip'),
+      take: track('take'),
+      select: jest.fn(track('select')),
+      where: jest.fn(track('where')),
+      getManyAndCount: jest.fn(async () => [[], 0]),
+      getRawMany: jest.fn(async () => rawRows),
+    };
+    const repo: any = { createQueryBuilder: jest.fn(() => qb) };
+    const service = new RestaurantsService(repo, {} as any);
+    return { qb, service, andWhereArgs, other };
+  }
+
+  /** Flatten Brackets arms: replay the whereFactory the way SQL-build does. */
+  function flatten(andWhereArgs: { sql: any; params?: any }[]) {
+    const flat: { sql: string; params?: any }[] = [];
+    for (const { sql, params } of andWhereArgs) {
+      if (sql && typeof sql.whereFactory === 'function') {
+        const sub: any = {
+          where: (s2: string, p2: any) => (flat.push({ sql: s2, params: p2 }), sub),
+          orWhere: (s2: string, p2: any) => (flat.push({ sql: s2, params: p2 }), sub),
+        };
+        sql.whereFactory(sub);
+      } else if (typeof sql === 'function') {
+        const sub: any = {
+          where: (s2: string, p2: any) => (flat.push({ sql: s2, params: p2 }), sub),
+          orWhere: (s2: string, p2: any) => (flat.push({ sql: s2, params: p2 }), sub),
+        };
+        sql(sub);
+      } else {
+        flat.push({ sql, params });
+      }
+    }
+    return flat;
+  }
+
+  it('search uses plain ILIKE (pg_trgm-indexable), NOT LOWER() LIKE', async () => {
+    const { service, andWhereArgs, other } = qbHarness();
+    await service.findAll({ search: 'Rice' });
+    const preds = flatten(andWhereArgs);
+    expect(preds.map((p) => p.sql)).toEqual(['r.name ILIKE :s', 'r.cuisine ILIKE :s']);
+    expect(preds[0].params).toEqual({ s: '%rice%' });
+    expect(preds.every((p) => !String(p.sql).includes('LOWER'))).toBe(true);
+  });
+
+  it('search escapes LIKE metacharacters: typed % _ \\ match literally', async () => {
+    const { service, andWhereArgs } = qbHarness();
+    await service.findAll({ search: '50%_off\\x' });
+    const preds = flatten(andWhereArgs);
+    expect(preds[0].params).toEqual({ s: '%50\\%\\_off\\\\x%' });
+  });
+
+  it('city filter is a single EXISTS semi-join — no leftJoin (one list query, no DISTINCT-ids pass)', async () => {
+    const { service, andWhereArgs, other } = qbHarness();
+    await service.findAll({ city: 'Bandung' });
+    expect(other).not.toContain('leftJoin');
+    const preds = flatten(andWhereArgs);
+    expect(preds[0].sql).toContain('EXISTS (SELECT 1 FROM cities c');
+    expect(preds[0].sql).toContain('(r."cityId" IS NULL AND LOWER(r.city) = :city)');
+    expect(preds[0].params).toEqual({ city: 'bandung' });
+  });
+
+  it('distinctCuisines runs SELECT DISTINCT cuisine and returns plain strings', async () => {
+    const { qb, service } = qbHarness([
+      { cuisine: 'Indonesian' },
+      { cuisine: 'Japanese' },
+    ]);
+    const out = await service.distinctCuisines();
+    expect(out).toEqual(['Indonesian', 'Japanese']);
+    expect(qb.select).toHaveBeenCalledWith('DISTINCT r.cuisine', 'cuisine');
+    expect(qb.where).toHaveBeenCalledWith('r.cuisine IS NOT NULL');
+    expect(qb.getRawMany).toHaveBeenCalled();
+  });
+
+  it('findAll keeps hours on ONE batched-IN query regardless of page size (the no-N+1 contract)', async () => {
+    const hours = { find: jest.fn(async () => []) };
+    const qb: any = {
+      andWhere: jest.fn().mockReturnThis(),
+      orderBy: jest.fn().mockReturnThis(),
+      skip: jest.fn().mockReturnThis(),
+      take: jest.fn().mockReturnThis(),
+      getManyAndCount: jest.fn(async () => [
+        [0, 1, 2].map((n) => ({
+          id: `11111111-1111-4111-8111-1111111111${n}1`,
+          isOpen: true,
+          timeZone: null,
+        })),
+        3,
+      ]),
+    };
+    const repo: any = { createQueryBuilder: jest.fn(() => qb) };
+    const service = new RestaurantsService(repo, {} as any, undefined, hours as any);
+    const res = await service.findAll({ limit: 50 });
+    expect(res.total).toBe(3);
+    expect(hours.find).toHaveBeenCalledTimes(1);
+    expect((hours.find.mock.calls[0] as any)[0].where.restaurantId).toBeDefined();
+  });
+});

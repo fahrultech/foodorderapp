@@ -12,6 +12,7 @@ import { RestaurantHours } from './restaurant-hours.entity';
 import { CreateRestaurantDto, UpdateRestaurantDto } from './dto/restaurant.dto';
 import { UpdateRestaurantHoursDto } from './dto/restaurant-hours.dto';
 import { isOpenAt, isValidTimeZone, serverTimeZone, TIME_RE } from './open-hours';
+import { escapeLike } from '../common/like-escape';
 import { UserRole } from '../users/user.entity';
 import { isUuid } from '../common/uuid';
 import { City } from '../cities/city.entity';
@@ -90,18 +91,33 @@ export class RestaurantsService {
     const qb = this.repo.createQueryBuilder('r');
 
     if (q.search) {
+      // Session 79 perf sweep: `LOWER(col) LIKE '%term%'` is a function call
+      // on the column - never indexable. Plain `col ILIKE` has IDENTICAL
+      // case-insensitive substring semantics and pg_trgm's gin_trgm_ops
+      // indexes serve it directly (name: session 69; cuisine: this session).
+      // Patterns under 3 chars can't yield trigrams, so Postgres honestly
+      // falls back to a scan there — same rows, same order.
+      // Metacharacters are escaped, matching /api/search (session 69):
+      // what the user types is what must match, not wildcards.
+      const s = `%${escapeLike(q.search.toLowerCase())}%`;
       qb.andWhere(
         new Brackets((sub) => {
           sub
-            .where('LOWER(r.name) LIKE :s', { s: `%${q.search.toLowerCase()}%` })
-            .orWhere('LOWER(r.cuisine) LIKE :s', { s: `%${q.search.toLowerCase()}%` });
+            .where('r.name ILIKE :s', { s })
+            .orWhere('r.cuisine ILIKE :s', { s });
         }),
       );
     }
     if (q.cuisine) qb.andWhere('LOWER(r.cuisine) = :cuisine', { cuisine: q.cuisine.toLowerCase() });
     if (q.city) {
-      qb.leftJoin('r.cityEntity', 'city').andWhere(
-        '(LOWER(city.slug) = :city OR LOWER(city.name) = :city OR (r.cityId IS NULL AND LOWER(r.city) = :city))',
+      // Session 79: EXISTS instead of `leftJoin('r.cityEntity')`. With a
+      // join + skip/take, TypeORM switches to a DISTINCT-ids two-query
+      // strategy (probe: 4 statements vs the constant 3); the semi-join
+      // keeps the list a single LIMIT/OFFSET query with identical rows —
+      // a city row matches by slug/name, a NULL-cityId row by the legacy
+      // name snapshot.
+      qb.andWhere(
+        `(EXISTS (SELECT 1 FROM cities c WHERE c.id = r."cityId" AND (LOWER(c.slug) = :city OR LOWER(c.name) = :city)) OR (r."cityId" IS NULL AND LOWER(r.city) = :city))`,
         { city: q.city.toLowerCase() },
       );
     }
@@ -139,8 +155,24 @@ export class RestaurantsService {
     return restaurant;
   }
 
-  async findRestaurants() {
-    return this.repo.find({ order: { name: 'ASC' } });
+  /**
+   * Distinct non-empty cuisine names for the storefront filter chips
+   * (session 79). This used to load EVERY restaurant row as a FULL entity
+   * (21 columns, ORDER BY name) and de-duplicate in Node — a per-request
+   * allocation that grows with the table (EXPLAIN at 9k rows: width 331
+   * scan + 3.1 MB quicksort) to answer a ~10-value question. One
+   * SELECT DISTINCT does it column-only, index-free but 40x narrower, and
+   * the sort happens where it belongs.
+   */
+  async distinctCuisines(): Promise<string[]> {
+    const rows = await this.repo
+      .createQueryBuilder('r')
+      .select('DISTINCT r.cuisine', 'cuisine')
+      .where('r.cuisine IS NOT NULL')
+      .andWhere("TRIM(r.cuisine) <> ''")
+      .orderBy('r.cuisine', 'ASC')
+      .getRawMany();
+    return rows.map((row: { cuisine: string }) => row.cuisine);
   }
 
   /**

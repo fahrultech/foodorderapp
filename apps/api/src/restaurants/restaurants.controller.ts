@@ -40,7 +40,7 @@ export class RestaurantsController {
   constructor(private readonly service: RestaurantsService) {}
 
   @Get()
-  @ApiQuery({ name: 'search', required: false, description: 'Case-insensitive substring over name and cuisine' })
+  @ApiQuery({ name: 'search', required: false, description: 'Case-insensitive substring over name and cuisine; LIKE metacharacters (%, _, \\) match literally' })
   @ApiQuery({ name: 'cuisine', required: false, description: 'Exact match, case-insensitive' })
   @ApiQuery({ name: 'city', required: false, description: 'Exact match, case-insensitive' })
   @ApiQuery({ name: 'sort', required: false, enum: ['rating', 'deliveryFee', 'newest'], description: 'Default: rating (highest first)' })
@@ -60,11 +60,10 @@ export class RestaurantsController {
   }
 
   @Get('meta/cuisines')
-  @ApiOperation({ summary: 'Distinct cuisine list for the storefront filter chips', description: 'Declared before /:id on purpose — do not reorder.' })
+  @ApiOperation({ summary: 'Distinct cuisine list for the storefront filter chips', description: 'Declared before /:id on purpose — do not reorder. Server-side SELECT DISTINCT, sorted (session 79: replaced a full-table entity load + in-process de-dup).' })
   @ApiOkResponse({ type: String, isArray: true, description: 'Sorted distinct non-empty cuisine names.' })
-  async cuisines() {
-    const all = await this.service.findRestaurants();
-    return [...new Set(all.map((r) => r.cuisine).filter(Boolean))].sort();
+  cuisines() {
+    return this.service.distinctCuisines();
   }
 
   /** Owner's own restaurants (declared before :id so it isn't captured). */

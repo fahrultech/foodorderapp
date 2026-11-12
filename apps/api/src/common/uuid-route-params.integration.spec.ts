@@ -98,7 +98,7 @@ function mocks() {
       findOne: jest.fn(async () => null),
       updateOwned: jest.fn(async () => ({ id: 'x' })),
       findAll: jest.fn(async () => ({ items: [], total: 0 })),
-      findRestaurants: jest.fn(async () => []),
+      distinctCuisines: jest.fn(async () => []),
       findOwned: jest.fn(async () => []),
       createForOwner: jest.fn(async () => ({ id: 'x' })),
     } as unknown as RestaurantsService,
