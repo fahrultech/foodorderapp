@@ -4,6 +4,69 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
+## 2026-11-12 15:40 — Session 81 — A11y pass #2 on session 78's leftover forms (Web, Phase 7)
+
+**Built:**
+
+- The forms session 78 explicitly left over, API untouched. REGISTER: the
+  aggregated error list became INLINE per-field `role=alert` errors wired to
+  their control (`aria-invalid` + `aria-describedby=<field>-error`), submit
+  focuses the first invalid field, and the form is `noValidate` (native
+  bubbles were intercepting submission before the app's own announced
+  alerts — `minLength` dropped, client `validate()` is the single channel;
+  server errors keep a top `role=alert` block).
+- ADDRESSES (`AddressFields`): four ORPHAN labels — the exact bug class
+  session 78 fixed on checkout (visually adjacent, programmatically absent) —
+  now real `htmlFor`/`id` pairs (`address-label/recipient/phone/street`;
+  only one form instance ever mounts, so the fixed ids cannot collide), and
+  the opened add/edit form autofocuses its first field.
+- ORDER-HISTORY filters: upgraded from bare `role=tab` buttons to the FULL
+  APG tabs pattern mirroring the session-78 dashboard — roving tabindex,
+  Arrow/Home/End with wrap, auto-activation, `aria-controls="orders-panel"`
+  → a real `role=tabpanel` (tabIndex=-1) wrapping skeleton/empty/list +
+  pagination and relabelled by the active tab. Cancel notice `role=status`,
+  error banner `role=alert`.
+- RECEIPT rate card: the sr-only star radios had NO accessible name (their
+  label content was the aria-hidden ★ span — AT heard "radio, 1 of 5"), each
+  now carries "N star(s)"; the comment textarea got a hidden real label +
+  the counter wired as `aria-describedby`; submit errors `role=alert`.
+  OrderVerify: the hint paragraph is now the email input's accessible
+  description.
+- e2e `zz-forms-a11y.spec.ts` — 6 tests mirroring the portal-a11y pattern,
+  named so its mutations (a new completed+reviewed Warung order) land AFTER
+  every seed-absolute assertion. Covers: login labels + failed-sign-in
+  alert; register inline alerts + aria wiring + focus-first-invalid;
+  address associations + focus + validation + persistence; the history tabs
+  keyboard contract driving the tabpanel; the bearer-rung auto-unlock of a
+  bare receipt + named stars + review landed; the guest OrderVerify rung
+  (wrong email stays "nothing unlocked", the proof email unlocks). API
+  helpers were copied VERBATIM from portal-a11y via python (never through
+  tool args); the test password is assembled in-page.
+
+**Verified:**
+
+- apps/web build green; API untouched so the jest/smoke gates do not apply.
+- First full run: 5 spec-side bugs, ZERO product bugs — (1) EVERY App Router
+  page ships an empty `<div role=alert id=__next-route-announcer__>`, so a
+  bare `getByRole('alert')` is never strict (always `.filter({ hasText })`);
+  (2) the "(optional)" spans are part of the accessible name — exact label
+  lookups must include them; (3) FILTER order is the STATUS-FLOW order
+  (All→Pending→…), instrumented repro proved the keyboard handler was right
+  all along; (4) `check()` on the clipped 1px sr-only radio retries the hit-
+  target intercept forever — click the WRAPPING LABEL instead. All four are
+  harness lessons, each pinned as a comment in the spec.
+- Targeted re-run 6/6 green; FULL suite 42/42 GREEN on a fresh re-seed
+  (36 pre-existing untouched). Sanitizer scan: added lines + the new spec
+  codepoint-clean (no mid-word U+2026, no `***`); `git diff --check` clean.
+
+**Left for next sessions:** announcements/strings stay EN-only (pages
+untranslated, consistent with the portal decision); CartSwitchModal still
+awaits the session-78 dialog focus-restore (`useDialogFocus` extraction
+becomes worth it when a third dialog lands); the 🔒 error-budget dashboard
+stub now has real data to wire (session 80 metrics route).
+
+---
+
 ## 2026-11-12 14:05 — Session 80 — Request-metrics middleware folded into pino + ADMIN GET /admin/metrics (API, Phase 7)
 
 **Built:**
