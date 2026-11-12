@@ -449,6 +449,20 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   same `req.id` — app lines and access lines correlate 1:1 by `reqId`.
   Request/response serializers are minimal: no headers, no bodies, plus
   explicit redact paths (`authorization`, cookies, `**.password`, tokens).
+- **Request metrics (in-process, no dependency)** — `common/metrics/`
+  records per route TEMPLATE (matched Express path,
+  never concrete ids; unmatched paths normalized + a 250-key cap folds
+  overflow into `other`): counts, status-class tallies (2xx/3xx/4xx/5xx) and
+  a cumulative duration histogram (fixed 5ms–10s bounds + Inf). `/api/health`
+  is ignored, matching the access logger. Two consumption surfaces read the
+  SAME registry: the compact `{bucket, status_class}` summary is folded into
+  the existing pino access line (no second stream; ORDER-SENSITIVE — the
+  metrics middleware must be registered before `pino-http` so its `finish`
+  listener decorates `res.metrics` first), plus a periodic aggregate line
+  `event: "request_metrics"` every `METRICS_LOG_INTERVAL_SEC` (default 60,
+  `0` disables the fold, garbage falls back to default — never crashes boot)
+  and pull-based ADMIN `GET /admin/metrics`. Snapshots are cumulative
+  since boot by design; alerting computes deltas between fold lines.
 - **Rate limiting (in-house guard, no dependency)** — sliding-window log per
   client IP over an in-memory store (`src/common/rate-limit/`). Opt-in per
   route via `@RateLimit('auth'|'orders')` + `RateLimitGuard` (guarded as the

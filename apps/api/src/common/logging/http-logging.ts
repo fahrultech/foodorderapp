@@ -3,9 +3,12 @@ import pinoHttp from 'pino-http';
 
 /**
  * Access logging: exactly one structured JSON line per finished HTTP
- * request — method, url, status, duration in ms and the top-level `reqId`
+ * request — method, url, status, duration in ms, the top-level `reqId`
  * set by `requestIdMiddleware` (pino-http reuses `req.id` and never
- * re-generates one, so access lines and app lines correlate 1:1).
+ * re-generates one, so access lines and app lines correlate 1:1) and the
+ * compact `metrics` summary ({bucket, status_class}) decorated by the
+ * request-metrics middleware — the log-based half of the ops metrics loop,
+ * folded into this ONE line rather than a second stream.
  *
  * - Level by outcome: unhandled error or 5xx → `error`, 4xx → `warn`,
  *   otherwise `info`.
@@ -20,7 +23,16 @@ import pinoHttp from 'pino-http';
 export function createHttpLoggingMiddleware(logger: PinoInstance) {
   return pinoHttp({
     logger,
-    customProps: (req) => ({ reqId: (req as { id?: string }).id }),
+    // `metrics` is decorated by createRequestMetricsMiddleware on ITS finish
+    // listener — that middleware must be registered BEFORE this one so its
+    // listener runs first (Node fires same-event listeners in registration
+    // order). Absent on ignored routes (health) and untracked responses.
+    customProps: (req, res) => {
+      const summary = (res as { metrics?: unknown }).metrics;
+      const props: Record<string, unknown> = { reqId: (req as { id?: string }).id };
+      if (summary) props.metrics = summary;
+      return props;
+    },
     autoLogging: {
       ignore: (req) => typeof req.url === 'string' && req.url.startsWith('/api/health'),
     },

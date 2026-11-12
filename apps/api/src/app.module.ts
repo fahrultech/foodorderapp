@@ -18,6 +18,7 @@ import { CitiesModule } from './cities/cities.module';
 import { AdminModule } from './admin/admin.module';
 import { SearchModule } from './search/search.module';
 import { FeatureFlagsModule } from './feature-flags/feature-flags.module';
+import { MetricsModule } from './common/metrics/metrics.module';
 
 @Module({
   imports: [
@@ -52,6 +53,7 @@ import { FeatureFlagsModule } from './feature-flags/feature-flags.module';
     FeatureFlagsModule,
     AdminModule,
     SearchModule,
+    MetricsModule,
   ],
 })
 export class AppModule {}

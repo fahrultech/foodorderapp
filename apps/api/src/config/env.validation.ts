@@ -151,6 +151,15 @@ export class EnvVars {
   @IsString()
   S3_PUBLIC_BASE_URL?: string;
 
+  // ── Ops request metrics (optional) ───────────────────────────────────────
+  // Seconds between periodic `event: "request_metrics"` pino fold lines.
+  // '0' disables the fold (GET /admin/metrics still answers). Anything
+  // unparseable falls back to 60 inside RequestMetricsService — it must
+  // never crash boot (observability knob, not a money-integrity gate).
+  @IsOptional()
+  @IsString()
+  METRICS_LOG_INTERVAL_SEC?: string;
+
   // ── Rate limiting (all optional) ─────────────────────────────────────────
   @IsOptional()
   @IsString()

@@ -10,13 +10,18 @@ import { JwtAuthGuard } from '../common/jwt-auth.guard';
 import { Roles } from '../common/roles.decorator';
 import { RolesGuard } from '../common/roles.guard';
 import { UserRole } from '../users/user.entity';
+import { AdminMetricsSnapshotResponse } from './admin-metrics.response';
 import { AdminOverviewResponse } from './admin.response';
 import { AdminService } from './admin.service';
+import { RequestMetricsService } from '../common/metrics/request-metrics.service';
 
 @Controller('admin')
 @ApiTags('admin')
 export class AdminController {
-  constructor(private readonly service: AdminService) {}
+  constructor(
+    private readonly service: AdminService,
+    private readonly metrics: RequestMetricsService,
+  ) {}
 
   @Get('overview')
   @UseGuards(JwtAuthGuard, RolesGuard)
@@ -32,5 +37,24 @@ export class AdminController {
   @ApiError(403, 'Valid token but role is not ADMIN.')
   overview() {
     return this.service.overview();
+  }
+
+  @Get('metrics')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Request-metrics snapshot',
+    description:
+      'In-process per-route request counters, status-class tallies and duration histograms ' +
+      '(cumulative since boot). The same numbers are folded into the pino log stream as ' +
+      'periodic `event: "request_metrics"` lines. Route keys use matched templates, never ' +
+      'concrete ids; `/api/health` is excluded. ADMIN only.',
+  })
+  @ApiOkResponse({ type: AdminMetricsSnapshotResponse })
+  @ApiError(401, 'Missing/invalid/expired access token.')
+  @ApiError(403, 'Valid token but role is not ADMIN.')
+  metricsSnapshot() {
+    return this.metrics.snapshot();
   }
 }

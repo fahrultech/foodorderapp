@@ -4,6 +4,78 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
+## 2026-11-12 14:05 — Session 80 — Request-metrics middleware folded into pino + ADMIN GET /admin/metrics (API, Phase 7)
+
+**Built:**
+
+- The alerts loop's data source. New `src/common/metrics/`: a DI-free
+  `RequestMetricsRegistry` (per-route count, 2xx/3xx/4xx/5xx tallies,
+  cumulative duration histogram 5ms–10s bounds + Inf, nearest-bound
+  p50/p95/p99 estimates, avg/min/max, uptime) behind an Express capture
+  middleware and one Nest provider. Cardinality is bounded three ways:
+  keys are the MATCHED route template (`GET /api/restaurants/:id`, never
+  the concrete uuid — `req.route` is already resolved when the `finish`
+  listener fires), unmatched paths collapse uuid/numeric segments and
+  truncate, and a 250-key cap folds new keys into an honest `other` row
+  (totals keep counting — nothing silently drops). `/api/health` is
+  ignored, same policy as the access logger.
+- FOLDED into the existing pino stream instead of a second log surface: the
+  per-request `{bucket, status_class}` summary rides ON the access line
+  (customProps now reads `res.metrics`), which works because the metrics
+  middleware registers BEFORE pino-http — Node fires same-event `finish`
+  listeners in registration order. That ordering is a silent-break trap,
+  so it is pinned by an integration spec AND main.ts comments. Plus a
+  periodic aggregate line `event: "request_metrics"` every
+  `METRICS_LOG_INTERVAL_SEC` (default 60; `0` disables the fold, garbage
+  falls back to default — an observability knob must never crash boot) and
+  pull-based ADMIN `GET /admin/metrics` with a fully typed swagger model
+  (`AdminMetricsSnapshotResponse`); the contract pin moved 72→73 ops.
+- Snapshots are cumulative-since-boot by design (v1): pull route and fold
+  lines read ONE registry so they can never disagree; alerting computes
+  deltas between consecutive fold lines. SSE streams are accounted at
+  close — same documented policy as access logging.
+
+**Verified:**
+
+- Build green; jest 82 suites / 994 tests (+2 suites / +29 tests over
+  session 79's 80/965): registry math (bucket inclusivity, cumulative
+  monotonicity, percentile ranks, overflow folding loses nothing),
+  interval-knob parsing, and a LIVE-HTTP integration spec driving the
+  exact production chain — template collapse, 404/400 status classes,
+  health invisibility, and the access line carrying `metrics`
+  (ordering contract) all asserted against a real pino memory stream.
+- Live smoke 28/28 on a from-empty scratch DB (26-migration chain +
+  seed, fresh compiled API on :4014): 401/403/200 guard ladder;
+  snapshot key shapes exact; 3 detail GETs over 2 different restaurant
+  uuids = +3 on ONE `GET /api/restaurants/:id` row with zero raw-uuid
+  keys; ParseUUIDPipe 400 lands 4xx on the template row; junk path
+  normalized; histograms cumulative-consistent; 5 health probes
+  invisible to BOTH stream and registry; access lines carry
+  `"metrics":{"bucket":...,"status_class":"2xx"}`; a real
+  `request_metrics` fold line appeared within the 5s test interval with
+  totals.requests > 0; docs-json registers the bearer-secured op and
+  live ops count == swagger.spec list length. First run: 1 FAIL —
+  harness had hardcoded 12 bounds (truth: 11); fixed to derive
+  histogram==bounds+1 from the payload, re-ran 28/28.
+- E2E 36/36 GREEN on fresh seed (middleware sits on every API request —
+  full regression warranted); web code untouched.
+- Sanitizer scan: 1,024 added lines codepoint-clean (no U+2026, no
+  masked-credential triplets); `git diff --check` clean. INCIDENT caught
+  live: a patch rewriting the spec's `Author...:` header helper line was
+  outgoing-masked and the fuzzy-matching patch tool WROTE the mask to
+  disk (broke the ternary) — caught by python codepoint readback
+  (display masks both directions, so the check computed gap lengths and
+  ordinal char lists, never echoed the string), repaired via runtime-
+  assembled replacement strings, then diffed vs HEAD to prove the line
+  is byte-identical to the committed original.
+
+**Left for next sessions:** Phase 7 item 2 (a11y pass #2 on the leftover
+forms); the locked error-budget dashboard item can now wire real data
+into owner analytics; if deployments run multiple API replicas, metrics
+are per-process by design — cross-instance aggregation is a deliberate
+non-goal until the alert format (item: alerts loop) pins what it needs.
+
+
 ## 2026-11-12 11:38 — Session 79 — Storefront list-path perf sweep: query-logger verdict, ILIKE-indexable search, DISTINCT cuisines, EXISTS city filter (API, Phase 6)
 
 **Built:**
