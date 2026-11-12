@@ -287,7 +287,12 @@ export default function AddressesPage() {
   );
 }
 
-/** Shared add/edit form body. `isEdit` hides the create-only default checkbox. */
+/** Shared add/edit form body. `isEdit` hides the create-only default checkbox.
+ *  a11y pass #2 (session 81): every <label> ASSOCIATES with its control via
+ *  htmlFor/id (they were orphans before — visually adjacent, programmatically
+ *  unnamed), and the label input takes focus when the form opens. Only ONE
+ *  instance of this form is ever mounted (editing is either 'new' or one row
+ *  id), so the fixed ids cannot collide. */
 function AddressFields({
   form,
   setForm,
@@ -303,8 +308,12 @@ function AddressFields({
     <div className="mt-3 space-y-3">
       <div className="grid gap-3 sm:grid-cols-2">
         <div>
-          <label className="mb-1 block text-sm font-medium">Label</label>
+          <label htmlFor="address-label" className="mb-1 block text-sm font-medium">
+            Label
+          </label>
           <input
+            id="address-label"
+            autoFocus
             className={field}
             value={form.label}
             maxLength={40}
@@ -313,8 +322,11 @@ function AddressFields({
           />
         </div>
         <div>
-          <label className="mb-1 block text-sm font-medium">Recipient name</label>
+          <label htmlFor="address-recipient" className="mb-1 block text-sm font-medium">
+            Recipient name
+          </label>
           <input
+            id="address-recipient"
             className={field}
             value={form.recipientName}
             maxLength={120}
@@ -324,8 +336,11 @@ function AddressFields({
         </div>
       </div>
       <div>
-        <label className="mb-1 block text-sm font-medium">Phone for this address</label>
+        <label htmlFor="address-phone" className="mb-1 block text-sm font-medium">
+          Phone for this address
+        </label>
         <input
+          id="address-phone"
           className={field}
           value={form.phone}
           maxLength={32}
@@ -334,8 +349,11 @@ function AddressFields({
         />
       </div>
       <div>
-        <label className="mb-1 block text-sm font-medium">Street address</label>
+        <label htmlFor="address-street" className="mb-1 block text-sm font-medium">
+          Street address
+        </label>
         <textarea
+          id="address-street"
           rows={3}
           className={field}
           value={form.address}

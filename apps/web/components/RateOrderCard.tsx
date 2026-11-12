@@ -114,6 +114,10 @@ export default function RateOrderCard({ orderId }: { orderId: string }) {
 
   return (
     <div className="mt-3">
+      {/* a11y pass #2 (session 81): the sr-only radios had NO accessible
+          name (their label content was an aria-hidden ★ span) — a screen
+          reader announced "radio, 1 of 5" with no meaning. Each now carries
+          "N star(s)". */}
       <fieldset className="flex items-center gap-1">
         <legend className="sr-only">Your rating</legend>
         {[1, 2, 3, 4, 5].map((n) => (
@@ -124,6 +128,7 @@ export default function RateOrderCard({ orderId }: { orderId: string }) {
               value={n}
               checked={draft === n}
               onChange={() => setDraft(n)}
+              aria-label={`${n} star${n === 1 ? '' : 's'}`}
               className="sr-only"
             />
             <span
@@ -137,16 +142,23 @@ export default function RateOrderCard({ orderId }: { orderId: string }) {
           </label>
         ))}
       </fieldset>
+      <label htmlFor="review-comment" className="sr-only">
+        Your comment
+      </label>
       <textarea
+        id="review-comment"
         value={comment}
         onChange={(e) => setComment(e.target.value.slice(0, COMMENT_MAX))}
         placeholder="How was the food and delivery? (optional)"
         rows={3}
         maxLength={COMMENT_MAX}
+        aria-describedby="review-comment-count"
         className="mt-3 w-full rounded-xl border border-stone-300 p-3 text-sm outline-none focus:border-brand-500"
       />
       <div className="mt-2 flex items-center justify-between">
-        <span className="text-xs text-stone-400">{comment.length}/{COMMENT_MAX}</span>
+        <span id="review-comment-count" className="text-xs text-stone-400">
+          {comment.length}/{COMMENT_MAX}
+        </span>
         <button
           type="button"
           onClick={submit}
@@ -156,7 +168,11 @@ export default function RateOrderCard({ orderId }: { orderId: string }) {
           {busy ? 'Submitting…' : 'Submit review'}
         </button>
       </div>
-      {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
+      {error && (
+        <p role="alert" className="mt-2 text-sm text-red-600">
+          {error}
+        </p>
+      )}
     </div>
   );
 }

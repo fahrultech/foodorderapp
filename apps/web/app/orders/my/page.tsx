@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAuth } from '@/lib/auth';
 import {
   ApiError,
@@ -19,6 +19,9 @@ const PAGE_SIZE = 10;
 const POLL_MS = 30_000;
 
 type Filter = 'all' | OrderStatus;
+
+/** Tab order for the status filter (mirrors the dashboard's APG tab list). */
+const FILTER_TABS = ['all', ...ORDER_STATUSES] as Filter[];
 
 function queryParams(filter: Filter, page: number) {
   return {
@@ -63,6 +66,8 @@ export default function MyOrdersPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  /** Tab elements by filter value — the keyboard handler moves focus through them. */
+  const tabRefs = useRef(new Map<Filter, HTMLButtonElement>());
 
   const load = useCallback(
     async (silent: boolean) => {
@@ -206,13 +211,46 @@ export default function MyOrdersPage() {
         </button>
       </div>
 
-      {/* Status filter chips */}
+      {/* Status filter chips. a11y pass #2 (session 81): upgraded from bare
+          role=tab buttons (the dashboard's session-78 shape was the point)
+          to the full APG tabs pattern — roving tabindex, Arrow/Home/End
+          move+select, aria-controls wired to the results tabpanel below. */}
       <div className="mt-5 flex flex-wrap gap-2" role="tablist" aria-label="Filter orders by status">
-        {(['all', ...ORDER_STATUSES] as Filter[]).map((s) => (
+        {FILTER_TABS.map((s, i) => (
           <button
             key={s}
+            id={`orders-tab-${s}`}
             role="tab"
             aria-selected={filter === s}
+            aria-controls="orders-panel"
+            tabIndex={filter === s ? 0 : -1}
+            ref={(el) => {
+              if (el) tabRefs.current.set(s, el);
+              else tabRefs.current.delete(s);
+            }}
+            onKeyDown={(e) => {
+              if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft' && e.key !== 'Home' && e.key !== 'End')
+                return;
+              e.preventDefault();
+              const last = FILTER_TABS.length - 1;
+              const next =
+                e.key === 'Home'
+                  ? 0
+                  : e.key === 'End'
+                    ? last
+                    : e.key === 'ArrowRight'
+                      ? i + 1 > last
+                        ? 0
+                        : i + 1
+                      : i - 1 < 0
+                        ? last
+                        : i - 1;
+              const target = FILTER_TABS[next];
+              setFilter(target);
+              setPage(1);
+              setNotice(null);
+              tabRefs.current.get(target)?.focus();
+            }}
             onClick={() => {
               setFilter(s);
               setPage(1);
@@ -230,12 +268,12 @@ export default function MyOrdersPage() {
       </div>
 
       {notice && (
-        <p className="mt-4 rounded-xl bg-emerald-50 px-4 py-2.5 text-sm font-semibold text-emerald-800">
+        <p role="status" className="mt-4 rounded-xl bg-emerald-50 px-4 py-2.5 text-sm font-semibold text-emerald-800">
           {notice}
         </p>
       )}
       {error && (
-        <p className="mt-4 flex items-center justify-between gap-3 rounded-xl bg-rose-50 px-4 py-2.5 text-sm font-semibold text-rose-700">
+        <p role="alert" className="mt-4 flex items-center justify-between gap-3 rounded-xl bg-rose-50 px-4 py-2.5 text-sm font-semibold text-rose-700">
           <span>{error}</span>
           <button
             onClick={() => setReloadKey((k) => k + 1)}
@@ -246,6 +284,15 @@ export default function MyOrdersPage() {
         </p>
       )}
 
+      {/* The status tabs' aria-controls target (same contract as the
+          dashboard inbox): one labelled panel holding skeleton, empty state,
+          or the list + pagination. */}
+      <div
+        role="tabpanel"
+        id="orders-panel"
+        aria-labelledby={`orders-tab-${filter}`}
+        tabIndex={-1}
+      >
       {loading && !data ? (
         <div className="mt-6 space-y-4">
           {[0, 1, 2].map((i) => (
@@ -342,6 +389,7 @@ export default function MyOrdersPage() {
           </div>
         </>
       ) : null}
+      </div>
     </div>
   );
 }

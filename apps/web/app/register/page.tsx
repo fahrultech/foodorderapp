@@ -5,25 +5,44 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth';
 
-/** Client-side mirrors of the API RegisterDto constraints (class-validator). */
-function validate(form: {
-  name: string;
-  email: string;
-  password: string;
-  confirm: string;
-  phone: string;
-  address: string;
-}): string[] {
-  const errors: string[] = [];
+type FieldKey = 'name' | 'email' | 'password' | 'confirm' | 'phone' | 'address';
+
+/** DOM order of the fields — also the "focus the first invalid one" order. */
+const FIELD_ORDER: FieldKey[] = ['name', 'email', 'password', 'confirm', 'phone', 'address'];
+
+/**
+ * Client-side mirrors of the API RegisterDto constraints (class-validator).
+ * a11y pass #2 (session 81): errors are keyed BY FIELD so each message can
+ * render inline next to its control (role=alert + aria-describedby +
+ * aria-invalid), instead of one aggregated list a screen reader has to
+ * mentally map back onto the inputs.
+ */
+function validate(form: Record<FieldKey, string>): Partial<Record<FieldKey, string>> {
+  const errors: Partial<Record<FieldKey, string>> = {};
   const name = form.name.trim();
-  if (name.length < 2 || name.length > 120) errors.push('Name must be 2–120 characters.');
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) errors.push('Enter a valid email address.');
+  if (name.length < 2 || name.length > 120) errors.name = 'Name must be 2–120 characters.';
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) errors.email = 'Enter a valid email address.';
   if (form.password.length < 8 || form.password.length > 200)
-    errors.push('Password must be at least 8 characters.');
-  if (form.password !== form.confirm) errors.push('Passwords do not match.');
-  if (form.phone.trim().length > 30) errors.push('Phone must be at most 30 characters.');
-  if (form.address.trim().length > 500) errors.push('Address must be at most 500 characters.');
+    errors.password = 'Password must be at least 8 characters.';
+  if (form.password !== form.confirm) errors.confirm = 'Passwords do not match.';
+  if (form.phone.trim().length > 30) errors.phone = 'Phone must be at most 30 characters.';
+  if (form.address.trim().length > 500) errors.address = 'Address must be at most 500 characters.';
   return errors;
+}
+
+/**
+ * Inline per-field error. Defined at MODULE level on purpose: a component
+ * declared inside RegisterPage gets a new identity every render, which would
+ * remount the alert node and make assistive tech re-announce it while the
+ * user is still typing. Same node, stable text = announced once.
+ */
+function FieldError({ k, msg }: { k: FieldKey; msg?: string }) {
+  if (!msg) return null;
+  return (
+    <p role="alert" id={`${k}-error`} className="mt-1 text-xs font-medium text-red-600">
+      {msg}
+    </p>
+  );
 }
 
 export default function RegisterPage() {
@@ -37,7 +56,8 @@ export default function RegisterPage() {
     phone: '',
     address: '',
   });
-  const [errors, setErrors] = useState<string[]>([]);
+  const [fieldErrors, setFieldErrors] = useState<Partial<Record<FieldKey, string>>>({});
+  const [serverError, setServerError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
@@ -50,8 +70,16 @@ export default function RegisterPage() {
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     const problems = validate(form);
-    setErrors(problems);
-    if (problems.length) return;
+    setFieldErrors(problems);
+    setServerError(null);
+    const firstInvalid = FIELD_ORDER.find((k) => problems[k]);
+    if (firstInvalid) {
+      // Focus lands on the field the user must fix first — the alert next
+      // to it is announced, but a sighted keyboard user gets the caret
+      // where it belongs without tab-hunting.
+      document.getElementById(firstInvalid)?.focus();
+      return;
+    }
     setSubmitting(true);
     try {
       await register({
@@ -63,12 +91,20 @@ export default function RegisterPage() {
       });
       router.replace('/');
     } catch (err: any) {
-      // Map the API error envelope onto the form (ApiError.details carries
-      // per-field constraints when validation failed server-side).
-      const message = err?.message || 'Could not create the account';
-      setErrors([message]);
+      // Server-side truth (the client mirrors are best-effort): map the API
+      // error envelope onto the top of the form as a role=alert.
+      setServerError(err?.message || 'Could not create the account');
       setSubmitting(false);
     }
+  }
+
+  /** Per-field inline error wiring (session 81 a11y pass). */
+  function fieldProps(k: FieldKey) {
+    const msg = fieldErrors[k];
+    return {
+      'aria-invalid': msg ? true : undefined,
+      'aria-describedby': msg ? `${k}-error` : undefined,
+    };
   }
 
   return (
@@ -77,7 +113,11 @@ export default function RegisterPage() {
       <p className="mt-1 text-sm text-stone-500">
         Takes a few seconds — you will be signed in right away.
       </p>
-      <form onSubmit={submit} className="mt-6 space-y-4 rounded-2xl border border-stone-200 bg-white p-6">
+      <form
+        onSubmit={submit}
+        noValidate
+        className="mt-6 space-y-4 rounded-2xl border border-stone-200 bg-white p-6"
+      >
         <div>
           <label htmlFor="name" className="mb-1 block text-sm font-medium">
             Name
@@ -90,7 +130,9 @@ export default function RegisterPage() {
             value={form.name}
             onChange={(e) => setForm({ ...form, name: e.target.value })}
             placeholder="Jane Doe"
+            {...fieldProps('name')}
           />
+          <FieldError k="name" msg={fieldErrors.name} />
         </div>
         <div>
           <label htmlFor="email" className="mb-1 block text-sm font-medium">
@@ -105,7 +147,9 @@ export default function RegisterPage() {
             value={form.email}
             onChange={(e) => setForm({ ...form, email: e.target.value })}
             placeholder="you@example.com"
+            {...fieldProps('email')}
           />
+          <FieldError k="email" msg={fieldErrors.email} />
         </div>
         <div className="grid gap-4 sm:grid-cols-2">
           <div>
@@ -116,13 +160,14 @@ export default function RegisterPage() {
               id="password"
               type="password"
               required
-              minLength={8}
               autoComplete="new-password"
               className={field}
               value={form.password}
               onChange={(e) => setForm({ ...form, password: e.target.value })}
               placeholder="min. 8 characters"
+              {...fieldProps('password')}
             />
+            <FieldError k="password" msg={fieldErrors.password} />
           </div>
           <div>
             <label htmlFor="confirm" className="mb-1 block text-sm font-medium">
@@ -137,7 +182,9 @@ export default function RegisterPage() {
               value={form.confirm}
               onChange={(e) => setForm({ ...form, confirm: e.target.value })}
               placeholder="repeat it"
+              {...fieldProps('confirm')}
             />
+            <FieldError k="confirm" msg={fieldErrors.confirm} />
           </div>
         </div>
         <div>
@@ -152,7 +199,9 @@ export default function RegisterPage() {
             value={form.phone}
             onChange={(e) => setForm({ ...form, phone: e.target.value })}
             placeholder="+62 812 3456 7890"
+            {...fieldProps('phone')}
           />
+          <FieldError k="phone" msg={fieldErrors.phone} />
         </div>
         <div>
           <label htmlFor="address" className="mb-1 block text-sm font-medium">
@@ -166,15 +215,13 @@ export default function RegisterPage() {
             value={form.address}
             onChange={(e) => setForm({ ...form, address: e.target.value })}
             placeholder="Street, number, city…"
+            {...fieldProps('address')}
           />
+          <FieldError k="address" msg={fieldErrors.address} />
         </div>
-        {errors.length > 0 && (
-          <div role="alert" className="rounded-xl bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
-            <ul className="list-inside list-disc space-y-1">
-              {errors.map((msg) => (
-                <li key={msg}>{msg}</li>
-              ))}
-            </ul>
+        {serverError && (
+          <div role="alert" id="server-error" className="rounded-xl bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
+            {serverError}
           </div>
         )}
         <button

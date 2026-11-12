@@ -84,7 +84,7 @@ export default function OrderVerify({ orderId }: { orderId: string }) {
   return (
     <div className="mt-6 rounded-2xl border border-stone-200 bg-white p-6 text-left">
       <h2 className="text-sm font-bold">Is this your order?</h2>
-      <p className="mt-1 text-xs text-stone-500">
+      <p id="order-verify-hint" className="mt-1 text-xs text-stone-500">
         Receipts need a key now: the email you checked out with (or a signed-in
         account for orders that belong to you).
       </p>
@@ -99,6 +99,7 @@ export default function OrderVerify({ orderId }: { orderId: string }) {
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           placeholder="you@example.com"
+          aria-describedby="order-verify-hint"
           className="w-full rounded-xl border border-stone-300 bg-white px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
         />
         <button
