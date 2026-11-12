@@ -36,11 +36,15 @@ export default function Header({
 
   return (
     <header className="sticky top-0 z-20 border-b border-stone-200 bg-white/90 backdrop-blur">
-      <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
-        <Link href="/" className="flex items-center gap-2 text-xl font-bold text-brand-600">
+      {/* flex-wrap is the 360px horizontal-overflow fix for the shared
+          chrome: guest nav is ~440px of content, so on phones it wraps to
+          extra rows instead of pushing document scrollWidth past the
+          viewport (asserted by the mobile cart/checkout e2e specs). */}
+      <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-y-2 px-4 py-3">
+        <Link href="/" className="flex shrink-0 items-center gap-2 text-xl font-bold text-brand-600">
           <span aria-hidden>🍜</span> FoodOrder
         </Link>
-        <nav className="flex items-center gap-4 text-sm">
+        <nav className="flex flex-wrap items-center justify-end gap-x-2.5 gap-y-2 text-sm sm:gap-x-4">
           <Link
             href="/"
             className={pathname === '/' ? 'font-semibold text-brand-600' : 'text-stone-600 hover:text-stone-900'}
@@ -59,13 +63,13 @@ export default function Header({
             <>
               <Link
                 href="/login"
-                className="rounded-full px-4 py-2 font-semibold text-stone-700 hover:bg-stone-100"
+                className="rounded-full px-3 py-2 font-semibold text-stone-700 hover:bg-stone-100 sm:px-4"
               >
                 {t('signIn')}
               </Link>
               <Link
                 href="/register"
-                className="rounded-full border border-brand-600 px-4 py-2 font-semibold text-brand-600 hover:bg-brand-50"
+                className="rounded-full border border-brand-600 px-3 py-2 font-semibold text-brand-600 hover:bg-brand-50 sm:px-4"
               >
                 {t('register')}
               </Link>
@@ -135,7 +139,7 @@ export default function Header({
           )}
           <Link
             href="/cart"
-            className="relative rounded-full bg-brand-600 px-4 py-2 font-semibold text-white hover:bg-brand-700"
+            className="relative rounded-full bg-brand-600 px-3 py-2 font-semibold text-white hover:bg-brand-700 sm:px-4"
           >
             {t('cart')}
             {count > 0 && (

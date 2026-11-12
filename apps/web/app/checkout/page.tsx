@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useCart } from '@/lib/cart';
 import { useAuth } from '@/lib/auth';
+import { useIsCompactViewport } from '@/lib/use-compact-viewport';
 import { api, formatPrice, optionRowLabels, DeliveryAddress, PromoPreview, Restaurant } from '@/lib/api';
 
 /** A validated promo from the soft-200 /promos/validate endpoint. */
@@ -24,6 +25,9 @@ export default function CheckoutPage() {
   const { lines, subtotalCents, restaurantId, restaurantName, clear } = useCart();
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Phone-width: a sticky bottom bar owns the live total + submit so the
+  // primary action never sits below the whole form (session 83).
+  const compact = useIsCompactViewport();
   const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
   const [pricing, setPricing] = useState<PricingState>('loading');
   const [promoInput, setPromoInput] = useState('');
@@ -216,14 +220,17 @@ export default function CheckoutPage() {
     }
   }
 
+  // text-base (16px) on purpose: iOS Safari auto-zooms the viewport when a
+  // focused input is smaller, which breaks the sticky bar layout mid-form.
   const field =
-    'w-full rounded-xl border border-stone-300 bg-white px-4 py-2.5 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100';
+    'w-full rounded-xl border border-stone-300 bg-white px-4 py-2.5 text-base outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100';
 
   return (
+    <>
     <div className="mx-auto grid max-w-4xl gap-8 md:grid-cols-2">
       <div>
         <h1 className="text-2xl font-extrabold">Checkout</h1>
-        <form onSubmit={submit} className="mt-6 space-y-4">
+        <form id="checkout-form" onSubmit={submit} className="mt-6 space-y-4">
           {belowMinimum && (
             <div
               role="alert"
@@ -285,7 +292,7 @@ export default function CheckoutPage() {
                 <button
                   type="button"
                   onClick={() => setSelectedAddressId(null)}
-                  className={`text-xs font-medium underline ${
+                  className={`inline-flex min-h-11 items-center rounded-lg px-1 text-xs font-medium underline ${
                     selectedAddressId === null ? 'text-brand-600' : 'text-stone-500'
                   }`}
                 >
@@ -307,6 +314,7 @@ export default function CheckoutPage() {
             <input
               id="checkout-name"
               required
+              autoComplete="name"
               className={field}
               value={form.customerName}
               onChange={(e) => setContactField('customerName', e.target.value)}
@@ -320,6 +328,8 @@ export default function CheckoutPage() {
             <input
               id="checkout-phone"
               required
+              autoComplete="tel"
+              inputMode="tel"
               className={field}
               value={form.contactPhone}
               onChange={(e) => setContactField('contactPhone', e.target.value)}
@@ -334,6 +344,8 @@ export default function CheckoutPage() {
               id="checkout-email"
               required
               type="email"
+              autoComplete="email"
+              inputMode="email"
               className={field}
               value={form.contactEmail}
               onChange={(e) => setForm((f) => ({ ...f, contactEmail: e.target.value }))}
@@ -353,6 +365,7 @@ export default function CheckoutPage() {
               id="checkout-address"
               required
               rows={3}
+              autoComplete="street-address"
               className={field}
               value={form.deliveryAddress}
               onChange={(e) => setContactField('deliveryAddress', e.target.value)}
@@ -382,7 +395,8 @@ export default function CheckoutPage() {
           )}
           <button
             disabled={!canSubmit}
-            className="w-full rounded-xl bg-brand-600 px-6 py-3 text-sm font-semibold text-white hover:bg-brand-700 disabled:bg-stone-300"
+            data-testid="checkout-submit"
+            className="inline-flex min-h-11 w-full items-center justify-center rounded-xl bg-brand-600 px-6 py-3 text-sm font-semibold text-white hover:bg-brand-700 disabled:bg-stone-300"
           >
             {submitting
               ? 'Placing order…'
@@ -451,7 +465,7 @@ export default function CheckoutPage() {
             <div className="flex gap-2">
               <input
                 id="checkout-promo-code"
-                className="w-full rounded-xl border border-stone-300 bg-white px-3 py-2 text-sm uppercase outline-none focus:border-brand-500"
+                className="w-full min-w-0 rounded-xl border border-stone-300 bg-white px-3 py-2 text-base uppercase outline-none focus:border-brand-500"
                 value={promoInput}
                 onChange={(e) => {
                   setPromoInput(e.target.value);
@@ -472,7 +486,7 @@ export default function CheckoutPage() {
                 type="button"
                 onClick={applyPromo}
                 disabled={!promoInput.trim() || promoChecking}
-                className="shrink-0 rounded-xl border border-brand-600 px-3 py-2 text-sm font-semibold text-brand-600 hover:bg-brand-50 disabled:border-stone-300 disabled:text-stone-400"
+                className="inline-flex min-h-11 shrink-0 items-center justify-center rounded-xl border border-brand-600 px-3 py-2 text-sm font-semibold text-brand-600 hover:bg-brand-50 disabled:border-stone-300 disabled:text-stone-400"
               >
                 {promoChecking ? 'Checking…' : appliedPromo ? 'Applied' : 'Apply'}
               </button>
@@ -495,5 +509,38 @@ export default function CheckoutPage() {
         </div>
       </aside>
     </div>
+
+    {compact && (
+      <div
+        data-testid="mobile-submit-bar"
+        className="sticky bottom-0 z-10 -mx-4 mt-6 flex items-center gap-4 border-t border-stone-200 bg-white/90 px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur"
+      >
+        <div className="min-w-0">
+          <p className="text-xs text-stone-500">Total</p>
+          <p className="text-lg font-extrabold leading-tight">
+            {formatPrice(totalCents ?? subtotalCents)}
+          </p>
+        </div>
+        {/* `form=` re-targets the ONE form above: same submit handler, same
+            server-side validation — this bar is a second handle, not a
+            second flow. Disabled state mirrors the in-form button. */}
+        <button
+          type="submit"
+          form="checkout-form"
+          disabled={!canSubmit}
+          data-testid="mobile-submit-cta"
+          className="inline-flex min-h-11 flex-1 items-center justify-center rounded-xl bg-brand-600 px-4 text-sm font-semibold text-white hover:bg-brand-700 disabled:bg-stone-300"
+        >
+          {submitting
+            ? 'Placing order…'
+            : pricingLoading
+              ? 'Loading delivery fee…'
+              : belowMinimum
+                ? 'Below minimum order'
+                : 'Place order'}
+        </button>
+      </div>
+    )}
+    </>
   );
 }
