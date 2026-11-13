@@ -4,6 +4,71 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
+## 2026-11-13 20:01 — Session 88 — GDPR self-service web surface + e2e coverage (Web, Phase 8)
+
+**Built:**
+
+- Recovered session 88's crashed-run WIP (the uncommitted tree was the
+  increment; every dependency re-verified against HEAD before trusting it):
+  the /account page was complete and its every server contract re-confirmed
+  on disk — `GET /users/me/export` (allowlist, schemaVersion 1) and
+  `DELETE /users/me` (`@HttpCode(200)`, password + exact-`DELETE` guard) in
+  users.controller, the anonymization literals ('Deleted user', '[deleted]')
+  and `anonymizedOrders`/`detachedRestaurants`/`unassignedOrders` result
+  fields in account-data.service, the `authedCall` 401-rotate-retry helper,
+  `inbox-card-{code}` testid on the owner dashboard, the login `?next`
+  allowlist, `foodorder.auth.v1` storage key. No API source touched.
+- `apps/web/app/account/page.tsx` — in-app GDPR self-service (session 63
+  shipped the API only, smoke-tested via curl): "Download my data" fetches
+  the full personal-data JSON through `authedCall` and triggers a real
+  browser blob download named `foodorder-data-export-YYYY-MM-DD.json`; the
+  danger zone demands the current password AND the exact `DELETE` phrase
+  (client pre-checks mirror the server, which stays the authority — a
+  delete-endpoint 401 is the password check, never routed through the token
+  refresh dance); success forces `logout()` (server sessions are already
+  cascade-dead) and renders the deleted-state receipt with what was touched.
+  Guest state renders a sign-in card (`/login?next=%2Faccount`), never the
+  controls.
+- Wiring: `api.exportMe`/`api.deleteMe` + `AccountExport`/
+  `AccountDeleteResult` types in lib/api.ts, localized header nav link
+  (`account`/`Akun` in en/id messages), `/account` added to robots.txt
+  disallow (authenticated private surface — same rule as /addresses).
+- `e2e/tests/zz-gdpr-account.spec.ts` (3 tests, named zz-* to sort after
+  the seed-absolute specs): signed-out gate + robots assertion; the full
+  journey in ONE test because the `page` fixture is a fresh browser context
+  per test (localStorage does not survive) — throwaway registered customer
+  + its own Warung order (no absolute counts), real download captured via
+  `waitForEvent('download')` with content asserts (order code present,
+  leak sweep over EVERY payload key: no passwordHash/password/
+  refresh_token/access_token/secret, no bcrypt-shaped values), both
+  rejection guards proven ALIVE (wrong password → 'Invalid password' alert,
+  lowercase 'delete' → exact-phrase alert, session still signed in), then
+  the real delete: 'Account deleted' receipt, header flipped to guest,
+  localStorage cleared, the browser's own captured refresh token rejected
+  401 at /auth/refresh (cascade proven against the LIVE token), re-login
+  401; third test: the anonymized retained order still renders for the
+  restaurant owner's inbox ('Deleted user' + '[deleted]', NOT 'GDPR
+  Traveler' / the delivery address).
+
+**Verified:**
+
+- `apps/web` `npm run build` green (new /account route in the manifest).
+- API untouched: `npm run build` + `npx jest --silent` **89 suites / 1117
+  tests** — byte-identical delta 0 vs session 87's baseline.
+- Full e2e suite **50/50 green ×2** (was 47; +3) on a fresh `npm run seed`
+  before EACH run, Playwright booting both apps itself (free ports 3000/4000
+  per the rate-limit-bucket rule).
+- Sanitizer scan of the whole WIP tree: no U+2026 or `***` in any added
+  line (the two U+2026 hits are legit prose ellipses in the page's own
+  loading labels, 'Preparing export…'/'Deleting…'); the e2e spec's bearer
+  header is codepoint-clean on disk (`'authorization: Bearer ' + token`
+  idiom), en/id JSON parse, `git diff --check` clean.
+
+**Left for next sessions:** nothing for this item; Phase 8 continues with
+metrics durability.
+
+---
+
 ## 2026-11-13 17:08 — Session 87 — Sanitizer sweep of the remaining query surfaces + static @Query audit gate (API, Phase 8)
 
 **Built:**
