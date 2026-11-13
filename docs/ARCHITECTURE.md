@@ -435,6 +435,18 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   and answered as a sanitized 500 so driver internals never reach clients.
   The web `lib/api.ts` throws a typed `ApiError` (`status`, `code`,
   `details`) parsed from this envelope. See README *Error envelope*.
+- **Public query-surface contract** (sessions 84 + 87) — every `@Query`
+  site must be registered in `common/fuzz/query-surface-audit.spec.ts`
+  with mechanical evidence of its guard: raw text reaching Postgres is
+  delete-only-sanitized at the service (`common/query-sanitizer.ts` —
+  NUL/lone-surrogate → 22021 → 500 class), raw numerics land on a closed
+  integer range (`common/int-range.ts` — `clampToIntRange` +
+  `MAX_PUBLIC_PAGE`; unbounded `Number(page)` math bound OFFSET past
+  bigint → 22001/22P02 → 500 class), query enums are allowlisted in
+  memory before any write, and guest-proof strings are compared in JS
+  memory only — never bound into SQL. A new `@Query` parameter without a
+  registry entry fails CI; hostile inputs are proven inert against the
+  real driver in `common/fuzz/` HTTP sweeps + the live smokes.
 - **Structured logs + request ids (pino)** — one JSON line per event on
   stdout, level from `LOG_LEVEL` (default `info`), `service` field on every
   line. `requestIdMiddleware` (global, registered first) assigns each request

@@ -1,4 +1,4 @@
-import { clampToIntRange } from './int-range';
+import { blankToUndefined, clampToIntRange, MAX_PUBLIC_PAGE } from './int-range';
 
 /**
  * Unit spec for the public numeric query clamp (session 84 fuzz gate).
@@ -87,5 +87,37 @@ describe('clampToIntRange', () => {
       expect(out).toBeGreaterThanOrEqual(1);
       expect(out).toBeLessThanOrEqual(50);
     }
+  });
+});
+
+/**
+ * Session 87 sweep: the two helpers every raw-param list route now shares.
+ */
+describe('blankToUndefined', () => {
+  it('treats a present-but-blank query value as unset (both whitespace shapes)', () => {
+    expect(blankToUndefined('')).toBeUndefined();
+    expect(blankToUndefined('   ')).toBeUndefined();
+  });
+
+  it('passes every other shape through untouched', () => {
+    expect(blankToUndefined(undefined)).toBeUndefined();
+    expect(blankToUndefined(null)).toBeNull();
+    expect(blankToUndefined('7')).toBe('7');
+    expect(blankToUndefined(0)).toBe(0); // a real 0 is NOT blank
+    expect(blankToUndefined(NaN)).toBeNaN();
+    expect(blankToUndefined(['a', 'b'])).toEqual(['a', 'b']);
+  });
+
+  it('composes with clampToIntRange: blank limit falls back to the DEFAULT, not the MIN', () => {
+    expect(clampToIntRange(blankToUndefined(''), 1, 50, 20)).toBe(20);
+    expect(clampToIntRange(blankToUndefined('0'), 1, 50, 20)).toBe(1);
+  });
+});
+
+describe('MAX_PUBLIC_PAGE', () => {
+  it('keeps the worst-case OFFSET (page × limit) far inside bigint AND safe-integer range', () => {
+    const worstOffset = (MAX_PUBLIC_PAGE - 1) * 50; // deepest seeded limit
+    expect(Number.isSafeInteger(worstOffset)).toBe(true);
+    expect(worstOffset).toBeLessThan(Number.MAX_SAFE_INTEGER);
   });
 });

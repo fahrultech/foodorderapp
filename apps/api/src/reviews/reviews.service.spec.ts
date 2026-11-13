@@ -204,6 +204,29 @@ describe('ReviewsService', () => {
       await expect(h.service.listForRestaurant(R)).rejects.toBeInstanceOf(NotFoundException);
     });
 
+    // Session 87 sweep: this public route has NO DTO in front — raw
+    // query-string values land on the service. `?page=1e30` used to bind
+    // an OFFSET past bigint (22001/22P02 → 500); non-finite/fractional
+    // shapes joined. All of it now lands on the closed range.
+    it.each([
+      // [page, limit, wantPage, wantLimit] — skip/take echo the pair
+      ['1e30', '500', 100_000, 50],
+      ['Infinity', '-Infinity', 1, 20],
+      ['2.5', '2.5', 3, 3],
+      ['abc', '1;DROP', 1, 20],
+      ['', '', 1, 20],
+      ['0', '0.4', 1, 1],
+    ] as const)('hostile page=%s limit=%s clamps to (%i, %i)', async (page, limit, wantPage, wantLimit) => {
+      const h = build(null, { rows: [], totalCount: 0 });
+      const res = await h.service.listForRestaurant(R, page as any, limit as any);
+      const args = (h.reviewsRepo.findAndCount as jest.Mock).mock.calls[0][0];
+      expect(res.page).toBe(wantPage);
+      expect(res.limit).toBe(wantLimit);
+      expect(args.skip).toBe((wantPage - 1) * wantLimit);
+      expect(args.take).toBe(wantLimit);
+      expect(Number.isSafeInteger(args.skip)).toBe(true);
+    });
+
     it('returns the page envelope with the restaurant rating summary and clamped paging', async () => {
       const h = build(null, { rows: [fakeReview()], totalCount: 7 });
       const res = await h.service.listForRestaurant(R, 0, 500);

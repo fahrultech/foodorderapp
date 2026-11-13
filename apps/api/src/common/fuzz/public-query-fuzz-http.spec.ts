@@ -7,10 +7,20 @@ import { SearchController } from '../../search/search.controller';
 import { SearchService } from '../../search/search.service';
 import { RestaurantsController } from '../../restaurants/restaurants.controller';
 import { RestaurantsService } from '../../restaurants/restaurants.service';
+import {
+  RestaurantReviewsController,
+  ReviewsController,
+} from '../../reviews/reviews.controller';
+import { ReviewsService } from '../../reviews/reviews.service';
+import { OrdersController } from '../../orders/orders.controller';
+import { OrdersService } from '../../orders/orders.service';
+import { NotFoundException } from '@nestjs/common';
 import { ErrorFormatFilter } from '../error-format.filter';
 import { createGlobalValidationPipe } from '../app-config';
 import { hasIllegalQueryChars } from '../query-sanitizer';
 import { JwtService } from '@nestjs/jwt';
+import { RATE_LIMIT_CONFIG } from '../rate-limit/rate-limit.config';
+import { SlidingWindowLogStore } from '../rate-limit/rate-limit.store';
 import {
   HOSTILE_TEXT,
   HOSTILE_NUMERIC,
@@ -77,8 +87,28 @@ async function boot() {
     page: Math.max(1, Number(q.page) || 1),
     limit: Math.min(50, Math.max(1, Number(q.limit) || 20)),
   }));
+  // Session 87 sweep surfaces. The REAL services own the clamping/in-memory
+  // comparison contracts (unit + live smoke); this harness pins the
+  // TRANSPORT half: raw query strings never produce 5xx at pipe level.
+  const listForRestaurant = jest.fn(async () => ({
+    items: [],
+    total: 0,
+    page: 1,
+    limit: 20,
+    rating: 0,
+    ratingCount: 0,
+  }));
+  const findOneForViewer = jest.fn(async () => {
+    throw new NotFoundException('Order not found');
+  });
   const moduleRef = await Test.createTestingModule({
-    controllers: [SearchController, RestaurantsController],
+    controllers: [
+      SearchController,
+      RestaurantsController,
+      ReviewsController,
+      RestaurantReviewsController,
+      OrdersController,
+    ],
     providers: [
       { provide: SearchService, useValue: { search } },
       {
@@ -89,6 +119,12 @@ async function boot() {
           findOwned: jest.fn(async () => []),
         },
       },
+      { provide: ReviewsService, useValue: { listForRestaurant } },
+      { provide: OrdersService, useValue: { findOneForViewer } },
+      // RateLimitGuard is instantiated eagerly for OrdersController's POST
+      // route (never hit by this sweep — the fuzzed routes pass no bucket).
+      { provide: SlidingWindowLogStore, useValue: {} },
+      { provide: RATE_LIMIT_CONFIG, useValue: { rules: {} } },
       // Instantiated for the guarded routes on the controller class; the
       // fuzzed routes are public, so these never run (uuid-route-params
       // spec pattern).
@@ -101,21 +137,28 @@ async function boot() {
   app.useGlobalPipes(createGlobalValidationPipe());
   app.useGlobalFilters(new ErrorFormatFilter());
   await app.listen(0);
-  return { app, search, findAll };
+  return { app, search, findAll, listForRestaurant, findOneForViewer };
 }
+
+const REVIEWS_UUID = '22222222-2222-4222-8222-222222222222';
+const ORDERS_UUID = '33333333-3333-4333-8333-333333333333';
 
 describe('fuzz over HTTP: public query surface — 2xx-or-4xx ONLY', () => {
   let app: INestApplication;
   let search: jest.Mock;
   let findAll: jest.Mock;
+  let listForRestaurant: jest.Mock;
+  let findOneForViewer: jest.Mock;
 
   beforeAll(async () => {
-    ({ app, search, findAll } = await boot());
+    ({ app, search, findAll, listForRestaurant, findOneForViewer } = await boot());
   });
   afterAll(() => app.close());
   beforeEach(() => {
     search.mockClear();
     findAll.mockClear();
+    listForRestaurant.mockClear();
+    findOneForViewer.mockClear();
   });
 
   it('seed 0x84e101: 200 hostile GET /api/search — envelope-only failures, sanitized q at the service', async () => {
@@ -200,4 +243,85 @@ describe('fuzz over HTTP: public query surface — 2xx-or-4xx ONLY', () => {
     expect(mixed.status).toBe(200);
     expect(search).toHaveBeenCalledWith('warung', undefined); // deleted, never substituted
   });
+
+  // ---- session 87 sweep surfaces -------------------------------------
+
+  it('seed 0x87e101: 150 hostile GET /restaurants/:id/reviews — raw page/limit forwarded, never 5xx', async () => {
+    const rng = makeRng(0x87e101);
+    for (let i = 0; i < 150; i++) {
+      const parts = [
+        `page=${encodeParam(rng.pick(HOSTILE_NUMERIC))}`,
+        `limit=${encodeParam(rng.pick(HOSTILE_NUMERIC))}`,
+      ].filter(() => rng.int(3) !== 0);
+      const path = `/api/restaurants/${REVIEWS_UUID}/reviews${parts.length ? '?' + parts.join('&') : ''}`;
+      await withCtx(`case#${i} path=${path}`, async () => {
+        listForRestaurant.mockClear(); // per-case (shared boot accumulates)
+        const res = await get(app, path);
+        expect(res.status).toBeLessThan(500);
+        expect(res.status).toBe(200); // no DTO in front — the service clamp owns bounds
+        expect(res.json?.items).toEqual([]);
+        expect(listForRestaurant).toHaveBeenCalled();
+        // Global-pipe coercion (harness lesson, session 87): raw params
+        // annotated `number` arrive at the service ALREADY Number()-coerced
+        // ('1;DROP' → NaN — typeof number), which is why the service clamp
+        // (blankToUndefined + clampToIntRange, NaN → fallback) is the whole
+        // guard. Query-string brackets would arrive as objects — asserted
+        // non-crashing in the transport-junk case, not in this sweep.
+        const seen = listForRestaurant.mock.calls[listForRestaurant.mock.calls.length - 1];
+        expect(seen[0]).toBe(REVIEWS_UUID);
+        for (const v of [seen[1], seen[2]]) {
+          if (v !== undefined) expect(typeof v).toBe('number');
+        }
+      });
+    }
+  }, 90000);
+
+  it('transport junk on the sweep routes: brackets, arrays, blanks, repeats — all non-5xx', async () => {
+    const cases = [
+      `/api/restaurants/${REVIEWS_UUID}/reviews?page[]=%00`,
+      `/api/restaurants/${REVIEWS_UUID}/reviews?page[gt]=1&limit=`,
+      `/api/restaurants/${REVIEWS_UUID}/reviews?page=%ed%a0%80&limit=%00`,
+      `/api/restaurants/${REVIEWS_UUID}/reviews?page=1e30&limit=1e30`,
+      '/api/orders?__proto__=x', // unknown route shape → 404, not 5xx
+    ];
+    for (const path of cases) {
+      await withCtx(path, async () => {
+        const res = await get(app, path);
+        expect(res.status).toBeLessThan(500);
+        expect([200, 400, 404]).toContain(res.status);
+      });
+    }
+  });
+
+  it('seed 0x87e102: 60 hostile ?contactEmail= guest proofs — in-memory compare means 404, never 5xx', async () => {
+    const rng = makeRng(0x87e102);
+    for (let i = 0; i < 60; i++) {
+      const raw = rng.pick(HOSTILE_TEXT);
+      const proof = encodeParam(raw);
+      const path = `/api/orders/${ORDERS_UUID}?contactEmail=${proof}`;
+      await withCtx(`case#${i} path=${path}`, async () => {
+        findOneForViewer.mockClear();
+        const res = await get(app, path);
+        expect(res.status).toBeLessThan(500);
+        // A lone surrogate breaks express's qs decoder up front (400) —
+        // everything else reaches the service, which answers the plain 404
+        // (unknown id and failed proof are indistinguishable).
+        expect([400, 404]).toContain(res.status);
+        expect(res.json?.error?.code).toBeTruthy();
+        if (res.status === 404) {
+          expect(findOneForViewer).toHaveBeenCalled();
+          // The bytes the WIRE carries reach the service VERBATIM —
+          // encodeParam is deliberately lossy exactly like a browser
+          // (lone surrogates → U+FFFD), so the honest pin compares against
+          // the wire form, not the JS corpus entry. The guard is that the
+          // service compares in JS memory and NEVER binds the proof into
+          // SQL (static gate query-surface-audit + orders.service pins).
+          const wire = decodeURIComponent(proof);
+          expect(findOneForViewer.mock.calls[0][2]).toBe(wire);
+        } else {
+          expect(findOneForViewer).not.toHaveBeenCalled();
+        }
+      });
+    }
+  }, 60000);
 });

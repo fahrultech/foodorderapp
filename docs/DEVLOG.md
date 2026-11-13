@@ -4,6 +4,82 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
+## 2026-11-13 17:08 — Session 87 — Sanitizer sweep of the remaining query surfaces + static @Query audit gate (API, Phase 8)
+
+**Built:**
+
+- Audit verdict first, honestly: NO raw TEXT query param escapes the
+  session-84 guards. Dish search does not exist as a raw restaurant-read
+  param (it lives at the guarded `/api/search` + client-side MenuBrowser
+  filtering); the only remaining free-text query param is the guest
+  receipt proof `?contactEmail=`, which `findOneForViewer` normalizes and
+  compares in JS memory — it never becomes a SQL predicate (the sweep
+  pinned this with forbid-regexes, not trust). What the sweep DID catch
+  is the numeric sibling of the same 500 class: three list surfaces bound
+  unbounded `Number(page)` math straight into OFFSET — `GET
+  /restaurants/:id/reviews` (PUBLIC, DTO-less raw params), the
+  `ListMyOrdersDto` trio (`findMine`/`findForDriver`/`findForRestaurant`:
+  `1e30` passes `IsInt`+`@Min(1)`) and `GET /admin/promos/:id/usages`
+  (page had NO bound at all). All three were GENUINE HTTP 500s
+  (22001/22P02 bigint overflow) — reproduced live against the real driver
+  on the pre-fix HEAD build before touching anything.
+- `common/int-range.ts` grew the shared pieces: `MAX_PUBLIC_PAGE`
+  (100k, was file-local to restaurants.service) and `blankToUndefined`
+  (present-but-blank = unset), both now used by EVERY paginated list.
+  reviews/orders/promos services clamp page/limit through
+  `clampToIntRange` (orders ×3 blocks + promos `listUsages` had no
+  service guard at all); blank live params ride the global pipe's
+  Number-coercion to the clamp MIN (documented + smoke-pinned — identical
+  to `/restaurants` since session 84; `blankToUndefined` guards direct
+  service calls).
+- `common/fuzz/query-surface-audit.spec.ts` — the regression gate the
+  roadmap item asked for ("no controller takes an unsanitized public
+  string to the driver"). TypeScript-AST discovery of every `@Query`
+  parameter across all 18 controllers (11 sites found); the registry must
+  match EXACTLY both ways — a new unregistered site fails CI, a deleted
+  site may not leave its claim behind. Each site carries only EXECUTABLE
+  evidence: service-source regexes for the sanitizer/clamp/allowlist
+  idioms (incl. counts — orders must clamp exactly ×3), forbid-regexes
+  (proof never in `where:`), and a class-validator completeness walk over
+  the four query DTOs (every property decorated — the whitelist:true
+  rule, mechanically). Negative-proven: deleting the reviews clamp turns
+  the gate red.
+- Fuzz HTTP harness extended to the sweep surfaces: 150-case reviews
+  pagination sweep (transport never 5xx; recorded the harness lesson
+  that the global pipe Number()-coerces raw `number`-annotated params
+  BEFORE the service — '1' → NaN), 60-case contactEmail sweep (verdict
+  400-or-404 only, wire-form verbatim forwarding pinned), transport-junk
+  bracket/array cases across all of it.
+
+**Verified:**
+
+- `npm run build` green; `npx jest --silent` **89 suites / 1117 tests**
+  (+1 suite / +20 tests over session 86's 88/1097): 4 audit-gate tests,
+  3 new HTTP sweep tests, 6 reviews `it.each` clamp pins, 2 orders
+  hostile pagination pins (skip safe-integer proven), 1 promos usages
+  clamp pin, 4 int-range helper pins.
+- PRE-FIX proof: HEAD build on a scratch DB answered **500** for
+  `?page=1e30` on all three surfaces (reviews/orders-my/promo-usages) —
+  the regression was real, not theoretical.
+- Live smoke **18/18 PASS** on a 26-migration from-empty scratch DB:
+  reviews overflow shapes (1e30/24-digit/Infinity/NaN/2.5/blank) all 200
+  with honest echoes; `/orders/my?page=abc` still 400 at the DTO; guest
+  order created with proof email → NUL-bearing proof 404, real proof 200;
+  admin `?status=%00cancelled` 400 (envelope) then legal transition 200;
+  session-84 combo regression still guarded; **zero 22021/22001/22P02 and
+  zero level-50 pino lines** in the API log.
+- Sanitizer codepoint scan over all 750 added lines: no U+2026, no `***`;
+  `git diff --check` clean. No web changes; e2e untouched.
+
+**Left for next sessions:**
+
+- Body-string write paths (guest checkout address/name, promo code
+  lookups) are the natural next sweep of the same class — this item was
+  scoped to query strings by the roadmap line; the audit gate already
+  enumerates their controllers and could grow disposition checks.
+- Consider surfacing the query-surface registry in docs (ARCHITECTURE now
+  states the contract; the spec file remains the source of truth).
+
 ## 2026-11-13 15:27 — Session 86 — Alert rules on the metrics engine + ADMIN /admin/alerts + scheduler scan (API, Phase 8)
 
 **Built:**

@@ -135,6 +135,29 @@ describe('OrdersService.findMine — pagination + status filter', () => {
     expect(out.limit).toBe(50);
   });
 
+  // Session 87 sweep: `page: 1e30` passes IsInt+Min at the DTO, but the
+  // old `Math.max(1, Number(page) || 1)` bound it straight into OFFSET —
+  // Postgres bigint overflow (22001/22P02) → HTTP 500. Closed range now,
+  // live-proven against the real driver in the session-87 smoke.
+  it('hostile page=1e30 / limit=500 lands on the closed range, never an overflowing OFFSET', async () => {
+    const { service, findAndCount } = build();
+    const out: any = await service.findMine(OWNER_ID, { page: 1e30 as any, limit: 500 as any });
+    const args = (findAndCount as jest.Mock).mock.calls[0][0];
+    expect(out.page).toBe(100_000); // MAX_PUBLIC_PAGE
+    expect(out.limit).toBe(50); // MAX_PAGE_SIZE
+    expect(args.skip).toBe((100_000 - 1) * 50);
+    expect(args.take).toBe(50);
+    expect(Number.isSafeInteger(args.skip)).toBe(true);
+  });
+
+  it('non-finite page/limit collapse to the defaults, not NaN in SQL', async () => {
+    const { service, findAndCount } = build();
+    await service.findMine(OWNER_ID, { page: Number.POSITIVE_INFINITY, limit: NaN });
+    const args = (findAndCount as jest.Mock).mock.calls[0][0];
+    expect(args.skip).toBe(0);
+    expect(args.take).toBe(20);
+  });
+
   it('returns exactly the page slice plus the full total', async () => {
     const rows = Array.from({ length: 12 }, (_, i) =>
       fakeOrder({

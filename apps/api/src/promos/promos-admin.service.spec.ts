@@ -309,6 +309,18 @@ describe('PromosService.listUsages (ADMIN ledger view)', () => {
     expect(out).toMatchObject({ total: 3, page: 2, limit: 1 });
   });
 
+  // Session 87 sweep: page had NO bound at all — `?page=1e30` passed
+  // IsInt+Min and bound `OFFSET ≈ 2e31` (driver 22001/22P02 → 500).
+  it('hostile page=1e30 clamps to MAX_PUBLIC_PAGE instead of overflowing OFFSET', async () => {
+    const { service, usageRepo } = build({ stored: [promo()], ledgerRows: [] });
+    const out = await service.listUsages(P1, { page: 1e30 });
+    const args = usageRepo.findAndCount.mock.calls[0][0];
+    expect(out).toMatchObject({ page: 100_000, limit: 50 });
+    expect(args.skip).toBe((100_000 - 1) * 50);
+    expect(args.take).toBe(50);
+    expect(Number.isSafeInteger(args.skip)).toBe(true);
+  });
+
   it('rows expose only the ledger fields (no relation objects ride along)', async () => {
     const { service } = build({ stored: [promo()], ledgerRows: [row('o-1')] });
     const out = await service.listUsages(P1, {});
