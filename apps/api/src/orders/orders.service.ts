@@ -29,6 +29,7 @@ import { OrderEventsService } from './order-events.service';
 import { PromosService, normalizePromoCode } from '../promos/promos.service';
 import { AddressesService } from '../users/addresses.service';
 import { UsersService } from '../users/users.service';
+import { clampToIntRange, MAX_PUBLIC_PAGE } from '../common/int-range';
 import { isUuid } from '../common/uuid';
 import {
   runStaleOrderSweep,
@@ -468,8 +469,10 @@ export class OrdersService {
    * Returns the same { items, total, page, limit } envelope restaurants.findAll uses.
    */
   async findMine(userId: string, q: ListMyOrdersDto = {}) {
-    const page = Math.max(1, Number(q.page) || 1);
-    const limit = Math.min(MAX_PAGE_SIZE, Math.max(1, Number(q.limit) || DEFAULT_PAGE_SIZE));
+    // Session 87 sweep: bounded clamping, NOT Number() math — a huge page
+    // that passes IsInt used to bind an OFFSET past bigint (driver 500).
+    const page = clampToIntRange(q.page, 1, MAX_PUBLIC_PAGE, 1);
+    const limit = clampToIntRange(q.limit, 1, MAX_PAGE_SIZE, DEFAULT_PAGE_SIZE);
 
     const where: FindOptionsWhere<Order> = { userId };
     if (q.status) where.status = q.status;
@@ -488,8 +491,10 @@ export class OrdersService {
 
   /** Driver inbox: the JWT subject is the assignment scope, never a query input. */
   async findForDriver(driverId: string, q: ListMyOrdersDto = {}) {
-    const page = Math.max(1, Number(q.page) || 1);
-    const limit = Math.min(MAX_PAGE_SIZE, Math.max(1, Number(q.limit) || DEFAULT_PAGE_SIZE));
+    // Session 87 sweep: bounded clamping, NOT Number() math — a huge page
+    // that passes IsInt used to bind an OFFSET past bigint (driver 500).
+    const page = clampToIntRange(q.page, 1, MAX_PUBLIC_PAGE, 1);
+    const limit = clampToIntRange(q.limit, 1, MAX_PAGE_SIZE, DEFAULT_PAGE_SIZE);
     const where: FindOptionsWhere<Order> = { driverId };
     if (q.status) where.status = q.status;
 
@@ -519,8 +524,10 @@ export class OrdersService {
   ) {
     await this.getOwnedRestaurant(restaurantId, actor);
 
-    const page = Math.max(1, Number(q.page) || 1);
-    const limit = Math.min(MAX_PAGE_SIZE, Math.max(1, Number(q.limit) || DEFAULT_PAGE_SIZE));
+    // Session 87 sweep: bounded clamping, NOT Number() math — a huge page
+    // that passes IsInt used to bind an OFFSET past bigint (driver 500).
+    const page = clampToIntRange(q.page, 1, MAX_PUBLIC_PAGE, 1);
+    const limit = clampToIntRange(q.limit, 1, MAX_PAGE_SIZE, DEFAULT_PAGE_SIZE);
 
     const where: FindOptionsWhere<Order> = { restaurantId };
     if (q.status) where.status = q.status;

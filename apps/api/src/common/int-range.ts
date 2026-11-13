@@ -27,3 +27,24 @@ export function clampToIntRange(raw: unknown, min: number, max: number, fallback
   const rounded = Math.round(n);
   return Math.min(max, Math.max(min, rounded));
 }
+
+/**
+ * Ceiling for any `page` a query string may push us to OFFSET. Session 84
+ * pinned it for `/restaurants` (100k pages); a page bound so deep the
+ * computed `OFFSET = (page - 1) * limit` escapes bigint is exactly the
+ * 22001/22P02 class — so EVERY paginated list shares this cap, applied via
+ * clampToIntRange (session 87 sweep: reviews/orders/promos-usages had
+ * unbounded `Number(page)` math and answered 500 for `?page=1e30`).
+ */
+export const MAX_PUBLIC_PAGE = 100_000;
+
+/**
+ * Blank-but-present query values (`?page=`) are "unset" — express hands the
+ * EMPTY STRING and JS would coerce it to 0, silently rewriting a cleared
+ * filter into the minimum bound (or, for limit, into a 1-row page instead of
+ * the default). Every raw-param list route funs its numerics through this
+ * first, THEN clamps (session 84 precedent in restaurants.service.findAll).
+ */
+export function blankToUndefined(raw: unknown): unknown {
+  return typeof raw === 'string' && raw.trim() === '' ? undefined : raw;
+}

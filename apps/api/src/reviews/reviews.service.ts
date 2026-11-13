@@ -12,6 +12,11 @@ import { Restaurant } from '../restaurants/restaurant.entity';
 import { CreateReviewDto } from './dto/create-review.dto';
 import { UpdateReviewDto } from './dto/update-review.dto';
 import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from '../orders/dto/list-my-orders.dto';
+import {
+  blankToUndefined,
+  clampToIntRange,
+  MAX_PUBLIC_PAGE,
+} from '../common/int-range';
 import { isUuid } from '../common/uuid';
 
 /**
@@ -168,8 +173,19 @@ export class ReviewsService {
     const restaurant = await this.restaurants.findOne({ where: { id: restaurantId } });
     if (!restaurant) throw new NotFoundException('Restaurant not found');
 
-    const pageN = Math.max(1, Number(page) || 1);
-    const limitN = Math.min(MAX_PAGE_SIZE, Math.max(1, Number(limit) || DEFAULT_PAGE_SIZE));
+    // Session 87 sanitizer sweep (session 84 class): this route has NO DTO
+    // in front, so `Number(page)` math used to bind hostile values straight
+    // into OFFSET/LIMIT — `?page=1e30` overflowed bigint (22001/22P02 → 500
+    // on a PUBLIC GET), `page=Infinity`/`page=2.5` joined. Same shared guard
+    // as restaurants.findAll: blank-but-present is "unset", everything lands
+    // on a closed integer.
+    const pageN = clampToIntRange(blankToUndefined(page), 1, MAX_PUBLIC_PAGE, 1);
+    const limitN = clampToIntRange(
+      blankToUndefined(limit),
+      1,
+      MAX_PAGE_SIZE,
+      DEFAULT_PAGE_SIZE,
+    );
     const [rows, total] = await this.reviews.findAndCount({
       where: { restaurantId },
       order: { createdAt: 'DESC' },

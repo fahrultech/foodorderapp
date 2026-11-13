@@ -14,6 +14,7 @@ import {
   ListPromoUsagesDto,
   UpdatePromoDto,
 } from './dto/admin-promo.dto';
+import { clampToIntRange, MAX_PUBLIC_PAGE } from '../common/int-range';
 
 export type PromoRejection =
   | 'not_found'
@@ -405,8 +406,16 @@ export class PromosService {
   async listUsages(id: string, query: ListPromoUsagesDto) {
     const exists = await this.promos.countBy({ id });
     if (!exists) throw new NotFoundException('Promo code not found');
-    const page = query.page ?? DEFAULT_PAGE;
-    const limit = query.limit ?? DEFAULT_USAGE_PAGE_SIZE;
+    // Session 87 sweep: page had NO bound at all — `?page=1e30` passed
+    // IsInt+Min and bound an OFFSET past bigint (driver 500). Closed-range
+    // clamping like every other list; bounds mirror the DTO (@Max(200)).
+    const page = clampToIntRange(query.page, 1, MAX_PUBLIC_PAGE, DEFAULT_PAGE);
+    const limit = clampToIntRange(
+      query.limit,
+      1,
+      200,
+      DEFAULT_USAGE_PAGE_SIZE,
+    );
     const [rows, total] = await this.usages.findAndCount({
       where: { promoId: id },
       order: { createdAt: 'DESC' },

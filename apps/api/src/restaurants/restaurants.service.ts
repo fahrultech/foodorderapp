@@ -14,7 +14,11 @@ import { UpdateRestaurantHoursDto } from './dto/restaurant-hours.dto';
 import { isOpenAt, isValidTimeZone, serverTimeZone, TIME_RE } from './open-hours';
 import { escapeLike } from '../common/like-escape';
 import { sanitizeQueryText } from '../common/query-sanitizer';
-import { clampToIntRange } from '../common/int-range';
+import {
+  blankToUndefined,
+  clampToIntRange,
+  MAX_PUBLIC_PAGE,
+} from '../common/int-range';
 import { UserRole } from '../users/user.entity';
 import { isUuid } from '../common/uuid';
 import { City } from '../cities/city.entity';
@@ -36,13 +40,6 @@ export interface RestaurantHoursView {
   days: RestaurantHours[];
   isOpenNow: boolean;
 }
-
-/**
- * Hard ceiling for public `page` requests: OFFSET = (page-1)*limit tops out
- * at 100k rows deep — far beyond any real browse session, safely inside
- * bigint, and it makes a hostile `page=1e23` a boring empty page.
- */
-const MAX_PUBLIC_PAGE = 100_000;
 
 @Injectable()
 export class RestaurantsService {
@@ -102,9 +99,10 @@ export class RestaurantsService {
     // the one honest guard for a route with no DTO in front of it.
     // A PRESENT-BUT-BLANK param (`?limit=`) is "unset" — exactly the old
     // `Number(q.limit) || fallback` semantics for the common shapes.
-    const num = (v: unknown) => (typeof v === 'string' && v.trim() === '' ? undefined : v);
-    const page = clampToIntRange(num(q.page), 1, MAX_PUBLIC_PAGE, 1);
-    const limit = clampToIntRange(num(q.limit), 1, 50, 20);
+    // (blankToUndefined now lives in common/int-range for every raw-param
+    // list route to share — session 87 sweep.)
+    const page = clampToIntRange(blankToUndefined(q.page), 1, MAX_PUBLIC_PAGE, 1);
+    const limit = clampToIntRange(blankToUndefined(q.limit), 1, 50, 20);
     // Session 84 fuzz gate (Phase 7): the public list route reads RAW query
     // params — no DTO in front. A NUL byte (`search=war%00ung`) or a lone
     // surrogate survives MinLength/trim and makes Postgres throw 22021 →
