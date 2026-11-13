@@ -4,6 +4,79 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
+## 2026-11-13 15:27 — Session 86 — Alert rules on the metrics engine + ADMIN /admin/alerts + scheduler scan (API, Phase 8)
+
+**Built:**
+
+- `src/ops/alerts.ts` — DI-free alert engine over the session-80 metrics
+  snapshot, one evaluation shared by EVERY consumer so the route, the logs
+  and cron can never disagree. Three rules: `error_budget` (5xx rate vs the
+  99.5% availability SLO → 0.5% budget, fires STRICTLY above, gated by a
+  `minRequests` sample floor so a lone 5xx on a fresh boot is noise, not
+  an outage), `p95_latency` (global histogram-estimated p95 vs a ceiling —
+  nearest-bound estimates are documented to fire early by one bound), and
+  `route_key_overflow` (the 250-key cardinality cap folded new keys into
+  `other`; a WARNING that still flips the verdict — degraded telemetry
+  deserves a look). Thresholds resolve from `ALERT_5XX_RATE_PCT_MAX` /
+  `ALERT_P95_MS_MAX` / `ALERT_MIN_REQUESTS` once at boot with the
+  observability-knob policy (garbage/negative → default, never crash-boot;
+  `0` is a LEGAL tightened ceiling — the chain can be proven end to end
+  without shipping an insecure default). Declared in `env.validation.ts`.
+- ADMIN `GET /api/admin/alerts` (`JwtAuthGuard` + `RolesGuard(ADMIN)`, same
+  rung as `/admin/metrics`): full report — status, firingRules, resolved
+  thresholds, and every rule's `{firing, severity, observed, threshold,
+  detail}` with human-readable numbers. Swagger contract
+  `AdminAlertsReportResponse` mirror + round-trip fixture pin; OpenAPI op
+  count 73 → 74 (both swagger.spec lists extended).
+- Fold line carries the verdict: every periodic `event: "request_metrics"`
+  pino line now includes compact `alerts: {status, firing}` — a log-based
+  alerter needs no second rule engine.
+- Scheduler precedent (stale-sweep style): `src/scripts/alert-scan.ts`
+  polls login → `GET /admin/alerts` against the RUNNING API (the registry
+  has no DB mirror — snapshot durability stays the next Ops item) with a
+  deliberate exit-code split: `0 healthy · 1 alerting · 2 the SCAN is
+  broken` — "building on fire" and "smoke detector broken" must not page
+  the same way. Thin `ops/alert-scan.sh` + `ops/systemd/` unit examples
+  `foodorder-alert-scan.{service,timer}` (5-min timer, `OnFailure=` hook
+  documented; creds via EnvironmentFile, never in the unit). ARCHITECTURE
+  metrics section rewritten to record the engine + three consumers.
+
+**Verified:**
+
+- `npm run build` green; `npx jest --silent` **88 suites / 1097 tests** all
+  pass (+2 suites / +33 tests over session 84's 86/1064): 24 evaluator
+  tests run against REAL `RequestMetricsRegistry` snapshots (boundary pins:
+  exactly-at-budget quiet, strictly-above fires, min-sample gate observed=
+  null, histogram floor arithmetic 10ms@p95=10), 10 scan classification
+  tests (stubbed fetch: creds-missing/401/403/transport/shape/unknown-status
+  all exit 2, never 1), 2 admin-controller tests (guards + full-report
+  round-trip), 1 integration test proving the fold and `service.alerts()`
+  report the SAME verdict off one engine.
+- Live smoke **41/41 PASS** on a from-empty 26-migration scratch DB across
+  THREE boots (`/tmp` scratchpad, port fail-fast + per-boot logs): boot A
+  defaults — 401/403/200 ladder, thresholds echo `0.5/1000/50`, budget
+  unevaluable below sample floor, fold line `{status:ok, firing:[]}`,
+  docs-json registers `/api/admin/alerts` (ref + 401/403), scan exits 0
+  healthy / 2 no-creds / 2 dead-API (NOT 1); boot B tightened — genuine
+  500 by `DROP DATABASE ... WITH (FORCE)` under the live pool →
+  `error_budget` fires ALONE on the route with a real observed rate, fold
+  flips to `alerting`, and after recreating + re-seeding the DB the scan
+  exits 1 (cumulative verdict survives recovery — exactly the documented
+  since-boot semantics); boot C — 260 distinct unmatched paths →
+  `route_key_overflow` fires alone (observed 250 = cap, severity warning,
+  budget provably quiet on an all-4xx flood), scan exits 1 naming it.
+- No web changes; e2e suite untouched by this increment.
+
+**Left for next sessions:**
+
+- Snapshot durability (next Phase 8 Ops item) — alert verdicts inherit the
+  cumulative-since-boot semantics; once windows exist, add windowed rule
+  variants and a `/admin/alerts?window=` surface.
+- Web: a verdict badge on the admin TrafficPanel (session 85) — the route
+  is live and typed, the panel just doesn't read it yet.
+- The scan needs a dedicated ADMIN service account on real hosts; only the
+  seeded admin fixture was exercised here.
+
 ## 2026-11-13 13:45 — Session 85 — Error-budget traffic panel on the admin overview (Web, Phase 7)
 
 **Built:**

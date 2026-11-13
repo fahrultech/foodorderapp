@@ -462,7 +462,19 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   `event: "request_metrics"` every `METRICS_LOG_INTERVAL_SEC` (default 60,
   `0` disables the fold, garbage falls back to default — never crashes boot)
   and pull-based ADMIN `GET /admin/metrics`. Snapshots are cumulative
-  since boot by design; alerting computes deltas between fold lines.
+  since boot by design. On top of them sits the DI-free alert engine
+  `ops/alerts.ts` (session 86): three rules — `error_budget` (5xx rate vs
+  the 99.5% availability SLO, gated by a minimum sample), `p95_latency`
+  (histogram estimate vs ceiling) and `route_key_overflow` (cardinality-cap
+  folding, a warning) — evaluated from env-resolved thresholds
+  (`ALERT_5XX_RATE_PCT_MAX` / `ALERT_P95_MS_MAX` / `ALERT_MIN_REQUESTS`,
+  read once at boot; garbage falls back, never crash-boots). ONE engine,
+  three consumers that can never disagree: ADMIN pull route
+  `GET /admin/alerts` (full report), the compact `{status, firing}` verdict
+  folded into every `request_metrics` line (push), and the scheduler poller
+  `ops/alert-scan.sh` → `src/scripts/alert-scan.ts` whose exit codes split
+  `0 healthy · 1 alerting · 2 scan broken` so a broken smoke detector never
+  pages like a fire. systemd examples: `ops/systemd/foodorder-alert-scan.*`.
 - **Rate limiting (in-house guard, no dependency)** — sliding-window log per
   client IP over an in-memory store (`src/common/rate-limit/`). Opt-in per
   route via `@RateLimit('auth'|'orders')` + `RateLimitGuard` (guarded as the
