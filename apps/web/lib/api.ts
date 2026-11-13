@@ -364,6 +364,37 @@ export interface SafeUser {
   updatedAt: string;
 }
 
+/**
+ * Top level of `GET /users/me/export` (schemaVersion 1). Only the parts the
+ * /account page reasons about are typed precisely; the payload is rendered
+ * straight into the downloaded JSON, so the rest stays deliberately loose
+ * and honest rather than a second source of truth next to
+ * apps/api/src/users/account-data.service.ts.
+ */
+export interface AccountExport {
+  schemaVersion: number;
+  generatedAt: string;
+  profile: SafeUser;
+  addresses: unknown[];
+  favorites: unknown[];
+  orders: unknown[];
+  paymentsMade: unknown[];
+  reviews: unknown[];
+  ownedRestaurants: unknown[];
+  driverAssignments: unknown[];
+  refundsIssued: unknown[];
+  sessions: unknown[];
+  pushSubscriptions: unknown[];
+}
+
+/** Response of `DELETE /users/me` — what the deletion actually touched. */
+export interface AccountDeleteResult {
+  deleted: boolean;
+  anonymizedOrders: number;
+  detachedRestaurants: number;
+  unassignedOrders: number;
+}
+
 /** Response of register/login/refresh — one auth session. */
 export interface Session {
   access_token: string;
@@ -780,6 +811,29 @@ export const api = {
       method: 'DELETE',
       headers: bearer(accessToken),
       body: JSON.stringify({ endpoint }),
+    }),
+
+  // --- GDPR self-service (API shipped session 63; this is the in-app surface) ---
+  /**
+   * Full personal-data export (`GET /users/me/export`). The payload is an
+   * explicit server-side allowlist (schemaVersion 1): profile, addresses,
+   * favorites, orders, payments, reviews, owned restaurants, driver work,
+   * refund ledger, session metadata, push endpoints. Password hashes, token
+   * material and client secrets can never appear in it.
+   */
+  exportMe: (accessToken: string) =>
+    request<AccountExport>('/users/me/export', { headers: bearer(accessToken) }),
+  /**
+   * Irreversible account deletion (`DELETE /users/me`, 200). Requires the
+   * CURRENT password and the exact confirmation string 'DELETE'. The server
+   * anonymizes retained order snapshots, detaches owned restaurants and
+   * cascades every refresh session — callers must clear local state too.
+   */
+  deleteMe: (accessToken: string, payload: { password: string; confirmation: 'DELETE' }) =>
+    request<AccountDeleteResult>('/users/me', {
+      method: 'DELETE',
+      headers: bearer(accessToken),
+      body: JSON.stringify(payload),
     }),
 
   // --- customer delivery address book ---

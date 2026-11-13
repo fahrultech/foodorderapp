@@ -114,6 +114,12 @@ export default function Header({
                 {t('addresses')}
               </Link>
               <Link
+                href="/account"
+                className={pathname.startsWith('/account') ? 'font-semibold text-brand-600' : 'hidden text-stone-600 hover:text-stone-900 xl:inline'}
+              >
+                {t('account')}
+              </Link>
+              <Link
                 href="/orders/my"
                 className={pathname.startsWith('/orders') ? 'font-semibold text-brand-600' : 'text-stone-600 hover:text-stone-900'}
               >
