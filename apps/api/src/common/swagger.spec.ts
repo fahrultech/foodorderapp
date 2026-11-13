@@ -222,6 +222,7 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['/notifications/push/subscriptions', 'delete'],
       ['/admin/overview', 'get'],
       ['/admin/metrics', 'get'],
+      ['/admin/alerts', 'get'],
       ['/admin/promos', 'get'],
       ['/admin/promos', 'post'],
       ['/admin/promos/{id}', 'patch'],
@@ -272,6 +273,7 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['/notifications/push/subscriptions', 'delete'],
       ['/admin/overview', 'get'],
       ['/admin/metrics', 'get'],
+      ['/admin/alerts', 'get'],
       ['/admin/promos', 'get'],
       ['/admin/promos', 'post'],
       ['/admin/promos/{id}', 'patch'],
@@ -428,13 +430,14 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['/notifications/push/subscriptions', 'delete', 200, 'ref:PushUnsubscribeResponse'],
       ['/admin/overview', 'get', 200, 'ref:AdminOverviewResponse'],
       ['/admin/metrics', 'get', 200, 'ref:AdminMetricsSnapshotResponse'],
+      ['/admin/alerts', 'get', 200, 'ref:AdminAlertsReportResponse'],
       ['/admin/promos', 'get', 200, 'ref:AdminPromoListResponse'],
       ['/admin/promos', 'post', 201, 'ref:AdminPromoResponse'],
       ['/admin/promos/{id}', 'patch', 200, 'ref:AdminPromoResponse'],
       ['/admin/promos/{id}/usages', 'get', 200, 'ref:PromoUsageListResponse'],
       ['/search', 'get', 200, 'ref:SearchResultsResponse'],
     ];
-    expect(SUCCESS.length).toBe(73);
+    expect(SUCCESS.length).toBe(74);
     for (const [path, method, code, kind] of SUCCESS) {
       const res = doc.paths[P(path)]?.[method]?.responses?.[String(code)];
       if (!res) throw new Error(`${method} ${path}: no ${code} response documented`);
@@ -523,6 +526,7 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['/notifications/push/subscriptions', 'delete', [400, 401]],
       ['/admin/overview', 'get', [401, 403]],
       ['/admin/metrics', 'get', [401, 403]],
+      ['/admin/alerts', 'get', [401, 403]],
       ['/admin/promos', 'get', [401, 403]],
       ['/admin/promos', 'post', [400, 401, 403, 409]],
       ['/admin/promos/{id}', 'patch', [400, 401, 403, 404, 409]],

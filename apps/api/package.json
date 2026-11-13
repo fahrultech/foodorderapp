@@ -13,6 +13,7 @@
     "db:stamp-baseline": "ts-node -r tsconfig-paths/register src/database/stamp-baseline.ts",
     "cancel-stale": "ts-node -r tsconfig-paths/register src/scripts/cancel-stale.ts",
     "restock-repair": "ts-node -r tsconfig-paths/register src/scripts/restock-repair.ts",
+    "alert-scan": "ts-node -r tsconfig-paths/register src/scripts/alert-scan.ts",
     "test": "jest",
     "lint": "eslint src --ext .ts"
   },

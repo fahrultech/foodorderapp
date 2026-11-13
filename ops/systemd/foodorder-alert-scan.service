@@ -1,0 +1,39 @@
+# systemd unit EXAMPLES for the FoodOrder alert scan (not installed —
+# copy to /etc/systemd/system/ and adjust paths for your host).
+#
+#   sudo cp ops/systemd/foodorder-alert-scan.{service,timer} /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now foodorder-alert-scan.timer
+#   systemctl list-timers foodorder-alert-scan.timer   # next fire
+#
+# The service polls GET /api/admin/alerts on the RUNNING API (ops/alert-scan.sh
+# → src/scripts/alert-scan.ts) and exits 1 when any rule fires, 2 when the
+# scan itself is broken. Wire the NOTIFICATIONS:
+#   - classic cron:            MAILTO on the crontab entry
+#   - systemd (used here):     OnFailure= fires a notifier unit of your choice
+#                              (mail, webhook-to-pager, ...) — see [Unit].
+#
+# ALERT_SCAN_EMAIL / ALERT_SCAN_PASSWORD (+ optional ALERT_SCAN_BASE_URL /
+# ALERT_SCAN_TIMEOUT_MS) live in the api env file; credentials are NEVER
+# stored in this unit.
+# Exit 1 (building on fire) and exit 2 (smoke detector broken) both trigger
+# OnFailure= (add yours to [Unit] below, e.g. OnFailure=alert-notify@%n.service)
+# but are distinguishable in the journal and in the unit's log line, so paging
+# policy can differ downstream.
+
+[Unit]
+Description=FoodOrder alert scan — evaluate ops/alerts rules against the live API
+After=network-online.target
+Wants=network-online.target
+# OnFailure=alert-notify@%n.service   # <- plug your transport unit here
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/ubuntu/foodorderapp
+EnvironmentFile=-/home/ubuntu/foodorderapp/apps/api/.env
+ExecStart=/home/ubuntu/foodorderapp/ops/alert-scan.sh
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=timers.target

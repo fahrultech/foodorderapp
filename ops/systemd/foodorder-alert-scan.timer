@@ -1,0 +1,16 @@
+[Unit]
+Description=FoodOrder alert scan timer (every 5 min)
+
+[Timer]
+# Fires a read-only poll of GET /api/admin/alerts — cheap enough for 5 min,
+# fast enough that an SLO breach is seen inside one fold interval
+# (METRICS_LOG_INTERVAL_SEC defaults to 60s, so the verdict is at most one
+# fold stale anyway). Persistent=true catches up after host downtime: an
+# outage window during a reboot must still surface an alert verdict.
+OnBootSec=3min
+OnUnitActiveSec=5min
+RandomizedDelaySec=30
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -11,6 +11,7 @@ import { Roles } from '../common/roles.decorator';
 import { RolesGuard } from '../common/roles.guard';
 import { UserRole } from '../users/user.entity';
 import { AdminMetricsSnapshotResponse } from './admin-metrics.response';
+import { AdminAlertsReportResponse } from './admin-alerts.response';
 import { AdminOverviewResponse } from './admin.response';
 import { AdminService } from './admin.service';
 import { RequestMetricsService } from '../common/metrics/request-metrics.service';
@@ -56,5 +57,25 @@ export class AdminController {
   @ApiError(403, 'Valid token but role is not ADMIN.')
   metricsSnapshot() {
     return this.metrics.snapshot();
+  }
+
+  @Get('alerts')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Current alert state',
+    description:
+      'The ops/alerts rule engine evaluated against the LIVE metrics snapshot: error_budget ' +
+      '(5xx rate vs the 99.5% availability SLO), p95_latency (histogram estimate vs ceiling) ' +
+      'and route_key_overflow (cardinality-cap folding, a warning). Cumulative-since-boot ' +
+      'totals inherited from GET /admin/metrics; the periodic `request_metrics` fold line ' +
+      'carries the same verdict compactly. ADMIN only.',
+  })
+  @ApiOkResponse({ type: AdminAlertsReportResponse })
+  @ApiError(401, 'Missing/invalid/expired access token.')
+  @ApiError(403, 'Valid token but role is not ADMIN.')
+  alerts() {
+    return this.metrics.alerts();
   }
 }

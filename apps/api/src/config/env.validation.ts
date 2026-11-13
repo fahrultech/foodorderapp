@@ -160,6 +160,26 @@ export class EnvVars {
   @IsString()
   METRICS_LOG_INTERVAL_SEC?: string;
 
+  // ── Ops alert thresholds (optional) ──────────────────────────────────────
+  // Read ONCE at boot by RequestMetricsService, drive the SAME evaluator for
+  // GET /admin/alerts and the `request_metrics` fold verdict (session 86).
+  // Unset/garbage/negative falls back to the default per knob — an
+  // observability typo must never crash boot. 0 is legal for both ceilings
+  // (0.5 → 0 = "any 5xx alerts"; p95 0 = "alert on the histogram floor").
+  @IsOptional()
+  @IsString()
+  ALERT_5XX_RATE_PCT_MAX?: string;
+
+  @IsOptional()
+  @IsString()
+  ALERT_P95_MS_MAX?: string;
+
+  // Minimum total requests before the error_budget rule is evaluated
+  // (default 50 — a lone 5xx on a fresh boot is noise, not an outage).
+  @IsOptional()
+  @IsString()
+  ALERT_MIN_REQUESTS?: string;
+
   // ── Rate limiting (all optional) ─────────────────────────────────────────
   @IsOptional()
   @IsString()

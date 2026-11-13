@@ -20,6 +20,7 @@ describe('AdminController HTTP', () => {
   let jwt: JwtService;
   const overview = jest.fn();
   const snapshot = jest.fn();
+  const alerts = jest.fn();
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({
@@ -27,7 +28,7 @@ describe('AdminController HTTP', () => {
       controllers: [AdminController],
       providers: [
         { provide: AdminService, useValue: { overview } },
-        { provide: RequestMetricsService, useValue: { snapshot } },
+        { provide: RequestMetricsService, useValue: { snapshot, alerts } },
         JwtAuthGuard,
         RolesGuard,
         Reflector,
@@ -49,6 +50,7 @@ describe('AdminController HTTP', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     overview.mockResolvedValue({ counts: {}, recentUsers: [], recentRestaurants: [], recentOrders: [] });
+    alerts.mockReturnValue(ALERTS_FIXTURE);
   });
 
   const token = (role: UserRole) =>
@@ -162,5 +164,61 @@ describe('AdminController HTTP', () => {
     expect(res.status).toBe(200);
     expect(res.body).toEqual(METRICS_FIXTURE);
     expect(snapshot).toHaveBeenCalledTimes(1);
+  });
+
+  // --- GET /admin/alerts (ops/alerts rule engine route, session 86) ---
+
+  // Mirrors AlertReport from src/ops/alerts.ts EXACTLY — same round-trip
+  // contract style as METRICS_FIXTURE above.
+  const ALERTS_FIXTURE = {
+    generatedAt: '2026-11-13T06:00:00.000Z',
+    uptimeSec: 3600,
+    status: 'alerting',
+    firingRules: ['error_budget'],
+    thresholds: { fiveXxRatePctMax: 0.5, p95MsMax: 1000, minRequests: 50 },
+    rules: [
+      {
+        id: 'error_budget',
+        firing: true,
+        severity: 'error',
+        observed: 1.25,
+        threshold: 0.5,
+        detail: '5xx rate 1.25% exceeds the 0.5% budget (10 of 800 requests)',
+      },
+      {
+        id: 'p95_latency',
+        firing: false,
+        severity: 'error',
+        observed: 25,
+        threshold: 1000,
+        detail: 'p95 estimate 25ms within the 1000ms ceiling',
+      },
+      {
+        id: 'route_key_overflow',
+        firing: false,
+        severity: 'warning',
+        observed: 12,
+        threshold: 250,
+        detail: '12 distinct route keys, cap 250',
+      },
+    ],
+  };
+
+  it('rejects anonymous + non-admin callers of /admin/alerts before the evaluator', async () => {
+    const anon = await get(undefined, '/api/admin/alerts');
+    expect(anon.status).toBe(401);
+    expect(anon.body.error.code).toBe('UNAUTHORIZED');
+
+    const customer = await get(`Bearer ${token(UserRole.CUSTOMER)}`, '/api/admin/alerts');
+    expect(customer.status).toBe(403);
+    expect(customer.body.error.code).toBe('FORBIDDEN');
+    expect(alerts).not.toHaveBeenCalled();
+  });
+
+  it('returns the full alert report verbatim to admins', async () => {
+    const res = await get(`Bearer ${token(UserRole.ADMIN)}`, '/api/admin/alerts');
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual(ALERTS_FIXTURE);
+    expect(alerts).toHaveBeenCalledTimes(1);
   });
 });

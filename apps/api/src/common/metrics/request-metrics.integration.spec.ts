@@ -110,8 +110,11 @@ describe('request metrics — live middleware chain', () => {
     root = createRootLogger({ level: 'debug', stream });
 
     // interval 0: no periodic timer in the test process; logSnapshot() is
-    // exercised directly below.
-    metricsService = new RequestMetricsService({ get: () => '0' } as unknown as ConfigService);
+    // exercised directly below. ALERT_* stay UNSET so the alert engine runs
+    // on its shipped defaults (0.5% / 1000ms / min 50) in every fold test.
+    metricsService = new RequestMetricsService({
+      get: (key: string) => (key === 'METRICS_LOG_INTERVAL_SEC' ? '0' : undefined),
+    } as unknown as ConfigService);
     registry = metricsService.registry;
 
     const moduleRef = await Test.createTestingModule({
@@ -217,6 +220,43 @@ describe('request metrics — live middleware chain', () => {
     expect(fold.metrics.totals.requests).toBe(1);
     expect(fold.metrics.boundsMs.length).toBeGreaterThan(0);
     expect(fold.metrics.routes[0].route).toBe('GET /api/probe/ok');
+  });
+
+  it('fold line carries the compact alert verdict from the SAME engine as /admin/alerts', async () => {
+    // Healthy single request: budget below the min sample, p95 far under
+    // 1000ms, no overflow → ok with an empty firing list.
+    await request(app, 'GET', '/api/probe/ok');
+    await drain();
+    lines.length = 0;
+    expect(metricsService.alertThresholds).toEqual({
+      fiveXxRatePctMax: 0.5,
+      p95MsMax: 1000,
+      minRequests: 50,
+    });
+    metricsService.logSnapshot();
+    await drain();
+    expect(lines).toHaveLength(1);
+    expect(lines[0].event).toBe('request_metrics');
+    expect(lines[0].alerts).toEqual({ status: 'ok', firing: [] });
+
+    // Burn the budget on the SHARED registry: 1 x 500 in a 51-request
+    // sample = 1.96% > 0.5%. The fold and service.alerts() must agree —
+    // one engine, two consumers (GET /admin/alerts calls the same code).
+    for (let i = 0; i < 50; i++) registry.record('GET /api/probe/ok', 200, 10);
+    registry.record('GET /api/probe/boom', 500, 10);
+    lines.length = 0;
+    metricsService.logSnapshot();
+    await drain();
+    expect(lines[0].alerts).toEqual({ status: 'alerting', firing: ['error_budget'] });
+    const report = metricsService.alerts();
+    expect(report.status).toBe('alerting');
+    expect(report.firingRules).toEqual(['error_budget']);
+    const eb = report.rules.find((x) => x.id === 'error_budget')!;
+    // 1/52 ≈ 1.92% — assert the band, not the exact rounding, so one
+    // stray probe sample cannot false-fail the fold contract.
+    expect(eb.observed!).toBeGreaterThan(0.5);
+    expect(eb.observed!).toBeLessThan(10);
+    expect(eb.detail).toContain('budget');
   });
 
   it('service ctor honours the interval knob: 0 = no timer, 5 = 5s', () => {
