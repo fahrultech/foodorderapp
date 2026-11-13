@@ -4,8 +4,9 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { useAuth } from '@/lib/auth';
 import { authedCall } from '@/lib/authed-call';
-import { AdminOverview, api, formatPrice } from '@/lib/api';
+import { AdminOverview, api, formatPrice, MetricsSnapshot } from '@/lib/api';
 import StatusBadge from '@/components/StatusBadge';
+import TrafficPanel from '@/components/TrafficPanel';
 
 function formatDate(iso: string): string {
   try {
@@ -41,6 +42,8 @@ function CountCard({
 export default function AdminPage() {
   const { status, user, getAccessToken, logout } = useAuth();
   const [data, setData] = useState<AdminOverview | null>(null);
+  const [metrics, setMetrics] = useState<MetricsSnapshot | null>(null);
+  const [metricsError, setMetricsError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
@@ -55,11 +58,19 @@ export default function AdminPage() {
     let alive = true;
     setLoading(true);
     setError(null);
+    setMetricsError(null);
     void (async () => {
-      const result = await authedCall(getAccessToken, logout, (token) => api.adminOverview(token));
+      // Overview failure keeps the existing banner semantics; a metrics-only
+      // failure never blanks the tables — it degrades the traffic section.
+      const [overviewResult, metricsResult] = await Promise.all([
+        authedCall(getAccessToken, logout, (token) => api.adminOverview(token)),
+        authedCall(getAccessToken, logout, (token) => api.adminMetrics(token)),
+      ]);
       if (!alive) return;
-      if (result.ok) setData(result.data);
-      else if (result.kind === 'error') setError(result.message);
+      if (overviewResult.ok) setData(overviewResult.data);
+      else if (overviewResult.kind === 'error') setError(overviewResult.message);
+      if (metricsResult.ok) setMetrics(metricsResult.data);
+      else if (metricsResult.kind === 'error') setMetricsError(metricsResult.message);
       setLoading(false);
     })();
     return () => {
@@ -144,6 +155,17 @@ export default function AdminPage() {
               testId="admin-count-orders"
             />
           </section>
+
+          <div className="mt-10">
+            {metrics ? (
+              <TrafficPanel snapshot={metrics} />
+            ) : metricsError ? (
+              <div role="alert" className="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-amber-800" data-testid="traffic-load-error">
+                <p className="font-bold">Traffic metrics could not be loaded.</p>
+                <p className="mt-1 text-sm">{metricsError}</p>
+              </div>
+            ) : null}
+          </div>
 
           <section className="mt-10">
             <h2 className="text-xl font-black text-stone-900">Recent users</h2>

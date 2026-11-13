@@ -425,6 +425,54 @@ export interface AdminOverview {
   }>;
 }
 
+/**
+ * Response contract of GET /admin/metrics — mirrors MetricsSnapshot in
+ * apps/api/src/common/metrics/request-metrics.ts EXACTLY (the API pins the
+ * round-trip in admin.controller.spec; renamed fields fail there first).
+ * Percentile values are histogram BOUND estimates: always >= the true
+ * latency, never below the previous bound. Cumulative since API boot.
+ */
+export type MetricsStatusClass = '2xx' | '3xx' | '4xx' | '5xx';
+
+export interface MetricsStatusCounts {
+  '2xx': number;
+  '3xx': number;
+  '4xx': number;
+  '5xx': number;
+}
+
+export interface MetricsRouteRow {
+  route: string;
+  requests: number;
+  byStatus: MetricsStatusCounts;
+  sumMs: number;
+  avgMs: number;
+  minMs: number;
+  maxMs: number;
+  p50Ms: number | null;
+  p95Ms: number | null;
+  p99Ms: number | null;
+  histogram: Array<{ leMs: number | null; count: number }>;
+}
+
+export interface MetricsSnapshot {
+  generatedAt: string;
+  uptimeSec: number;
+  boundsMs: number[];
+  totals: {
+    requests: number;
+    byStatus: MetricsStatusCounts;
+    routeKeys: number;
+    overflowed: boolean;
+    avgMs: number | null;
+    p50Ms: number | null;
+    p95Ms: number | null;
+    p99Ms: number | null;
+    maxMs: number | null;
+  };
+  routes: MetricsRouteRow[];
+}
+
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api';
 export { API_URL };
 
@@ -563,6 +611,10 @@ export const api = {
   /** Read-only platform totals plus newest users, restaurants and orders. ADMIN only. */
   adminOverview: (accessToken: string) =>
     request<AdminOverview>('/admin/overview', { headers: bearer(accessToken) }),
+  /** In-process request-metrics snapshot (route totals, status classes,
+   *  histogram latency). ADMIN only; cumulative since the API process booted. */
+  adminMetrics: (accessToken: string) =>
+    request<MetricsSnapshot>('/admin/metrics', { headers: bearer(accessToken) }),
 
   // --- owner portal ---
   /** Restaurants owned by the signed-in owner (GET /restaurants/mine). */
