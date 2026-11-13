@@ -4,6 +4,66 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
+## 2026-11-13 13:45 — Session 85 — Error-budget traffic panel on the admin overview (Web, Phase 7)
+
+**Built:**
+
+- Unlocked + shipped the Phase 7 stub item ("error-budget dashboard stub —
+  wire the metrics route"): session 80's `GET /api/admin/metrics` finally
+  has a UI. SCOPE CORRECTION: the roadmap line said "owner analytics page",
+  but the metrics route is ADMIN-only platform telemetry (route templates +
+  latency, no per-restaurant scoping) — putting it behind an OWNER bearer
+  would either 403 or leak global traffic. The cards therefore live on the
+  `/admin` overview, which is the role the route already serves.
+- `TrafficPanel` (`components/TrafficPanel.tsx`): four cards + a per-route
+  table over the live snapshot. Requests (route-key count + cardinality-cap
+  flag), Latency p95 (p50/p99/max beside it, labeled histogram estimates),
+  Server errors (5xx count + 4xx tally, with the note that 4xx does NOT
+  burn the budget), Error budget (99.5% availability SLO → 0.5 pts of 5xx
+  allowed; `computeErrorBudget` exported for pure-math review: consumed %
+  can exceed 100, remaining clamps at 0, empty registry renders "—" not
+  division by zero). Table shows the top 15 of ≤251 route keys with a
+  hidden-rows note; `sr-only` caption + `scope="col"` headers.
+- Honest-by-construction wording: "Cumulative since API boot" + uptime +
+  snapshot time on every panel — the registry has no time windows, so the
+  UI never implies one.
+- `/admin` page fetches overview + metrics with `Promise.all` of two
+  `authedCall`s; a metrics-only failure degrades the traffic section to its
+  own amber alert and NEVER blanks the existing tables (overview banner
+  semantics untouched, keeping `admin.spec` contract).
+- Client contract types `MetricsSnapshot`/`MetricsRouteRow` in `lib/api.ts`
+  mirror `common/metrics/request-metrics.ts` exactly; the API-side
+  round-trip pin in `admin.controller.spec` fails first on any rename.
+
+**Verified:**
+
+- `apps/web` `npm run build` green (no API source touched — jest suite
+  unchanged at 86/1064 from session 84; `apps/api` rebuilt for the smoke boot).
+- Live curl smoke against a hand-booted API: `POST /auth/login` 201 →
+  `GET /admin/metrics` 200; 9 tracked requests / 5 route keys; `GET
+  /api/restaurants/:id` row carried `4xx:1` from a deliberate malformed-uuid
+  GET; the `/api/health` probes and the raw `not-a-uuid` segment never
+  appeared in any route key; no-token request → 401.
+- New e2e `admin-traffic.spec.ts` (2 tests): cards cross-checked against the
+  payload THE PAGE RECEIVED via `waitForResponse` (shape-based on purpose —
+  counts are cumulative-since-boot, so no absolute-number assertions), the
+  payload's busiest route row rendered, template-only keys + health
+  exclusion asserted, login POST proven tracked.
+- Full Playwright suite 47/47 GREEN TWICE (45→47) on fresh seeds — run 2
+  re-seeded per the suite contract; webServer booted both apps itself with
+  the raised auth bucket (ports freed before each run, no hand-boot reuse).
+
+**Left for next session:**
+
+- The locked payment-adapter items still need real Stripe/Xendit API keys.
+- Traffic cards are ADMIN-only by design; if owners ever get traffic, the
+  honest shape is per-restaurant request counts (a registry extension), not
+  this global snapshot.
+- Possible follow-up: the k6 authenticated profile could sample
+  `/admin/metrics` p95 drift as a guard rail; the alerts evergreen loop now
+  has data AND a viewer — an alert RULE (5xx threshold → notify) is the
+  natural next Ops item.
+
 ## 2026-11-13 10:09 — Session 84 — Property-based fuzz gate: public search/list params (API, Phase 7)
 
 **Built:**
