@@ -16,7 +16,8 @@ export const SEARCH_MAX_LIMIT = 25;
  */
 export { escapeLike } from '../common/like-escape';
 import { escapeLike } from '../common/like-escape';
-
+import { sanitizeQueryText } from '../common/query-sanitizer';
+import { clampToIntRange } from '../common/int-range';
 /**
  * Relevance = trigram similarity of the whole name plus the best WORD
  * word similarity across the searchable fields (`word_similarity(query, text)` —
@@ -121,15 +122,23 @@ export class SearchService {
   ) {}
 
   async search(q: string, rawLimit?: number) {
-    const query = (q ?? '').trim();
+    // Last-gate defense (session 84): the DTO already sanitizes, but the
+    // service is callable directly (and by future routes) — illegal
+    // codepoints must never reach the driver either way. Delete-only keeps
+    // the emitted statement shape constant for every input.
+    const query = sanitizeQueryText(q);
     if (!query) throw new BadRequestException('q must not be empty');
     // ONLY an absent/unparseable limit falls back to the default; a present
     // 0/negative is clamped to 1, never silently re-read as "unset".
+    // clampToIntRange (session 84): a fractional/Infinity raw value must be
+    // an INTEGER before the driver sees it — LIMIT binds as bigint and
+    // "2.5"/"Infinity" would answer 22P02 → 500 (fuzz-proven; the DTO
+    // rejects those on the route, this is the last gate for direct calls).
     const raw = Number(rawLimit);
-    const limit = Math.min(
-      SEARCH_MAX_LIMIT,
-      Math.max(1, rawLimit === undefined || rawLimit === null || Number.isNaN(raw) ? SEARCH_DEFAULT_LIMIT : raw),
-    );
+    const limit =
+      rawLimit === undefined || rawLimit === null || !Number.isFinite(raw)
+        ? SEARCH_DEFAULT_LIMIT
+        : clampToIntRange(raw, 1, SEARCH_MAX_LIMIT, SEARCH_DEFAULT_LIMIT);
     const like = `%${escapeLike(query)}%`;
 
     const [restaurantRows, dishRows] = await Promise.all([

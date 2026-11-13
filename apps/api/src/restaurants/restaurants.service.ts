@@ -13,6 +13,8 @@ import { CreateRestaurantDto, UpdateRestaurantDto } from './dto/restaurant.dto';
 import { UpdateRestaurantHoursDto } from './dto/restaurant-hours.dto';
 import { isOpenAt, isValidTimeZone, serverTimeZone, TIME_RE } from './open-hours';
 import { escapeLike } from '../common/like-escape';
+import { sanitizeQueryText } from '../common/query-sanitizer';
+import { clampToIntRange } from '../common/int-range';
 import { UserRole } from '../users/user.entity';
 import { isUuid } from '../common/uuid';
 import { City } from '../cities/city.entity';
@@ -34,6 +36,13 @@ export interface RestaurantHoursView {
   days: RestaurantHours[];
   isOpenNow: boolean;
 }
+
+/**
+ * Hard ceiling for public `page` requests: OFFSET = (page-1)*limit tops out
+ * at 100k rows deep — far beyond any real browse session, safely inside
+ * bigint, and it makes a hostile `page=1e23` a boring empty page.
+ */
+const MAX_PUBLIC_PAGE = 100_000;
 
 @Injectable()
 export class RestaurantsService {
@@ -86,11 +95,29 @@ export class RestaurantsService {
   }
 
   async findAll(q: RestaurantQuery) {
-    const page = Math.max(1, Number(q.page) || 1);
-    const limit = Math.min(50, Math.max(1, Number(q.limit) || 20));
+    // Session 84 fuzz gate: closed-integer clamping, NOT bare Math guards.
+    // `limit=2.5` used to survive min/max and reach SQL as a bigint-bound
+    // parameter → Postgres 22P02 → HTTP 500 on a public GET; NaN/Infinity
+    // and an OFFSET that escapes bigint did the same. clampToIntRange is
+    // the one honest guard for a route with no DTO in front of it.
+    // A PRESENT-BUT-BLANK param (`?limit=`) is "unset" — exactly the old
+    // `Number(q.limit) || fallback` semantics for the common shapes.
+    const num = (v: unknown) => (typeof v === 'string' && v.trim() === '' ? undefined : v);
+    const page = clampToIntRange(num(q.page), 1, MAX_PUBLIC_PAGE, 1);
+    const limit = clampToIntRange(num(q.limit), 1, 50, 20);
+    // Session 84 fuzz gate (Phase 7): the public list route reads RAW query
+    // params — no DTO in front. A NUL byte (`search=war%00ung`) or a lone
+    // surrogate survives MinLength/trim and makes Postgres throw 22021 →
+    // HTTP 500 on a GET. Sanitizing here (delete-illegal, never substitute)
+    // keeps the CONSTANT statement shape proven in session 79: a fully
+    // illegal value becomes '' and takes the same branch as an absent one.
+    // Non-strings (`?search[]=a` → array) also collapse to '' — absent.
+    const search = sanitizeQueryText(q.search);
+    const cuisine = sanitizeQueryText(q.cuisine);
+    const city = sanitizeQueryText(q.city);
     const qb = this.repo.createQueryBuilder('r');
 
-    if (q.search) {
+    if (search) {
       // Session 79 perf sweep: `LOWER(col) LIKE '%term%'` is a function call
       // on the column - never indexable. Plain `col ILIKE` has IDENTICAL
       // case-insensitive substring semantics and pg_trgm's gin_trgm_ops
@@ -99,7 +126,7 @@ export class RestaurantsService {
       // falls back to a scan there — same rows, same order.
       // Metacharacters are escaped, matching /api/search (session 69):
       // what the user types is what must match, not wildcards.
-      const s = `%${escapeLike(q.search.toLowerCase())}%`;
+      const s = `%${escapeLike(search.toLowerCase())}%`;
       qb.andWhere(
         new Brackets((sub) => {
           sub
@@ -108,8 +135,8 @@ export class RestaurantsService {
         }),
       );
     }
-    if (q.cuisine) qb.andWhere('LOWER(r.cuisine) = :cuisine', { cuisine: q.cuisine.toLowerCase() });
-    if (q.city) {
+    if (cuisine) qb.andWhere('LOWER(r.cuisine) = :cuisine', { cuisine: cuisine.toLowerCase() });
+    if (city) {
       // Session 79: EXISTS instead of `leftJoin('r.cityEntity')`. With a
       // join + skip/take, TypeORM switches to a DISTINCT-ids two-query
       // strategy (probe: 4 statements vs the constant 3); the semi-join
@@ -118,7 +145,7 @@ export class RestaurantsService {
       // name snapshot.
       qb.andWhere(
         `(EXISTS (SELECT 1 FROM cities c WHERE c.id = r."cityId" AND (LOWER(c.slug) = :city OR LOWER(c.name) = :city)) OR (r."cityId" IS NULL AND LOWER(r.city) = :city))`,
-        { city: q.city.toLowerCase() },
+        { city: city.toLowerCase() },
       );
     }
 
