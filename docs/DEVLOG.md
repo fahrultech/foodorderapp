@@ -4,6 +4,79 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
+## 2026-11-13 10:09 — Session 84 — Property-based fuzz gate: public search/list params (API, Phase 7)
+
+**Built:**
+
+- Fuzz harness (`src/common/fuzz/fuzz-harness.ts`): seeded xorshift32 RNG
+  (no fast-check dependency — byte-reproducible, every FAIL prints its
+  seed and replays exactly) + three hostile corpora: `HOSTILE_TEXT` (SQL/
+  LIKE metachars, injection idioms, NUL/C0 controls, lone surrogates,
+  U+FFFD, bidi/zero-width, oversize), `HOSTILE_NUMERIC`, `HOSTILE_SORT`.
+  `encodeParam` percent-encodes via WHATWG TextEncoder semantics (lone
+  surrogates become replacement bytes on the wire, like a browser).
+- Root cause found by the sweep, fixed in two gates:
+  1. `common/query-sanitizer.ts` — DELETE-only sanitizer for text params
+     headed to Postgres. A NUL byte or lone surrogate survives trim()/
+     MinLength and the driver answers SQLSTATE 22021 → HTTP 500 on a
+     PUBLIC GET (driver-proven, not theory: raw param probe throws 22021).
+     Illegal codepoints are deleted, never substituted; a junk-only value
+     becomes '' and takes the EXACT branch of an absent one — the emitted
+     statement shape can never depend on content (session 79's contract,
+     now enforced at the edge).
+  2. `common/int-range.ts` — `clampToIntRange(raw, min, max, fallback)`:
+     closed-integer clamp for numeric params. The old `Math.min(50,
+     Math.max(1, Number(x)||20))` guard leaked `limit=2.5` to the driver
+     (bigint 22P02 → 500; driver-proven) and NaN/Infinity propagated;
+     `page=1e23` could escape bigint OFFSET. Now: non-finite/boolean/unset
+     → fallback, fractional rounds, result always a finite int in range.
+- Wired: `GET /restaurants` (NO DTO in front — service is the only gate)
+  sanitizes search/cuisine/city + clamps page (1..100_000,
+  `MAX_PUBLIC_PAGE`)/limit (1..50); blank-present `?limit=` keeps the old
+  unset semantics. `GET /api/search` sanitizes in the DTO `@Transform`
+  (before validation: junk-only q = the same 400 as blank) AND again at
+  the service edge (direct-call defense in depth). `sort` whitelist and
+  `escapeLike` untouched — verified they hold, not changed.
+
+**Verified:**
+
+- `npm run build` green; `npx jest --silent` **86 suites / 1064 tests**
+  all pass (+4 suites / +70 tests over session 83's 82/994): 500+500-case
+  list sweep (predicate-set == presence-only, bound values illegal-free,
+  skip/take bounded), 400+400-case search sweep (constant 2-call shape,
+  positional params only, junk-only q → 400 with NOTHING at the driver),
+  shape-neutrality cases (NUL-only == absent, arm-for-arm), array-valued
+  params, SQL-injection-as-bound-param scan, plus HTTP-level specs: both
+  real controllers behind the real ValidationPipe + ErrorFormatFilter on
+  live sockets, 200+200 hostile GETs + 8 transport-junk shapes (brackets,
+  proto keys, repeated params) — every response 2xx/4xx, envelope codes
+  on rejections, service receives the SANITIZED value.
+- One REAL bug caught pre-commit by the suite: `clampToIntRange(true)`
+  coerced to 1 via JS truthiness (spec flagged the contract break) —
+  booleans now collapse to the fallback like any non-wire numeric shape.
+- Live smoke on a 26-migration from-empty scratch DB with the REAL
+  driver, **29/29 PASS** (`/tmp` scratchpad, zero API-log errors): driver
+  probes reproduce 22021/22P02 for the raw classes; `q=war%00ung` → 200
+  echoing `warung` with the same result set as `warung`; junk-only → 400
+  BAD_REQUEST envelope; `limit=2.5` → 200 integer 3; NaN/Infinity → 20;
+  `page=1e23` → clamped 100000, empty page; junk filters == absent
+  filters (totals 6); DROP-TABLE idiom bound + table intact; 75-case
+  percent-encoded sweep over both routes — no 5xx, no hangs. (First
+  smoke run was 28/29 — the one FAIL was a jq harness bug,
+  `sort(reverse)` doesn't exist; product untouched.)
+- No web change; no route/DTO surface added, so the swagger op count is
+  untouched. Sanitizer scan on all added lines: clean (U+2026 hits are
+  legitimate em-dash prose; no raw NUL, no mask).
+
+**Left for next session:**
+
+- 🔒 "error-budget dashboard stub" stays locked behind the metrics item —
+  unchanged.
+- Possible follow-up (NOT done): apply the same delete-only sanitizer to
+  other public free-text params as they appear (dish search within
+  restaurant page reads `q` through a DTO with the same gap — worth a
+  sweep for raw-query-param routes without DTOs).
+
 ## 2026-11-12 18:55 — Session 83 — Mobile polish pass: cart + checkout at 360px (Web, Phase 7)
 
 **Built:**
