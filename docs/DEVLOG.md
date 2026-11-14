@@ -4,6 +4,46 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
+## 2026-11-14 13:29 — Session 90 — /admin bundle trim: TrafficPanel code-split behind the metrics fetch (Web, Phase 8)
+
+**Built:**
+
+- `apps/web/app/admin/page.tsx`: the `TrafficPanel` static import became
+  `next/dynamic` (`ssr: false`) with an `h-40` shimmer fallback
+  (`data-testid="traffic-panel-loading"`). The render gate was already
+  `metrics != null`, and a `dynamic()` chunk request starts at first
+  RENDER — so the panel chunk is now fetched strictly BEHIND the
+  `GET /api/admin/metrics` round-trip: a metrics outage or a 401 downloads
+  ZERO panel bytes. `ssr: false` is honest — the snapshot is bearer-only
+  client data with nothing to server-render. No other file changed.
+- `docs/PERFORMANCE.md`: new "Admin panel bundle audit" section with the
+  exact A/B numbers (manifest gzip sums, not the rounding-blind route
+  table) and the honest framing that the trim is SMALL — the panel is
+  compact pure-DOM React, no chart library; the roadmap's
+  "charts-adjacent DOM" label overstated it, and the guaranteed win is
+  the failure path. Verdict recorded: no further split warranted (the
+  remaining ~16 kB page chunk IS the three overview tables).
+
+**Verified:**
+
+- Cold `rm -rf .next` builds before vs after: `/admin` first-load JS
+  113,561 → 113,295 B gz (−266 B; raw 386,660 → 384,466, −2,194 B); route
+  table 4.84 kB · 114 kB → 4.54 kB · 113 kB; page chunk 18,521 → 16,304 B
+  raw; deferred async chunk 5,818 B raw / 1,962 B gz.
+- Served-HTML probe (guest GET /admin on `next start`): script tags list
+  the new page chunk, and the async chunk hash appears exactly 0 times —
+  the panel code is genuinely not in the first payload.
+- `admin-traffic.spec.ts` 2/2 — the waitForResponse DOM-vs-payload
+  cross-check passes through the lazy mount (chunk fetch + shimmer +
+  render all land before the auto-retrying assertions settle).
+- FULL e2e suite 50/50 green (2.5 min) on a fresh seed after the change.
+- API untouched: `nest build` + seed re-run only as the e2e rig's boot
+  prerequisites; jest delta 0 (91 suites / 1142 tests unchanged).
+
+**Left for next sessions:** nothing on this item — closed.
+
+---
+
 ## 2026-11-14 11:12 — Session 89 — Metrics durability: persisted snapshots + window deltas on /admin/metrics (API, Phase 8)
 
 **Built:**

@@ -196,6 +196,42 @@ Verdicts:
   production telemetry shows the tables growing into hundreds of MBs,
   revisit `ORDER BY rating DESC` first.
 
+## Admin panel bundle audit — November 14, 2026 (session 90)
+
+Phase 8 roadmap item "admin panel bundle trim". Scope: client JS only,
+the `/admin` route. Method: cold `rm -rf .next && next build` for the route
+table, plus an EXACT measurement — summing gzip-9 sizes of every chunk
+listed for `/admin` in `.next/app-build-manifest.json` (the rounded table
+hides deltas this small).
+
+Change: `TrafficPanel` moved from a static import to `next/dynamic`
+(`ssr: false`). The page already renders it strictly behind
+`metrics != null`, and a `dynamic()` chunk request only starts at first
+RENDER — so the panel's chunk is fetched behind the `GET /api/admin/metrics`
+round-trip, and on a metrics outage or 401 it is never downloaded at all.
+
+Numbers (same tree, static import vs dynamic split):
+
+| | BEFORE | AFTER | delta |
+|---|---|---|---|
+| `/admin` first-load JS (manifest gz sum) | 113,561 B | 113,295 B | **−266 B** (raw 386,660 → 384,466, −2,194 B) |
+| route table | 4.84 kB · 114 kB | 4.54 kB · 113 kB | (rounding of the same gz bytes) |
+| page chunk | 18,521 raw / 4,840 gz | 16,304 raw / 4,555 gz | panel code left the chunk |
+| deferred async chunk | — | 5,818 raw / 1,962 gz | fetched only when metrics resolves |
+
+Honest framing: the trim is SMALL because `TrafficPanel` is compact pure-DOM
+React (no chart library — the "charts-adjacent DOM" label overstated it).
+A successful visit nets −266 B gz (the async chunk costs more standalone
+than inlined: `dynamic()` wrapper + its own compression dictionary). The
+guaranteed win is the FAILURE path: zero panel bytes when metrics is
+unavailable. No further split is warranted — the remaining 16 kB page chunk
+is the three tables themselves, which are the route's reason to exist.
+
+Verified: served-`/admin` HTML script tags list the new page chunk and
+contain the async chunk hash **0 times** (not in first payload);
+`admin-traffic.spec.ts` 2/2 green — lazy mount still mirrors the payload
+DOM-for-DOM; full e2e suite green after the change.
+
 ## Query-plan findings and tuning decisions (November 4 baseline, historical)
 
 `EXPLAIN (ANALYZE, BUFFERS)` on the same seed showed:
