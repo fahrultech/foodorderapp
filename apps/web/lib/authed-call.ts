@@ -1,14 +1,19 @@
-import { ApiError, isUnauthorized } from './api';
+import { ApiError, isApiDown, isUnauthorized } from './api';
 
 /**
  * Discriminated result of `authedCall`: callers branch on `ok` and, on
  * failure, on `kind` — `signedOut` failures are silent (the session provider
  * already cleared itself), `error` failures show a banner.
+ *
+ * Error failures carry `down` (session 91): network-level unreachable or a
+ * 5xx answer says NOTHING about the data, so portal pages render the offline
+ * card (ApiOffline parity) instead of a generic failure — and NEVER the
+ * empty state a blank list would imply.
  */
 export type AuthedResult<T> =
   | { ok: true; data: T }
   | { ok: false; kind: 'signedOut' }
-  | { ok: false; kind: 'error'; message: string };
+  | { ok: false; kind: 'error'; message: string; down: boolean };
 
 /**
  * One authed API call with the session-resilience both portal pages use:
@@ -36,6 +41,7 @@ export async function authedCall<T>(
             ok: false,
             kind: 'error',
             message: err2 instanceof ApiError ? err2.message : 'Cannot reach the API.',
+            down: isApiDown(err2),
           };
         }
         await logout();
@@ -48,6 +54,7 @@ export async function authedCall<T>(
       ok: false,
       kind: 'error',
       message: err instanceof ApiError ? err.message : 'Cannot reach the API. Is the server running?',
+      down: isApiDown(err),
     };
   }
 }

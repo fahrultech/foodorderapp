@@ -117,5 +117,20 @@
     "body": "This page didn’t load because the FoodOrder API is unreachable. The restaurant itself is fine — please try again in a moment.",
     "retry": "Try again",
     "allRestaurants": "Browse all restaurants"
+  },
+  "PortalStates": {
+    "offlineTitle": "We can’t reach our servers right now",
+    "offlineBody": "This view needs the FoodOrder API — nothing is wrong with your orders. Retry in a moment.",
+    "retry": "Try again",
+    "loadFailedTitle": "Couldn’t load this view.",
+    "driverEmptyTitle": "No deliveries assigned",
+    "driverEmptyBody": "New assignments will appear here automatically.",
+    "kitchenQuietLane": "No orders in this lane",
+    "kitchenAllClearTitle": "All clear — no active prep right now",
+    "kitchenAllClearBody": "New orders land on this board automatically.",
+    "noRestaurantTitle": "You don’t own a restaurant yet",
+    "noRestaurantBody": "Active prep orders will appear after a restaurant is linked to your account.",
+    "syncIssueList": "Live refresh failed ({message}); showing the last good list.",
+    "syncIssueBoard": "Live refresh failed ({message}); showing the last good board."
   }
 }

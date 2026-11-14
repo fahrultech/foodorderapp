@@ -117,5 +117,20 @@
     "body": "Halaman ini gagal dimuat karena API FoodOrder tidak terjangkau. Restorannya baik-baik saja — coba lagi sebentar.",
     "retry": "Coba lagi",
     "allRestaurants": "Lihat semua restoran"
+  },
+  "PortalStates": {
+    "offlineTitle": "Server kami sedang tidak dapat dijangkau",
+    "offlineBody": "Tampilan ini membutuhkan API FoodOrder — tidak ada yang salah dengan pesanan Anda. Coba lagi sebentar.",
+    "retry": "Coba lagi",
+    "loadFailedTitle": "Tampilan ini gagal dimuat.",
+    "driverEmptyTitle": "Belum ada pengiriman yang ditugaskan",
+    "driverEmptyBody": "Tugas baru akan muncul di sini secara otomatis.",
+    "kitchenQuietLane": "Tidak ada pesanan di jalur ini",
+    "kitchenAllClearTitle": "Semua beres — tidak ada pesanan aktif saat ini",
+    "kitchenAllClearBody": "Pesanan baru akan muncul di papan ini secara otomatis.",
+    "noRestaurantTitle": "Anda belum memiliki restoran",
+    "noRestaurantBody": "Pesanan aktif akan muncul setelah sebuah restoran tertaut ke akun Anda.",
+    "syncIssueList": "Segar ulang otomatis gagal ({message}); menampilkan daftar terakhir yang valid.",
+    "syncIssueBoard": "Segar ulang otomatis gagal ({message}); menampilkan papan terakhir yang valid."
   }
 }

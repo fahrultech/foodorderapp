@@ -1,8 +1,10 @@
 'use client';
 
 import Link from 'next/link';
+import { useTranslations } from 'next-intl';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import PortalTabs from '@/components/PortalTabs';
+import { PortalLoadFailed, PortalOffline } from '@/components/PortalOffline';
 import { useAuth } from '@/lib/auth';
 import { api } from '@/lib/api';
 import type { Order, OrderStatus, Restaurant, RestaurantOrdersPage } from '@/lib/api';
@@ -72,11 +74,17 @@ function itemSummary(order: Order): string[] {
 
 export default function KitchenDisplayPage() {
   const { status, user, getAccessToken, logout } = useAuth();
+  const t = useTranslations('PortalStates');
   const [restaurants, setRestaurants] = useState<Restaurant[] | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [lanes, setLanes] = useState<Record<ActiveStatus, RestaurantOrdersPage | null>>(EMPTY_LANES);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Session 91 states audit: a failed load (list OR board) must not render
+  // the three "No orders in this lane" empty cards as if the kitchen were
+  // idle — that's the storefront's offline-vs-empty lesson applied here.
+  // `down` chooses the offline card vs the plain failure card.
+  const [loadFailed, setLoadFailed] = useState<{ down: boolean; message: string } | null>(null);
   const [syncIssue, setSyncIssue] = useState<string | null>(null);
   const [busyOrderId, setBusyOrderId] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
@@ -86,6 +94,8 @@ export default function KitchenDisplayPage() {
   const missedSyncRef = useRef(false);
   const selectedRef = useRef<string | null>(null);
   selectedRef.current = selectedId;
+  const lanesRef = useRef<Record<ActiveStatus, RestaurantOrdersPage | null>>(EMPTY_LANES);
+  lanesRef.current = lanes;
 
   const isOwnerish = user?.role === 'owner' || user?.role === 'admin';
 
@@ -105,9 +115,13 @@ export default function KitchenDisplayPage() {
             : res.data[0]?.id ?? null,
         );
         setError(null);
+        setLoadFailed(null);
       } else if (res.kind === 'error') {
-        setRestaurants([]);
-        setError(`Could not load your restaurants: ${res.message}`);
+        // restaurants stays NULL — the render must be able to tell a failed
+        // load apart from a genuinely restaurant-less owner (the old code
+        // zeroed the array AND set the error, so the board fell through to
+        // three lying "No orders in this lane" cards).
+        setLoadFailed({ down: res.down, message: res.message });
         setLoading(false);
       }
     })();
@@ -146,10 +160,17 @@ export default function KitchenDisplayPage() {
       if (res.ok) {
         if (mode === 'silent' && pollIsStaleVsAction(startedAt, lastActionAtRef.current)) return;
         setLanes(res.data);
+        setLoadFailed(null);
         setSyncIssue(null);
       } else if (res.kind === 'error') {
-        if (mode === 'full') setError(`Could not load the kitchen board: ${res.message}`);
-        else setSyncIssue(res.message);
+        if (mode === 'silent') {
+          setSyncIssue(res.message);
+        } else if (ACTIVE_STATUSES.some((s) => lanesRef.current[s])) {
+          // Refresh on a board that already has data keeps showing it.
+          setSyncIssue(res.message);
+        } else {
+          setLoadFailed({ down: res.down, message: res.message });
+        }
       }
       if (mode === 'full') setLoading(false);
     },
@@ -262,6 +283,20 @@ export default function KitchenDisplayPage() {
   );
   const transport = feedTransport({ live, wsUp, sseUp: false });
 
+  // A failed load owns the board area. Retry re-runs the loader that broke:
+  // list failed (restaurants null) bumps reloadKey; board failed refetches.
+  const allLanesQuiet =
+    ACTIVE_STATUSES.every((s) => lanes[s] !== null) &&
+    ACTIVE_STATUSES.every((s) => (lanes[s]?.total ?? 0) === 0);
+  function retryLoad() {
+    if (!restaurants) {
+      setLoadFailed(null);
+      setReloadKey((key) => key + 1);
+    } else {
+      void fetchBoard('full');
+    }
+  }
+
   if (status === 'loading') {
     return (
       <div className="mx-auto max-w-7xl" aria-busy="true">
@@ -301,15 +336,18 @@ export default function KitchenDisplayPage() {
     );
   }
 
-  if (restaurants && restaurants.length === 0 && !error) {
+  if (restaurants && restaurants.length === 0 && !loadFailed) {
     return (
       <div className="mx-auto max-w-7xl">
         <h1 className="text-2xl font-extrabold">Kitchen display</h1>
         <PortalTabs />
-        <div className="mt-6 rounded-2xl border border-dashed border-stone-300 bg-white p-10 text-center">
+        <div
+          data-testid="kitchen-no-restaurant"
+          className="mt-6 rounded-2xl border border-dashed border-stone-300 bg-white p-10 text-center"
+        >
           <p className="text-2xl">🍽️</p>
-          <h2 className="mt-2 text-lg font-bold">You don’t own a restaurant yet</h2>
-          <p className="mt-1 text-sm text-stone-500">Active prep orders will appear after a restaurant is linked to your account.</p>
+          <h2 className="mt-2 text-lg font-bold">{t('noRestaurantTitle')}</h2>
+          <p className="mt-1 text-sm text-stone-500">{t('noRestaurantBody')}</p>
         </div>
       </div>
     );
@@ -349,6 +387,7 @@ export default function KitchenDisplayPage() {
             onChange={(event) => {
               setSelectedId(event.target.value);
               setLanes(EMPTY_LANES);
+              setLoadFailed(null);
               setSyncIssue(null);
             }}
             className="rounded-xl border border-stone-300 bg-white px-3 py-2 text-sm"
@@ -361,9 +400,32 @@ export default function KitchenDisplayPage() {
       )}
 
       {error && <p className="mt-4 rounded-xl bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700" role="alert">{error}</p>}
-      {syncIssue && <p className="mt-3 text-xs font-semibold text-amber-700" role="status">Live refresh failed ({syncIssue}); showing the last good board.</p>}
+      {syncIssue && <p className="mt-3 text-xs font-semibold text-amber-700" role="status">{t('syncIssueBoard', { message: syncIssue })}</p>}
 
-      <div data-testid="kitchen-board" className="mt-6 grid min-w-0 gap-4 md:grid-cols-3">
+      {loadFailed ? (
+        // A FAILED load owns the board area: the three "No orders in this
+        // lane" cards would tell the kitchen the queue is merely empty
+        // (session 91 states audit — the storefront learned this in 77).
+        loadFailed.down ? (
+          <PortalOffline onRetry={retryLoad} />
+        ) : (
+          <PortalLoadFailed message={loadFailed.message} onRetry={retryLoad} />
+        )
+      ) : (
+        <>
+          {allLanesQuiet && (
+            <div
+              data-testid="kitchen-board-empty"
+              role="status"
+              className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-dashed border-emerald-300 bg-emerald-50 px-6 py-5"
+            >
+              <p className="text-base font-bold text-emerald-900">
+                <span aria-hidden>🧼</span> {t('kitchenAllClearTitle')}
+              </p>
+              <p className="text-sm text-emerald-800">{t('kitchenAllClearBody')}</p>
+            </div>
+          )}
+          <div data-testid="kitchen-board" className="mt-6 grid min-w-0 gap-4 md:grid-cols-3">
         {LANES.map((lane) => {
           const page = lanes[lane.status];
           const items = page?.items ?? [];
@@ -381,9 +443,10 @@ export default function KitchenDisplayPage() {
                 <div className="space-y-3" aria-busy="true">
                   {[0, 1].map((item) => <div key={item} className="h-40 animate-pulse rounded-xl bg-white/70" aria-hidden />)}
                 </div>
-              ) : items.length === 0 ? (
-                <div className="rounded-xl border border-dashed border-stone-300 bg-white/70 px-4 py-10 text-center text-sm font-semibold text-stone-500">No orders in this lane</div>
-              ) : (
+              ) : page && items.length === 0 ? (
+                // Honest quiet: only a LOADED lane may claim emptiness.
+                <div data-testid={`kitchen-lane-empty-${lane.status}`} className="rounded-xl border border-dashed border-stone-300 bg-white/70 px-4 py-10 text-center text-sm font-semibold text-stone-500">{t('kitchenQuietLane')}</div>
+              ) : items.length === 0 ? null : (
                 <div className="space-y-3">
                   {items.map((order) => (
                     <article key={order.id} data-testid={`kitchen-card-${order.code}`} className="rounded-xl border border-stone-200 bg-white p-4 shadow-sm">
@@ -413,7 +476,9 @@ export default function KitchenDisplayPage() {
             </section>
           );
         })}
-      </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

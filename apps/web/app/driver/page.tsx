@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { useTranslations } from 'next-intl';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { useAuth } from '@/lib/auth';
@@ -9,6 +10,7 @@ import { authedCall } from '@/lib/authed-call';
 import { POLL_INTERVAL_MS, PUSH_SYNC_DEBOUNCE_MS, pollIsStaleVsAction } from '@/lib/live-sync';
 import { useOrderFeed } from '@/lib/use-order-feed';
 import { feedTransport } from '@/lib/ws-feed';
+import { PortalLoadFailed, PortalOffline } from '@/components/PortalOffline';
 
 const NEXT_STATUS: Partial<Record<OrderStatus, { to: OrderStatus; label: string }>> = {
   preparing: { to: 'delivering', label: 'Start delivery' },
@@ -33,16 +35,24 @@ function formatTime(iso: string): string {
 
 export default function DriverPage() {
   const { status, user, getAccessToken, logout } = useAuth();
+  const t = useTranslations('PortalStates');
   const isDriver = user?.role === 'driver';
   const [page, setPage] = useState<DriverOrdersPage | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Session 91 states audit: a FAILED inbox load must never render the
+  // "No deliveries assigned" empty card over missing data. `loadFailed`
+  // owns the whole list area until a load succeeds; `down` picks the
+  // offline card (API unreachable / 5xx) vs the plain failure card.
+  const [loadFailed, setLoadFailed] = useState<{ down: boolean; message: string } | null>(null);
   const [syncIssue, setSyncIssue] = useState<string | null>(null);
   const [busyOrderId, setBusyOrderId] = useState<string | null>(null);
   const [live, setLive] = useState(true);
   const lastActionAtRef = useRef(0);
   const syncTimerRef = useRef<number | null>(null);
   const missedSyncRef = useRef(false);
+  const pageRef = useRef<DriverOrdersPage | null>(null);
+  pageRef.current = page;
 
   const fetchOrders = useCallback(
     async (mode: 'full' | 'silent') => {
@@ -58,10 +68,18 @@ export default function DriverPage() {
       if (result.ok) {
         if (mode === 'silent' && pollIsStaleVsAction(startedAt, lastActionAtRef.current)) return;
         setPage(result.data);
+        setLoadFailed(null);
         setSyncIssue(null);
       } else if (result.kind === 'error') {
-        if (mode === 'full') setError(`Could not load deliveries: ${result.message}`);
-        else setSyncIssue(result.message);
+        if (mode === 'silent') {
+          setSyncIssue(result.message);
+        } else if (pageRef.current) {
+          // A manual Refresh that fails still has yesterday's list on
+          // screen — keep showing it with the amber strip, don't blank.
+          setSyncIssue(result.message);
+        } else {
+          setLoadFailed({ down: result.down, message: result.message });
+        }
       }
       if (mode === 'full') setLoading(false);
     },
@@ -198,17 +216,25 @@ export default function DriverPage() {
       </div>
 
       {error && <p className="mt-4 rounded-xl bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700" role="alert">{error}</p>}
-      {syncIssue && <p className="mt-3 text-xs font-semibold text-amber-700" role="status">Live refresh failed ({syncIssue}); showing the last good list.</p>}
+      {syncIssue && <p className="mt-3 text-xs font-semibold text-amber-700" role="status">{t('syncIssueList', { message: syncIssue })}</p>}
 
       {loading && !page ? (
-        <div className="mt-6 space-y-3" aria-busy="true">
+        <div data-testid="driver-loading" className="mt-6 space-y-3" aria-busy="true">
           {[0, 1].map((item) => <div key={item} className="h-48 animate-pulse rounded-2xl bg-stone-100" aria-hidden />)}
         </div>
+      ) : loadFailed && !page ? (
+        // A failed FIRST load is not an empty inbox — the empty card below
+        // would claim the driver simply has nothing to do (session 91).
+        loadFailed.down ? (
+          <PortalOffline onRetry={() => void fetchOrders('full')} />
+        ) : (
+          <PortalLoadFailed message={loadFailed.message} onRetry={() => void fetchOrders('full')} />
+        )
       ) : orders.length === 0 ? (
-        <div className="mt-6 rounded-2xl border border-dashed border-stone-300 bg-white p-10 text-center">
+        <div data-testid="driver-empty" className="mt-6 rounded-2xl border border-dashed border-stone-300 bg-white p-10 text-center">
           <p className="text-3xl" aria-hidden>📭</p>
-          <h2 className="mt-3 text-lg font-bold">No deliveries assigned</h2>
-          <p className="mt-1 text-sm text-stone-500">New assignments will appear here automatically.</p>
+          <h2 className="mt-3 text-lg font-bold">{t('driverEmptyTitle')}</h2>
+          <p className="mt-1 text-sm text-stone-500">{t('driverEmptyBody')}</p>
         </div>
       ) : (
         <div className="mt-6 space-y-4">
