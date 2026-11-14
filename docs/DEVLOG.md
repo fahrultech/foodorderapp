@@ -4,6 +4,75 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
+## 2026-11-14 15:24 — Session 91 — Kitchen display + driver inbox states audit (Web, Phase 8)
+
+**Built:**
+
+- `lib/authed-call.ts`: error results now carry `down` — the client twin
+  of `isApiDown` (network throw or 5xx). Purely additive: every consumer
+  only branches on `ok`/`kind`/`message` (verified repo-wide).
+- New `components/PortalOffline.tsx` — `PortalOffline` (localized
+  EN/ID offline card reusing the storefront's `api-offline` testid, with
+  an in-page re-fetch retry) and `PortalLoadFailed` (plain failure card
+  for non-downness, shows the API's own message). Client twins of
+  session 77's server-rendered `ApiOffline`, for the authed portal
+  surfaces.
+- `/driver` states split: `loadFailed` now owns the list area when the
+  FIRST inbox load fails (offline card on down, failure card otherwise)
+  — the "No deliveries assigned" empty card can no longer render over
+  missing data (the audit's headline bug on this surface). A failing
+  manual Refresh with a loaded list keeps the list + amber strip via
+  `pageRef` (last-good doctrine). Empty inbox, quiet lines and the sync
+  strip localized.
+- `/dashboard/kitchen` the same audit caught TWO liars: a failed
+  `listMyRestaurants` zeroed the array AND set the banner, so the page
+  fell through to three "No orders in this lane" cards; a failed board
+  load likewise rendered quiet lanes under the error. Now: the list
+  effect keeps `restaurants === null` + `loadFailed{down}`; the board
+  area is owned by the failure/offline card until a load succeeds;
+  only a LOADED lane may claim quiet (`page && items.length === 0`);
+  a fully-loaded all-zero board shows one emerald ALL CLEAR banner
+  (`kitchen-board-empty`) — the "first order" board; failing Refresh
+  with data on screen keeps the last good board. Retry re-runs exactly
+  the loader that broke (list → reloadKey, board → refetch).
+- New `PortalStates` message namespace (13 keys × EN/ID) — state
+  furniture localized like the storefront; page chrome/gate cards stay
+  English (tracked as a new roadmap item).
+- `docs/ARCHITECTURE.md`: new durable rule bullet ("The portal surfaces
+  hold the same line as the storefront").
+
+**Verified:**
+
+- `next build` green; API untouched — `nest build` + jest re-run prove
+  the delta 0 (91 suites / 1142 tests, same as session 90).
+- New `e2e/tests/portal-states.spec.ts` 7/7 on the first run — offline
+  vs empty vs 4xx vs loaded-quiet separated on both surfaces, retry
+  restores the real seeded data both times, restaurant-LIST death also
+  answers the offline card, and the ID locale proves both new cards
+  render Indonesian. Read-only by design (all `page.route`
+  interception): FO-SEED3 stays intact for the later `zz-driver-portal`
+  spec.
+- FULL e2e suite 50→57 green ×2 CONSECUTIVE on fresh seeds (2.5–2.6
+  min each). Honest note: one intermediate run failed exactly one
+  test — `zz-forms-a11y` "receipt: bare link…" (a direct-API fixture
+  path untouched this session) with its known conditional-skip
+  cascade; it passed in a targeted re-run and never reproduced in the
+  two consecutive clean full runs. Recorded as a pre-existing flake
+  candidate, not a regression claim.
+- Sanitizer scan: zero U+2026/`***` on any added line (the single `…`
+  in kitchen is HEAD's "Updating…" label); messages JSON re-validated
+  + EN/ID key-sets equal.
+
+**Left for next sessions:**
+
+- Portal CHROME localization (page titles, gate cards, action labels,
+  transport pills on dashboard/kitchen/driver/admin) — new Phase 8
+  roadmap item; this session localized only the state furniture.
+- The `zz-forms-a11y` receipt flake: if it recurs, instrument the
+  direct-API fixture (loginToken/createOrder/payOrder) timings.
+
+---
+
 ## 2026-11-14 13:29 — Session 90 — /admin bundle trim: TrafficPanel code-split behind the metrics fetch (Web, Phase 8)
 
 **Built:**

@@ -165,6 +165,16 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   content in the DOM, which breaks strict-mode locators). Both halves proven
   live against `next start` during the states audit (session 77): no
   boundaries -> unknown/malformed uuid = 404; API stopped -> offline card.
+- **The portal surfaces hold the same line as the storefront** (session 91):
+  a FAILED load may never render an empty state over missing data.
+  `authedCall` errors carry `down` (the client twin of `isApiDown`), and
+  `/driver` + `/dashboard/kitchen` own their list/board area with the
+  localized `PortalOffline` card (same `api-offline` testid as the
+  storefront) on down/5xx, `PortalLoadFailed` on other errors, skeletons
+  while loading, and their empty cards ONLY after a successful load. The
+  kitchen additionally shows one all-clear banner when every loaded lane
+  totals zero; a Refresh that fails with data on screen keeps the last
+  good board with the amber strip instead of blanking.
 - **Order status machine** — transitions validated server-side
   (`pending→confirmed→preparing→delivering→completed`, cancellable through preparing).
   `POST /orders/:id/cancel` lets the *customer* use exactly that machine edge
