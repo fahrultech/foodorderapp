@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import type { MetricsSnapshot } from '@/lib/api';
 
 /**
@@ -26,12 +27,12 @@ export const ERROR_BUDGET_PCT = 100 - SLO_AVAILABILITY_TARGET_PCT;
 /** Table cap: registry may hold up to MAX_ROUTE_KEYS (250) + the overflow bucket. */
 const MAX_VISIBLE_ROWS = 15;
 
-function ms(value: number | null): string {
-  return value === null ? '—' : `${value} ms`;
+function ms(value: number | null, dash: string): string {
+  return value === null ? dash : `${value} ms`;
 }
 
-function pct(value: number | null, digits = 1): string {
-  return value === null ? '—' : `${value.toFixed(digits)}%`;
+function pct(value: number | null, dash: string, digits = 1): string {
+  return value === null ? dash : `${value.toFixed(digits)}%`;
 }
 
 function formatUptime(sec: number): string {
@@ -88,6 +89,8 @@ function Card({
 }
 
 export default function TrafficPanel({ snapshot }: { snapshot: MetricsSnapshot }) {
+  const t = useTranslations('Portal');
+  const dash = t('dash');
   const totals = snapshot.totals;
   const budget = computeErrorBudget(snapshot);
   const visible = snapshot.routes.slice(0, MAX_VISIBLE_ROWS);
@@ -97,46 +100,59 @@ export default function TrafficPanel({ snapshot }: { snapshot: MetricsSnapshot }
     <section className="mt-10" aria-labelledby="traffic-heading">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <h2 id="traffic-heading" className="text-xl font-black text-stone-900">
-          Traffic &amp; error budget
+          {t('trafficHeading')}
         </h2>
         <p className="text-xs text-stone-500">
-          Cumulative since API boot · snapshot {new Date(snapshot.generatedAt).toLocaleTimeString()} · uptime{' '}
-          {formatUptime(snapshot.uptimeSec)}
+          {t('trafficCumulative', {
+            time: new Date(snapshot.generatedAt).toLocaleTimeString(),
+            uptime: formatUptime(snapshot.uptimeSec),
+          })}
         </p>
       </div>
 
       <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4" data-testid="traffic-cards">
         <Card
-          label="Requests"
+          label={t('trafficCardRequests')}
           value={totals.requests.toLocaleString()}
-          detail={`${totals.routeKeys} route keys${totals.overflowed ? ' · cardinality cap hit (see "other")' : ''}`}
+          detail={`${t('trafficRouteKeys', { count: String(totals.routeKeys) })}${
+            totals.overflowed ? t('trafficOverflowNote') : ''
+          }`}
           testId="traffic-card-requests"
         />
         <Card
-          label="Latency p95"
-          value={ms(totals.p95Ms)}
-          detail={`p50 ${ms(totals.p50Ms)} · p99 ${ms(totals.p99Ms)} · max ${ms(totals.maxMs)} (histogram estimates)`}
+          label={t('trafficCardLatency')}
+          value={ms(totals.p95Ms, dash)}
+          detail={t('trafficLatencyDetail', {
+            p50: ms(totals.p50Ms, dash),
+            p99: ms(totals.p99Ms, dash),
+            max: ms(totals.maxMs, dash),
+          })}
           testId="traffic-card-latency"
         />
         <Card
-          label="Server errors"
+          label={t('trafficCardErrors')}
           value={totals.byStatus['5xx'].toLocaleString()}
-          detail={`${totals.byStatus['4xx']} 4xx client · ${pct(
-            totals.requests > 0 ? (totals.byStatus['4xx'] / totals.requests) * 100 : null,
-          )} of traffic (4xx does not burn the budget)`}
+          detail={t('traffic4xxDetail', {
+            count: String(totals.byStatus['4xx']),
+            pct: pct(totals.requests > 0 ? (totals.byStatus['4xx'] / totals.requests) * 100 : null, dash),
+          })}
           testId="traffic-card-errors"
           tone={totals.byStatus['5xx'] > 0 ? 'bad' : 'neutral'}
         />
         <Card
-          label="Error budget"
-          value={budget.consumedPct === null ? '—' : pct(Math.min(budget.consumedPct, 9999), 0)}
+          label={t('trafficCardBudget')}
+          value={budget.consumedPct === null ? dash : pct(Math.min(budget.consumedPct, 9999), dash, 0)}
           detail={
             budget.errorRatePct === null
-              ? `No samples yet · budget intact · SLO ${SLO_AVAILABILITY_TARGET_PCT}% (${ERROR_BUDGET_PCT}% 5xx allowed)`
-              : `5xx rate ${pct(budget.errorRatePct, 2)} vs ${ERROR_BUDGET_PCT}% budget · ${pct(
-                  budget.remainingPts,
-                  2,
-                )} points left`
+              ? t('trafficBudgetNoSamples', {
+                  slo: String(SLO_AVAILABILITY_TARGET_PCT),
+                  budget: String(ERROR_BUDGET_PCT),
+                })
+              : t('trafficBudgetRate', {
+                  rate: pct(budget.errorRatePct, dash, 2),
+                  budget: String(ERROR_BUDGET_PCT),
+                  left: pct(budget.remainingPts, dash, 2),
+                })
           }
           testId="traffic-card-budget"
           tone={budget.consumedPct === null ? 'neutral' : budget.withinBudget ? 'good' : 'bad'}
@@ -145,13 +161,11 @@ export default function TrafficPanel({ snapshot }: { snapshot: MetricsSnapshot }
 
       <div className="mt-6 overflow-x-auto rounded-2xl border border-stone-200 bg-white shadow-sm" data-testid="traffic-route-table">
         <table className="min-w-full text-left text-sm">
-          <caption className="sr-only">
-            Per-route request counts, status classes and latency estimates, sorted by traffic
-          </caption>
+          <caption className="sr-only">{t('trafficCaption')}</caption>
           <thead className="bg-stone-50 text-xs uppercase tracking-wide text-stone-500">
             <tr>
-              <th scope="col" className="px-4 py-3">Route</th>
-              <th scope="col" className="px-4 py-3 text-right">Requests</th>
+              <th scope="col" className="px-4 py-3">{t('trafficThRoute')}</th>
+              <th scope="col" className="px-4 py-3 text-right">{t('trafficCardRequests')}</th>
               <th scope="col" className="px-4 py-3 text-right">2xx</th>
               <th scope="col" className="px-4 py-3 text-right">4xx</th>
               <th scope="col" className="px-4 py-3 text-right">5xx</th>
@@ -164,7 +178,7 @@ export default function TrafficPanel({ snapshot }: { snapshot: MetricsSnapshot }
             {visible.length === 0 && (
               <tr>
                 <td colSpan={8} className="px-4 py-6 text-center text-stone-500">
-                  No tracked requests yet — /api/health probes are deliberately excluded.
+                  {t('trafficEmptyRow')}
                 </td>
               </tr>
             )}
@@ -177,9 +191,9 @@ export default function TrafficPanel({ snapshot }: { snapshot: MetricsSnapshot }
                 <td className={`px-4 py-3 text-right tabular-nums font-bold ${row.byStatus['5xx'] > 0 ? 'text-red-700' : 'text-stone-600'}`}>
                   {row.byStatus['5xx'].toLocaleString()}
                 </td>
-                <td className="px-4 py-3 text-right tabular-nums text-stone-600">{ms(row.p50Ms)}</td>
-                <td className="px-4 py-3 text-right tabular-nums text-stone-600">{ms(row.p95Ms)}</td>
-                <td className="px-4 py-3 text-right tabular-nums text-stone-600">{ms(row.maxMs)}</td>
+                <td className="px-4 py-3 text-right tabular-nums text-stone-600">{ms(row.p50Ms, dash)}</td>
+                <td className="px-4 py-3 text-right tabular-nums text-stone-600">{ms(row.p95Ms, dash)}</td>
+                <td className="px-4 py-3 text-right tabular-nums text-stone-600">{ms(row.maxMs, dash)}</td>
               </tr>
             ))}
           </tbody>
@@ -187,7 +201,10 @@ export default function TrafficPanel({ snapshot }: { snapshot: MetricsSnapshot }
       </div>
       {hiddenRows > 0 && (
         <p className="mt-2 text-xs text-stone-500" data-testid="traffic-hidden-note">
-          Showing the {MAX_VISIBLE_ROWS} busiest of {snapshot.routes.length} route keys (sorted by request count).
+          {t('trafficHiddenNote', {
+            cap: String(MAX_VISIBLE_ROWS),
+            total: String(snapshot.routes.length),
+          })}
         </p>
       )}
     </section>

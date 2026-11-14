@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { FormEvent, KeyboardEvent as ReactKeyboardEvent } from 'react';
 import type { MenuItem, MenuItemInput } from '@/lib/api';
 import { centsToInput, parseMoneyToCents } from '@/lib/api';
+import { useTranslations } from 'next-intl';
 
 /**
  * Create/edit dish dialog for the owner menu page. Mirrors the API's
@@ -62,6 +63,7 @@ const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/avif'];
 const IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 
 export default function MenuItemForm({ item, categories, onSubmit, onUpload, onCancel }: Props) {
+  const t = useTranslations('Portal');
   const [f, setF] = useState<FieldState>(() => initial(item));
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -105,16 +107,16 @@ export default function MenuItemForm({ item, categories, onSubmit, onUpload, onC
     setError(null);
 
     const name = f.name.trim();
-    if (!name) return setError('Name is required.');
+    if (!name) return setError(t('mfErrName'));
     const priceCents = parseMoneyToCents(f.price);
     if (priceCents === null) {
-      return setError('Price must be a positive amount up to $100,000.00 (e.g. 12.50).');
+      return setError(t('mfErrPrice'));
     }
     const prepRaw = f.prepMinutes.trim();
     let prepMinutes: number | undefined;
     if (prepRaw !== '') {
       if (!/^\d+$/.test(prepRaw) || Number(prepRaw) < 1 || Number(prepRaw) > 240) {
-        return setError('Prep time must be a whole number of minutes between 1 and 240.');
+        return setError(t('mfErrPrep'));
       }
       prepMinutes = Number(prepRaw);
     }
@@ -123,7 +125,7 @@ export default function MenuItemForm({ item, categories, onSubmit, onUpload, onC
     let stockValue: number | null | undefined; // undefined = leave untouched
     if (f.trackStock) {
       if (!/^\d+$/.test(stockRaw)) {
-        return setError('Stock must be a whole number of units (0 or more), or switch stock tracking off for unlimited.');
+        return setError(t('mfErrStock'));
       }
       stockValue = Number(stockRaw);
     } else if (editing && item.stock !== null) {
@@ -155,18 +157,18 @@ export default function MenuItemForm({ item, categories, onSubmit, onUpload, onC
     setError(null);
     setUploadNotice(null);
     if (!IMAGE_TYPES.includes(imageFile.type)) {
-      return setError('Choose a JPEG, PNG, WebP or AVIF image.');
+      return setError(t('mfErrImageType'));
     }
     if (imageFile.size < 1 || imageFile.size > IMAGE_MAX_BYTES) {
-      return setError('Image size must be between 1 byte and 5 MiB.');
+      return setError(t('mfErrImageSize'));
     }
     setUploading(true);
     try {
       const imageUrl = await onUpload(imageFile);
       set('imageUrl', imageUrl);
-      setUploadNotice('Image uploaded. Save changes to publish it.');
+      setUploadNotice(t('mfUploaded'));
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not upload the image.');
+      setError(err instanceof Error ? err.message : t('mfUploadFailed'));
     } finally {
       setUploading(false);
     }
@@ -211,12 +213,10 @@ export default function MenuItemForm({ item, categories, onSubmit, onUpload, onC
         className="relative w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl"
       >
         <h2 id="menu-form-title" className="text-lg font-extrabold">
-          {editing ? `Edit “${item.name}”` : 'Add a dish'}
+          {editing ? t('mfTitleEdit', { name: item.name }) : t('mfTitleAdd')}
         </h2>
         {editing && (
-          <p className="mt-1 text-xs text-stone-500">
-            Dishes stay in this restaurant — a dish never moves between restaurants.
-          </p>
+          <p className="mt-1 text-xs text-stone-500">{t('mfEditNote')}</p>
         )}
 
         {error && (
@@ -231,7 +231,7 @@ export default function MenuItemForm({ item, categories, onSubmit, onUpload, onC
         <div className="mt-4 space-y-4">
           <div>
             <label className={labelCls} htmlFor="mi-name">
-              Name *
+              {t('mfNameLabel')}
             </label>
             <input
               id="mi-name"
@@ -248,7 +248,7 @@ export default function MenuItemForm({ item, categories, onSubmit, onUpload, onC
           <div className="grid grid-cols-3 gap-3">
             <div>
               <label className={labelCls} htmlFor="mi-price">
-                Price (USD) *
+                {t('mfPriceLabel')}
               </label>
               <input
                 id="mi-price"
@@ -262,7 +262,7 @@ export default function MenuItemForm({ item, categories, onSubmit, onUpload, onC
             </div>
             <div>
               <label className={labelCls} htmlFor="mi-prep">
-                Prep min
+                {t('mfPrepLabel')}
               </label>
               <input
                 id="mi-prep"
@@ -276,7 +276,7 @@ export default function MenuItemForm({ item, categories, onSubmit, onUpload, onC
             </div>
             <div>
               <label className={labelCls} htmlFor="mi-category">
-                Category
+                {t('mfCategoryLabel')}
               </label>
               <input
                 id="mi-category"
@@ -306,15 +306,13 @@ export default function MenuItemForm({ item, categories, onSubmit, onUpload, onC
                 disabled={busy}
                 data-testid="mi-track-stock"
               />
-              Limit sellable units
-              <span className="font-normal text-stone-400">
-                (off = unlimited; every order decrements the counter server-side)
-              </span>
+              {t('mfStockToggle')}
+              <span className="font-normal text-stone-400">{t('mfStockToggleHint')}</span>
             </label>
             {f.trackStock && (
               <div className="mt-2">
                 <label className={labelCls} htmlFor="mi-stock">
-                  Units left
+                  {t('mfUnitsLabel')}
                 </label>
                 <input
                   id="mi-stock"
@@ -332,7 +330,7 @@ export default function MenuItemForm({ item, categories, onSubmit, onUpload, onC
 
           <div>
             <label className={labelCls} htmlFor="mi-desc">
-              Description
+              {t('mfDescLabel')}
             </label>
             <textarea
               id="mi-desc"
@@ -347,7 +345,7 @@ export default function MenuItemForm({ item, categories, onSubmit, onUpload, onC
 
           <div>
             <label className={labelCls} htmlFor="mi-image">
-              Image URL
+              {t('mfImageUrlLabel')}
             </label>
             <input
               id="mi-image"
@@ -361,7 +359,7 @@ export default function MenuItemForm({ item, categories, onSubmit, onUpload, onC
             {editing ? (
               <div className="mt-3 rounded-xl border border-dashed border-stone-300 bg-stone-50 p-3">
                 <label className={labelCls} htmlFor="mi-image-file">
-                  Image file
+                  {t('mfImageFileLabel')}
                 </label>
                 <div className="mt-1 flex flex-wrap items-center gap-2">
                   <input
@@ -381,10 +379,10 @@ export default function MenuItemForm({ item, categories, onSubmit, onUpload, onC
                     disabled={!imageFile || busy || uploading}
                     className="rounded-lg bg-stone-800 px-3 py-2 text-xs font-bold text-white hover:bg-stone-900 disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    {uploading ? 'Uploading…' : 'Upload image'}
+                    {uploading ? t('mfUploading') : t('mfUploadImage')}
                   </button>
                 </div>
-                <p className="mt-2 text-xs text-stone-500">JPEG, PNG, WebP or AVIF · max 5 MiB.</p>
+                <p className="mt-2 text-xs text-stone-500">{t('mfImageHint')}</p>
                 {uploadNotice && (
                   <p className="mt-2 text-xs font-semibold text-emerald-700" role="status">
                     {uploadNotice}
@@ -392,9 +390,7 @@ export default function MenuItemForm({ item, categories, onSubmit, onUpload, onC
                 )}
               </div>
             ) : (
-              <p className="mt-2 text-xs text-stone-500">
-                Save the dish first, then edit it to upload an image file.
-              </p>
+              <p className="mt-2 text-xs text-stone-500">{t('mfSaveFirstHint')}</p>
             )}
           </div>
 
@@ -407,8 +403,8 @@ export default function MenuItemForm({ item, categories, onSubmit, onUpload, onC
                 className="h-4 w-4 rounded border-stone-300"
                 disabled={busy}
               />
-              Show on the storefront right away
-              <span className="font-normal text-stone-400">(uncheck to save as a hidden draft)</span>
+              {t('mfShowNow')}
+              <span className="font-normal text-stone-400">{t('mfShowNowHint')}</span>
             </label>
           )}
         </div>
@@ -420,14 +416,14 @@ export default function MenuItemForm({ item, categories, onSubmit, onUpload, onC
             disabled={busy || uploading}
             className="rounded-xl border border-stone-300 bg-white px-4 py-2 text-sm font-semibold text-stone-700 hover:bg-stone-100 disabled:opacity-50"
           >
-            Cancel
+            {t('actionCancel')}
           </button>
           <button
             type="submit"
             disabled={busy || uploading}
             className="rounded-xl bg-brand-600 px-5 py-2 text-sm font-bold text-white hover:bg-brand-700 disabled:cursor-wait disabled:opacity-60"
           >
-            {busy ? 'Saving…' : editing ? 'Save changes' : 'Add dish'}
+            {busy ? t('mfSaving') : editing ? t('mfSaveChanges') : t('mfAddDishSubmit')}
           </button>
         </div>
       </form>

@@ -3,6 +3,78 @@
 Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
+## 2026-11-14 20:52 — Session 93 — Localization leftovers: portal titles, menu/analytics/history chrome, TrafficPanel (Web, Phase 8)
+
+**Built:**
+
+- 132 new `Portal` message keys × EN/ID closing every surface session 92
+  scoped out: `/dashboard/menu` chrome (gates, subtitle composing
+  `Dishes for {restaurant} · N dishes · M hidden` byte-identically, Hide/Show
+  tooltips, row stock fragments `· stock: unlimited` / ` · sold out` / `only N
+  left`, error/notice templates incl. the curly-quoted `Could not change
+  "{name}"` pair), the whole `MenuItemForm` dialog (title, every field label,
+  the stock tracker, upload furniture + all 6 validation errors),
+  `/dashboard/analytics` (gates, three cards, hourly table + headers), the
+  customer `/orders/my` history chrome (gate, tabs reusing `tabAll`/
+  `status*`/`word*`, empty states, cancel confirm/notice/errors, pagination
+  reusing the shared `pagination` + `unit*` + `prevPage`/`nextPage`), and the
+  deferred `TrafficPanel` internals (heading, cumulative-since-boot line, all
+  four cards, caption/headers, empty + hidden-notes) plus the module-scope
+  code-split skeleton aria (hoisted into a `TrafficPanelSkeleton` client
+  component — `dynamic()` at module scope cannot call hooks; wires the key
+  `trafficLoadingAria` session 92 had reserved unused).
+- Document `<title>` per portal page: six zero-DOM pass-through server
+  `layout.tsx` files (`/dashboard` + kitchen/menu/analytics, `/driver`,
+  `/admin`) each exporting only `generateMetadata` from `Portal.title*` —
+  the pages are client components and cannot export metadata themselves.
+  No `loading.tsx` boundary added (session-77 rule respected).
+- Reuse over duplication: shared strings flow through existing keys
+  (`restaurantsLoadError`, `refresh`, `tryAgain`, `tabAll`, `details`,
+  `pagination`, `prevPage`/`nextPage`, `ownerGate*`, `signIn`,
+  `trafficLoadError`, `PortalStates.noRestaurantTitle` via a second `ts`
+  translator). Numeric ICU params that were raw `${n}` interpolations are
+  passed `String(n)` to keep byte-pins safe from Intl reformatting.
+- `docs/ARCHITECTURE.md`: Portal-chrome rule extended to the new surfaces
+  (+ the `String(n)` ICU doctrine), new durable rules for title-owning
+  layouts and for the login-then-navigate redirect race.
+
+**Verified:**
+
+- `next build` green; API untouched — `nest build` + jest re-run prove delta
+  0 (91 suites / 1142 tests, same as sessions 90–92).
+- NEW 5 `portal-chrome-id` tests (61→66): EN vs ID `document.title` for all
+  six portal routes (guest-safe — layouts own metadata), menu-manager ID
+  chrome incl. an open/close of the ID dish dialog (read-only, Warung
+  pinned via selectOption — live-feed doctrine), analytics cards/table ID
+  labels, history tabs/rows/pagination ID, admin traffic-panel ID cards +
+  heading via waitForResponse.
+- EN regression: full suite 66/66 green ×2 CONSECUTIVE on fresh seeds —
+  every pinned EN string byte-identical (no spec assertion edited).
+- FLAKE ROOT-CAUGHT (pre-existing, not from this change): `admin.spec`
+  login→'Admin' click intermittently swallowed by the post-login
+  `router.replace('/')` (the role-gated header is already visible on
+  `/login`). Failed runs 1+3 of the session, 65/66; A/B cold loops ×5 per
+  tree: HEAD 4P/1F, session-93 tree 4P/1F — identical rates, so NOT a
+  regression. Harness-hardened (`expect(page).not.toHaveURL(/\/login/)`
+  before the click in `admin.spec.ts` + `admin-traffic.spec.ts`): guarded
+  cold loop 5/5 P, then full suite 66/66 ×2. Product-side race remains
+  real (new ARCHITECTURE rule + backlog item).
+- Sanitizer scan: no `***` on any added line (diff + 6 new files scanned by
+  codepoint); exotic inventory only pre-existing prose chars (U+2014 ×22,
+  U+21BB, U+00B7, U+00D7); `git diff --check` clean; messages EN/ID key
+  parity 274=274, ICU tokens valid, EN byte-pin dict asserted on disk.
+
+**Left for next sessions:**
+
+- Input PLACEHOLDERS (`Kimchi ramen`, `e.g. 12 (0 = sold out)`, the broth
+  description sample…) deliberately stay English technical examples.
+- Storefront i18n sweep #2: checkout labels, cart-page chrome, receipt
+  (the DEVLOG 92 storefront-leftover note) — new ROADMAP item.
+- Product fix for the login-redirect vs nav-click race (settle-or-cancel
+  discipline in the login flow) — new ROADMAP item.
+
+---
+
 ## 2026-11-14 17:11 — Session 92 — Portal chrome localization EN/ID (Web, Phase 8)
 
 **Built:**

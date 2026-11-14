@@ -8,6 +8,7 @@ import type { MenuItem, MenuItemInput, Restaurant } from '@/lib/api';
 import { authedCall } from '@/lib/authed-call';
 import MenuItemForm from '@/components/MenuItemForm';
 import PortalTabs from '@/components/PortalTabs';
+import { useTranslations } from 'next-intl';
 
 /**
  * Owner portal — menu manager (Phase 2). CRUD against the existing owner
@@ -28,6 +29,8 @@ const btnGhost =
   'rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-xs font-bold text-stone-700 hover:bg-stone-100 disabled:cursor-wait disabled:opacity-50';
 
 export default function MenuManagerPage() {
+  const t = useTranslations('Portal');
+  const ts = useTranslations('PortalStates');
   const { status, user, getAccessToken, logout } = useAuth();
   const [restaurants, setRestaurants] = useState<Restaurant[] | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -54,7 +57,7 @@ export default function MenuManagerPage() {
         setSelectedId((cur) => cur ?? res.data[0]?.id ?? null);
         setError(null);
       } else if (res.kind === 'error') {
-        setError(`Could not load your restaurants: ${res.message}`);
+        setError(t('restaurantsLoadError', { message: res.message }));
         setRestaurants([]);
       }
     })();
@@ -74,13 +77,14 @@ export default function MenuManagerPage() {
     } catch (err) {
       setError(
         err instanceof ApiError
-          ? `Could not load the menu: ${err.message}`
-          : 'Could not load the menu: cannot reach the API. Is the server running?',
+          ? t('errCouldNotLoadMenu', { message: err.message })
+          : t('errCouldNotLoadMenu', { message: t('menuApiDownQuestion') }),
       );
       setItems([]);
     } finally {
       setLoading(false);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedId]);
 
   useEffect(() => {
@@ -107,7 +111,7 @@ export default function MenuManagerPage() {
     if (res.ok) {
       setItems((cur) => cur?.map((m) => (m.id === item.id ? res.data : m)) ?? cur);
     } else if (res.kind === 'error') {
-      setActionError(`Could not change “${item.name}”: ${res.message}`);
+      setActionError(t('errCouldNotChangeDish', { name: item.name, message: res.message }));
     }
     setBusyId(null);
   }
@@ -123,7 +127,7 @@ export default function MenuManagerPage() {
       // name/price (the FK is ON DELETE SET NULL server-side).
       setItems((cur) => cur?.filter((m) => m.id !== item.id) ?? cur);
     } else if (res.kind === 'error') {
-      setActionError(`Could not delete “${item.name}”: ${res.message}`);
+      setActionError(t('errCouldNotDeleteDish', { name: item.name, message: res.message }));
     }
     setBusyId(null);
   }
@@ -134,7 +138,7 @@ export default function MenuManagerPage() {
    * displays with the typed values intact.
    */
   async function submitForm(input: MenuItemInput): Promise<string | null> {
-    if (!selectedId) return 'Pick a restaurant first.';
+    if (!selectedId) return t('menuPickRestaurantFirst');
     const editing = form?.mode === 'edit' ? form.item : null;
     const res = await authedCall(getAccessToken, logout, (t) =>
       editing
@@ -148,14 +152,14 @@ export default function MenuManagerPage() {
       return null;
     }
     if (res.kind === 'signedOut') {
-      return 'Your session expired — sign in again, then re-try the save.';
+      return t('menuSessionExpiredSave');
     }
     return res.message;
   }
 
   async function uploadImage(file: File): Promise<string> {
     const editing = form?.mode === 'edit' ? form.item : null;
-    if (!editing) throw new Error('Save the dish before uploading an image.');
+    if (!editing) throw new Error(t('menuSaveBeforeUpload'));
     const res = await authedCall(getAccessToken, logout, (t) =>
       api.createMenuImageUpload(t, editing.id, {
         contentType: file.type,
@@ -163,18 +167,14 @@ export default function MenuManagerPage() {
       }),
     );
     if (!res.ok) {
-      throw new Error(
-        res.kind === 'signedOut'
-          ? 'Your session expired — sign in again, then retry the upload.'
-          : res.message,
-      );
+      throw new Error(res.kind === 'signedOut' ? t('menuSessionExpiredUpload') : res.message);
     }
     const put = await fetch(res.data.uploadUrl, {
       method: 'PUT',
       headers: res.data.requiredHeaders,
       body: file,
     });
-    if (!put.ok) throw new Error(`Image storage rejected the upload (${put.status}).`);
+    if (!put.ok) throw new Error(t('menuStorageRejected', { status: String(put.status) }));
     return res.data.imageUrl;
   }
 
@@ -182,13 +182,14 @@ export default function MenuManagerPage() {
   const grouped = useMemo(() => {
     const out: { category: string; items: MenuItem[] }[] = [];
     for (const m of items ?? []) {
-      const cat = m.category ?? 'Uncategorized';
+      const cat = m.category ?? t('menuUncategorized');
       const last = out[out.length - 1];
       if (last && last.category === cat) last.items.push(m);
       else out.push({ category: cat, items: [m] });
     }
     return out;
-  }, [items]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items, t]);
 
   const categories = useMemo(
     () => [...new Set((items ?? []).map((m) => m.category).filter(Boolean) as string[])].sort(),
@@ -218,15 +219,13 @@ export default function MenuManagerPage() {
     return (
       <div className="mx-auto max-w-lg rounded-2xl border border-dashed border-stone-300 bg-white p-10 text-center">
         <p className="text-2xl">🍳</p>
-        <h1 className="mt-2 text-xl font-bold">Sign in to manage your menu</h1>
-        <p className="mt-1 text-sm text-stone-500">
-          The menu manager adds, edits, hides and deletes dishes for restaurants you own.
-        </p>
+        <h1 className="mt-2 text-xl font-bold">{t('menuGateTitle')}</h1>
+        <p className="mt-1 text-sm text-stone-500">{t('menuGateBody')}</p>
         <Link
           href="/login?next=/dashboard/menu"
           className="mt-6 inline-block rounded-xl bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-700"
         >
-          Sign in
+          {t('signIn')}
         </Link>
       </div>
     );
@@ -236,16 +235,16 @@ export default function MenuManagerPage() {
     return (
       <div className="mx-auto max-w-lg rounded-2xl border border-dashed border-stone-300 bg-white p-10 text-center">
         <p className="text-2xl">🔑</p>
-        <h1 className="mt-2 text-xl font-bold">This portal is for restaurant owners</h1>
+        <h1 className="mt-2 text-xl font-bold">{t('ownerGateTitle')}</h1>
         <p className="mt-1 text-sm text-stone-500">
-          You are signed in as <span className="font-semibold">{user?.email}</span>, a customer
-          account. Owner accounts can manage their restaurants’ menus.
+          {t('ownerGatePre')} <span className="font-semibold">{user?.email}</span>
+          {t('menuOwnerGatePost')}
         </p>
         <Link
           href="/orders/my"
           className="mt-6 inline-block rounded-xl bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-700"
         >
-          View my orders instead
+          {t('viewMyOrders')}
         </Link>
       </div>
     );
@@ -254,14 +253,12 @@ export default function MenuManagerPage() {
   if (restaurants && restaurants.length === 0) {
     return (
       <div className="mx-auto max-w-2xl">
-        <h1 className="text-2xl font-extrabold">Menu manager</h1>
+        <h1 className="text-2xl font-extrabold">{t('menuTitle')}</h1>
         <PortalTabs />
         <div className="mt-6 rounded-2xl border border-dashed border-stone-300 bg-white p-10 text-center">
           <p className="text-2xl">🍽️</p>
-          <h2 className="mt-2 text-lg font-bold">You don’t own a restaurant yet</h2>
-          <p className="mt-1 text-sm text-stone-500">
-            Once a restaurant is linked to your account, you can manage its dishes here.
-          </p>
+          <h2 className="mt-2 text-lg font-bold">{ts('noRestaurantTitle')}</h2>
+          <p className="mt-1 text-sm text-stone-500">{t('menuNoRestaurantBody')}</p>
         </div>
       </div>
     );
@@ -271,11 +268,16 @@ export default function MenuManagerPage() {
     <div className="mx-auto max-w-3xl">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-extrabold">Menu manager</h1>
+          <h1 className="text-2xl font-extrabold">{t('menuTitle')}</h1>
           <p className="mt-1 text-sm text-stone-500">
-            Dishes for {selected?.name ?? 'your restaurant'}
-            {items ? ` · ${items.length} dish${items.length === 1 ? '' : 'e'}` : ''}
-            {items && hiddenCount > 0 ? ` · ${hiddenCount} hidden` : ''}
+            {t('menuDishesFor', { restaurant: selected?.name ?? t('fallbackRestaurantName') })}
+            {items
+              ? t('menuCountLine', {
+                  count: items.length,
+                  unit: items.length === 1 ? t('menuUnitDish') : t('menuUnitDishes'),
+                })
+              : null}
+            {items && hiddenCount > 0 ? t('menuHiddenLine', { count: hiddenCount }) : null}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -284,21 +286,21 @@ export default function MenuManagerPage() {
               href={`/restaurants/${selected.id}`}
               className="rounded-xl border border-stone-300 bg-white px-4 py-2 text-sm font-semibold text-stone-700 hover:bg-stone-100"
             >
-              Storefront ↗
+              {t('menuStorefrontLink')}
             </Link>
           )}
           <button
             onClick={() => setReloadKey((k) => k + 1)}
             className="rounded-xl border border-stone-300 bg-white px-4 py-2 text-sm font-semibold text-stone-700 hover:bg-stone-100"
           >
-            ↻ Refresh
+            {t('refresh')}
           </button>
           <button
             onClick={() => setForm({ mode: 'create' })}
             disabled={!selectedId}
             className="rounded-xl bg-brand-600 px-4 py-2 text-sm font-bold text-white hover:bg-brand-700 disabled:opacity-50"
           >
-            + Add dish
+            {t('menuAddDish')}
           </button>
         </div>
       </div>
@@ -308,7 +310,7 @@ export default function MenuManagerPage() {
       {/* Restaurant switcher — only when the owner has more than one */}
       {restaurants && restaurants.length > 1 && (
         <label className="mt-4 flex items-center gap-2 text-sm font-semibold text-stone-700">
-          Restaurant
+          {t('restaurantLabel')}
           <select
             value={selectedId ?? ''}
             onChange={(e) => switchRestaurant(e.target.value)}
@@ -333,7 +335,7 @@ export default function MenuManagerPage() {
             onClick={() => setReloadKey((k) => k + 1)}
             className="shrink-0 rounded-lg border border-rose-200 bg-white px-3 py-1 text-xs font-bold text-rose-700 hover:bg-rose-50"
           >
-            Try again
+            {t('tryAgain')}
           </button>
         </p>
       )}
@@ -356,16 +358,14 @@ export default function MenuManagerPage() {
       ) : items && items.length === 0 ? (
         <div className="mt-6 rounded-2xl border border-dashed border-stone-300 bg-white p-10 text-center">
           <p className="text-2xl">🥣</p>
-          <h2 className="mt-2 text-lg font-bold">No dishes yet</h2>
-          <p className="mt-1 text-sm text-stone-500">
-            Add your first dish and customers will see it on the storefront right away.
-          </p>
+          <h2 className="mt-2 text-lg font-bold">{t('menuEmptyTitle')}</h2>
+          <p className="mt-1 text-sm text-stone-500">{t('menuEmptyBody')}</p>
           <button
             onClick={() => setForm({ mode: 'create' })}
             disabled={!selectedId}
             className="mt-6 rounded-xl bg-brand-600 px-5 py-2.5 text-sm font-bold text-white hover:bg-brand-700 disabled:opacity-50"
           >
-            + Add the first dish
+            {t('menuAddFirstDish')}
           </button>
         </div>
       ) : (
@@ -380,7 +380,7 @@ export default function MenuManagerPage() {
                   <div
                     key={m.id}
                     role="group"
-                    aria-label={`Dish ${m.name}`}
+                    aria-label={t('menuDishAria', { name: m.name })}
                     className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3"
                     data-testid={`menu-row-${m.id}`}
                   >
@@ -389,19 +389,23 @@ export default function MenuManagerPage() {
                         {m.name}
                         {!m.isAvailable && (
                           <span className="ml-2 rounded-full bg-stone-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-stone-500">
-                            hidden
+                            {t('menuHiddenBadge')}
                           </span>
                         )}
                       </p>
                       <p className="mt-0.5 text-xs text-stone-500">
-                        {formatPrice(m.priceCents)} · {m.prepMinutes} min
+                        {formatPrice(m.priceCents)}
+                        {t('menuRowPrep', { minutes: m.prepMinutes })}
                         {m.stock === null ? (
-                          <span className="text-stone-400"> · stock: unlimited</span>
+                          <span className="text-stone-400">{t('menuRowStockUnlimited')}</span>
                         ) : m.stock === 0 ? (
-                          <span className="font-bold uppercase text-rose-600"> · sold out</span>
+                          <span className="font-bold uppercase text-rose-600">{t('menuRowSoldOut')}</span>
                         ) : (
                           <span className={m.stock <= 5 ? 'font-bold text-amber-700' : undefined}>
-                            {' '}· {m.stock <= 5 ? `only ${m.stock} left` : `stock: ${m.stock}`}
+                            {' · '}
+                            {m.stock <= 5
+                              ? t('menuRowOnlyLeft', { count: m.stock })
+                              : t('menuRowStock', { count: m.stock })}
                           </span>
                         )}
                         {m.description ? (
@@ -415,14 +419,14 @@ export default function MenuManagerPage() {
                         onClick={() => void toggleAvailability(m)}
                         disabled={busyId !== null}
                         aria-busy={busyId === m.id}
-                        title={m.isAvailable ? 'Hide from the storefront' : 'Show on the storefront'}
+                        title={m.isAvailable ? t('menuHideTitle') : t('menuShowTitle')}
                         className={
                           m.isAvailable
                             ? btnGhost
                             : 'rounded-lg border border-emerald-200 bg-white px-3 py-1.5 text-xs font-bold text-emerald-700 hover:bg-emerald-50 disabled:cursor-wait disabled:opacity-50'
                         }
                       >
-                        {busyId === m.id ? '…' : m.isAvailable ? 'Hide' : 'Show'}
+                        {busyId === m.id ? t('busyEllipsis') : m.isAvailable ? t('menuActionHide') : t('menuActionShow')}
                       </button>
                       <button
                         onClick={() => {
@@ -433,7 +437,7 @@ export default function MenuManagerPage() {
                         disabled={busyId !== null}
                         className={btnGhost}
                       >
-                        Edit
+                        {t('menuActionEdit')}
                       </button>
                       {confirmDeleteId === m.id ? (
                         <>
@@ -442,13 +446,13 @@ export default function MenuManagerPage() {
                             disabled={busyId !== null}
                             className="rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-rose-700 disabled:cursor-wait disabled:opacity-50"
                           >
-                            Confirm delete
+                            {t('menuConfirmDelete')}
                           </button>
                           <button
                             onClick={() => setConfirmDeleteId(null)}
                             className={btnGhost}
                           >
-                            Keep
+                            {t('menuKeep')}
                           </button>
                         </>
                       ) : (
@@ -457,7 +461,7 @@ export default function MenuManagerPage() {
                           disabled={busyId !== null}
                           className="rounded-lg px-2 py-1.5 text-xs font-bold text-rose-600 hover:bg-rose-50 disabled:cursor-wait disabled:opacity-50"
                         >
-                          Delete
+                          {t('menuActionDelete')}
                         </button>
                       )}
                     </div>

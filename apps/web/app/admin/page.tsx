@@ -15,15 +15,22 @@ import StatusBadge from '@/components/StatusBadge';
 // chunk is fetched strictly BEHIND the GET /admin/metrics round-trip. Admins
 // on a metrics outage (or a 401) never download it. ssr:false because the
 // snapshot is bearer-only client data — there is nothing to server-render.
-const TrafficPanel = dynamic(() => import('@/components/TrafficPanel'), {
-  ssr: false,
-  loading: () => (
+/** Module-scope dynamic() cannot call hooks — this tiny component owns the
+ *  localized skeleton aria-label (Portal.trafficLoadingAria, session 93). */
+function TrafficPanelSkeleton() {
+  const t = useTranslations('Portal');
+  return (
     <div
       className="h-40 animate-pulse rounded-2xl border border-stone-200 bg-stone-50"
-      aria-label="Loading traffic metrics"
+      aria-label={t('trafficLoadingAria')}
       data-testid="traffic-panel-loading"
     />
-  ),
+  );
+}
+
+const TrafficPanel = dynamic(() => import('@/components/TrafficPanel'), {
+  ssr: false,
+  loading: () => <TrafficPanelSkeleton />,
 });
 
 function formatDate(iso: string): string {
@@ -187,7 +194,7 @@ export default function AdminPage() {
               <TrafficPanel snapshot={metrics} />
             ) : metricsError ? (
               <div role="alert" className="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-amber-800" data-testid="traffic-load-error">
-                <p className="font-bold">Traffic metrics could not be loaded.</p>
+                <p className="font-bold">{t('trafficLoadError')}</p>
                 <p className="mt-1 text-sm">{metricsError}</p>
               </div>
             ) : null}

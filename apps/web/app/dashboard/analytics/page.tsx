@@ -7,6 +7,7 @@ import { useAuth } from '@/lib/auth';
 import { api, formatPrice } from '@/lib/api';
 import type { Restaurant, RestaurantAnalytics } from '@/lib/api';
 import { authedCall } from '@/lib/authed-call';
+import { useTranslations } from 'next-intl';
 
 function hourLabel(hourUtc: number): string {
   const start = String(hourUtc).padStart(2, '0');
@@ -15,6 +16,8 @@ function hourLabel(hourUtc: number): string {
 }
 
 export default function AnalyticsPage() {
+  const t = useTranslations('Portal');
+  const ts = useTranslations('PortalStates');
   const { status, user, getAccessToken, logout } = useAuth();
   const [restaurants, setRestaurants] = useState<Restaurant[] | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -42,13 +45,14 @@ export default function AnalyticsPage() {
         setError(null);
       } else if (res.kind === 'error') {
         setRestaurants([]);
-        setError(`Could not load your restaurants: ${res.message}`);
+        setError(t('restaurantsLoadError', { message: res.message }));
         setLoading(false);
       }
     })();
     return () => {
       alive = false;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status, isOwnerish, reloadKey, getAccessToken, logout]);
 
   useEffect(() => {
@@ -68,13 +72,14 @@ export default function AnalyticsPage() {
       if (res.ok) {
         setAnalytics(res.data);
       } else if (res.kind === 'error') {
-        setError(`Could not load analytics: ${res.message}`);
+        setError(t('errCouldNotLoadAnalytics', { message: res.message }));
       }
       setLoading(false);
     })();
     return () => {
       alive = false;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status, isOwnerish, selectedId, reloadKey, restaurants, getAccessToken, logout]);
 
   const selected = useMemo(
@@ -100,10 +105,10 @@ export default function AnalyticsPage() {
     return (
       <div className="mx-auto max-w-lg rounded-2xl border border-dashed border-stone-300 bg-white p-10 text-center">
         <p className="text-2xl">📊</p>
-        <h1 className="mt-2 text-xl font-bold">Sign in to view restaurant analytics</h1>
-        <p className="mt-1 text-sm text-stone-500">Revenue and demand are available to restaurant owners.</p>
+        <h1 className="mt-2 text-xl font-bold">{t('anGateTitle')}</h1>
+        <p className="mt-1 text-sm text-stone-500">{t('anGateBody')}</p>
         <Link href="/login?next=/dashboard/analytics" className="mt-6 inline-block rounded-xl bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-700">
-          Sign in
+          {t('signIn')}
         </Link>
       </div>
     );
@@ -113,10 +118,10 @@ export default function AnalyticsPage() {
     return (
       <div className="mx-auto max-w-lg rounded-2xl border border-dashed border-stone-300 bg-white p-10 text-center">
         <p className="text-2xl">🔑</p>
-        <h1 className="mt-2 text-xl font-bold">This portal is for restaurant owners</h1>
-        <p className="mt-1 text-sm text-stone-500">Customer accounts cannot access restaurant revenue or demand data.</p>
+        <h1 className="mt-2 text-xl font-bold">{t('ownerGateTitle')}</h1>
+        <p className="mt-1 text-sm text-stone-500">{t('anOwnerGateBody')}</p>
         <Link href="/orders/my" className="mt-6 inline-block rounded-xl bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-700">
-          View my orders instead
+          {t('viewMyOrders')}
         </Link>
       </div>
     );
@@ -125,12 +130,12 @@ export default function AnalyticsPage() {
   if (restaurants && restaurants.length === 0 && !error) {
     return (
       <div className="mx-auto max-w-4xl">
-        <h1 className="text-2xl font-extrabold">Restaurant analytics</h1>
+        <h1 className="text-2xl font-extrabold">{t('anTitle')}</h1>
         <PortalTabs />
         <div className="mt-6 rounded-2xl border border-dashed border-stone-300 bg-white p-10 text-center">
           <p className="text-2xl">🍽️</p>
-          <h2 className="mt-2 text-lg font-bold">You don’t own a restaurant yet</h2>
-          <p className="mt-1 text-sm text-stone-500">Analytics will appear once a restaurant is linked to your account.</p>
+          <h2 className="mt-2 text-lg font-bold">{ts('noRestaurantTitle')}</h2>
+          <p className="mt-1 text-sm text-stone-500">{t('anNoRestaurantBody')}</p>
         </div>
       </div>
     );
@@ -140,11 +145,13 @@ export default function AnalyticsPage() {
     <div className="mx-auto max-w-4xl">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-extrabold">Restaurant analytics</h1>
-          <p className="mt-1 text-sm text-stone-500">All-time completed orders for {selected?.name ?? 'your restaurant'}</p>
+          <h1 className="text-2xl font-extrabold">{t('anTitle')}</h1>
+          <p className="mt-1 text-sm text-stone-500">
+            {t('anSub', { restaurant: selected?.name ?? t('fallbackRestaurantName') })}
+          </p>
         </div>
         <button onClick={() => setReloadKey((key) => key + 1)} className="rounded-xl border border-stone-300 bg-white px-4 py-2 text-sm font-semibold text-stone-700 hover:bg-stone-100">
-          ↻ Refresh
+          {t('refresh')}
         </button>
       </div>
 
@@ -152,7 +159,7 @@ export default function AnalyticsPage() {
 
       {restaurants && restaurants.length > 0 && (
         <label className="mt-4 flex items-center gap-2 text-sm font-semibold text-stone-700">
-          Restaurant
+          {t('restaurantLabel')}
           <select
             value={selectedId ?? ''}
             onChange={(event) => setSelectedId(event.target.value)}
@@ -168,7 +175,7 @@ export default function AnalyticsPage() {
       {error && (
         <div className="mt-4 flex items-center justify-between gap-3 rounded-xl bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700" role="alert">
           <span>{error}</span>
-          <button onClick={() => setReloadKey((key) => key + 1)} className="rounded-lg border border-rose-200 bg-white px-3 py-1 text-xs font-bold">Try again</button>
+          <button onClick={() => setReloadKey((key) => key + 1)} className="rounded-lg border border-rose-200 bg-white px-3 py-1 text-xs font-bold">{t('tryAgain')}</button>
         </div>
       )}
 
@@ -180,38 +187,38 @@ export default function AnalyticsPage() {
         </div>
       ) : analytics ? (
         <>
-          <section className="mt-6 grid gap-4 sm:grid-cols-3" aria-label="Analytics summary">
+          <section className="mt-6 grid gap-4 sm:grid-cols-3" aria-label={t('anSummaryAria')}>
             <div className="rounded-2xl border border-stone-200 bg-white p-5" data-testid="analytics-gross-revenue">
-              <p className="text-xs font-bold uppercase tracking-wide text-stone-400">Gross revenue</p>
+              <p className="text-xs font-bold uppercase tracking-wide text-stone-400">{t('anGross')}</p>
               <p className="mt-2 text-3xl font-extrabold text-stone-900">{formatPrice(analytics.grossRevenueCents)}</p>
-              <p className="mt-1 text-xs text-stone-500">Completed orders only</p>
+              <p className="mt-1 text-xs text-stone-500">{t('anGrossDetail')}</p>
             </div>
             <div className="rounded-2xl border border-stone-200 bg-white p-5" data-testid="analytics-completed-orders">
-              <p className="text-xs font-bold uppercase tracking-wide text-stone-400">Completed orders</p>
+              <p className="text-xs font-bold uppercase tracking-wide text-stone-400">{t('anCompleted')}</p>
               <p className="mt-2 text-3xl font-extrabold text-stone-900">{analytics.completedOrderCount}</p>
-              <p className="mt-1 text-xs text-stone-500">All time</p>
+              <p className="mt-1 text-xs text-stone-500">{t('anAllTime')}</p>
             </div>
             <div className="rounded-2xl border border-stone-200 bg-white p-5" data-testid="analytics-busiest-hour">
-              <p className="text-xs font-bold uppercase tracking-wide text-stone-400">Busiest hour</p>
+              <p className="text-xs font-bold uppercase tracking-wide text-stone-400">{t('anBusiest')}</p>
               <p className="mt-2 text-xl font-extrabold text-stone-900">
-                {analytics.peakHourUtc === null ? 'No completed orders' : hourLabel(analytics.peakHourUtc)}
+                {analytics.peakHourUtc === null ? t('anNoCompleted') : hourLabel(analytics.peakHourUtc)}
               </p>
-              <p className="mt-1 text-xs text-stone-500">By order creation time</p>
+              <p className="mt-1 text-xs text-stone-500">{t('anByCreated')}</p>
             </div>
           </section>
 
           <section className="mt-6 rounded-2xl border border-stone-200 bg-white p-5">
             <div>
-              <h2 className="text-lg font-bold">Hourly demand</h2>
-              <p className="text-sm text-stone-500">Completed orders grouped by UTC created-at hour.</p>
+              <h2 className="text-lg font-bold">{t('anHourly')}</h2>
+              <p className="text-sm text-stone-500">{t('anHourlyBody')}</p>
             </div>
             <div className="mt-5 overflow-x-auto">
-              <table className="w-full border-collapse text-sm" aria-label="Completed orders by UTC hour">
+              <table className="w-full border-collapse text-sm" aria-label={t('anTableAria')}>
                 <thead>
                   <tr className="border-b border-stone-200 text-left text-xs uppercase tracking-wide text-stone-400">
-                    <th scope="col" className="px-2 py-2">UTC hour</th>
-                    <th scope="col" className="px-2 py-2">Demand</th>
-                    <th scope="col" className="px-2 py-2 text-right">Completed orders</th>
+                    <th scope="col" className="px-2 py-2">{t('anThHour')}</th>
+                    <th scope="col" className="px-2 py-2">{t('anThDemand')}</th>
+                    <th scope="col" className="px-2 py-2 text-right">{t('anCompleted')}</th>
                   </tr>
                 </thead>
                 <tbody>

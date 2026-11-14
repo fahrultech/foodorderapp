@@ -13,6 +13,7 @@ import {
 } from '@/lib/api';
 import type { MyOrdersPage as MyOrdersData, Order, OrderStatus } from '@/lib/api';
 import StatusBadge from '@/components/StatusBadge';
+import { useTranslations } from 'next-intl';
 
 const PAGE_SIZE = 10;
 /** Silent background refresh cadence while the tab is open (status badges stay live). */
@@ -23,6 +24,16 @@ type Filter = 'all' | OrderStatus;
 /** Tab order for the status filter (mirrors the dashboard's APG tab list). */
 const FILTER_TABS = ['all', ...ORDER_STATUSES] as Filter[];
 
+/** Capitalization map for the Portal.status* keys — the dashboard idiom (session 92). */
+const STATUS_CAP: Record<OrderStatus, string> = {
+  pending: 'Pending',
+  confirmed: 'Confirmed',
+  preparing: 'Preparing',
+  delivering: 'Delivering',
+  completed: 'Completed',
+  cancelled: 'Cancelled',
+};
+
 function queryParams(filter: Filter, page: number) {
   return {
     status: filter === 'all' ? undefined : filter,
@@ -31,9 +42,11 @@ function queryParams(filter: Filter, page: number) {
   };
 }
 
-function itemSummary(order: Order): string {
+/** The head line keeps the technical `qty × name (opts)` shape; the "+N more"
+ *  suffix and the empty-state dash are translated at render time. */
+function itemParts(order: Order): { head: string; extra: number } | null {
   const lines = order.items ?? [];
-  if (lines.length === 0) return '—';
+  if (lines.length === 0) return null;
   const head = lines
     .slice(0, 2)
     .map((l) =>
@@ -42,7 +55,7 @@ function itemSummary(order: Order): string {
         : `${l.quantity} × ${l.name}`,
     )
     .join(', ');
-  return lines.length > 2 ? `${head} +${lines.length - 2} more` : head;
+  return { head, extra: lines.length > 2 ? lines.length - 2 : 0 };
 }
 
 function formatDateTime(iso: string): string {
@@ -57,6 +70,7 @@ function formatDateTime(iso: string): string {
 }
 
 export default function MyOrdersPage() {
+  const t = useTranslations('Portal');
   const { status, user, getAccessToken, logout } = useAuth();
   const [filter, setFilter] = useState<Filter>('all');
   const [page, setPage] = useState(1);
@@ -80,7 +94,7 @@ export default function MyOrdersPage() {
         // Session vanished between render and here (e.g. revocation sweep).
         if (!silent) {
           setLoading(false);
-          setError('Your session has ended — please sign in again.');
+          setError(t('histErrSessionEnded'));
         }
         return;
       }
@@ -102,7 +116,7 @@ export default function MyOrdersPage() {
             }
           } catch (err2) {
             if (!isUnauthorized(err2)) {
-              if (!silent) setError(err2 instanceof ApiError ? err2.message : 'Cannot reach the API.');
+              if (!silent) setError(err2 instanceof ApiError ? err2.message : t('histErrApiShort'));
               return;
             }
             await logout(); // terminal 401 -> guest; the sign-in prompt renders
@@ -112,14 +126,23 @@ export default function MyOrdersPage() {
           return;
         }
         if (!silent) {
-          setError(err instanceof ApiError ? err.message : 'Cannot reach the API. Is the server running?');
+          setError(err instanceof ApiError ? err.message : t('histErrApiQuestion'));
         }
       } finally {
         if (!silent) setLoading(false);
       }
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [filter, page, getAccessToken, logout],
   );
+
+  function summaryText(order: Order): string {
+    const parts = itemParts(order);
+    if (!parts) return t('dash');
+    return parts.extra > 0
+      ? `${parts.head} ${t('histMoreItems', { count: parts.extra })}`
+      : parts.head;
+  }
 
   // Initial/manual load on auth, filter, page or refresh changes.
   useEffect(() => {
@@ -138,7 +161,7 @@ export default function MyOrdersPage() {
   }, [status, load]);
 
   async function cancelOrder(order: Order) {
-    if (!window.confirm(`Cancel order ${order.code} for ${formatPrice(order.totalCents)}? This cannot be undone.`)) {
+    if (!window.confirm(t('histConfirmCancel', { code: order.code, price: formatPrice(order.totalCents) }))) {
       return;
     }
     const token = await getAccessToken();
@@ -147,13 +170,13 @@ export default function MyOrdersPage() {
     setError(null);
     try {
       await api.cancelOrder(token, order.id);
-      setNotice(`Order ${order.code} was cancelled.`);
+      setNotice(t('histNoticeCancelled', { code: order.code }));
       await load(true);
     } catch (err) {
       setError(
         err instanceof ApiError
-          ? `Could not cancel ${order.code}: ${err.message}`
-          : 'Cannot reach the API — the order was NOT cancelled.',
+          ? t('histCouldNotCancel', { code: order.code, message: err.message })
+          : t('histErrNotCancelled'),
       );
     } finally {
       setBusyId(null);
@@ -178,15 +201,13 @@ export default function MyOrdersPage() {
     return (
       <div className="mx-auto max-w-lg rounded-2xl border border-dashed border-stone-300 bg-white p-10 text-center">
         <p className="text-2xl">🧾</p>
-        <h1 className="mt-2 text-xl font-bold">Sign in to see your orders</h1>
-        <p className="mt-1 text-sm text-stone-500">
-          Your order history lives in your account. Sign in and come right back here.
-        </p>
+        <h1 className="mt-2 text-xl font-bold">{t('histGateTitle')}</h1>
+        <p className="mt-1 text-sm text-stone-500">{t('histGateBody')}</p>
         <Link
           href="/login?next=/orders/my"
           className="mt-6 inline-block rounded-xl bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-700"
         >
-          Sign in
+          {t('signIn')}
         </Link>
       </div>
     );
@@ -198,16 +219,16 @@ export default function MyOrdersPage() {
     <div className="mx-auto max-w-3xl">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-extrabold">My orders</h1>
+          <h1 className="text-2xl font-extrabold">{t('histTitle')}</h1>
           <p className="mt-1 text-sm text-stone-500">
-            {user ? `Orders placed with ${user.email}` : 'Your recent orders'}
+            {user ? t('histSubEmail', { email: user.email }) : t('histSubPlain')}
           </p>
         </div>
         <button
           onClick={() => setReloadKey((k) => k + 1)}
           className="rounded-xl border border-stone-300 bg-white px-4 py-2 text-sm font-semibold text-stone-700 hover:bg-stone-100"
         >
-          ↻ Refresh
+          {t('refresh')}
         </button>
       </div>
 
@@ -215,7 +236,7 @@ export default function MyOrdersPage() {
           role=tab buttons (the dashboard's session-78 shape was the point)
           to the full APG tabs pattern — roving tabindex, Arrow/Home/End
           move+select, aria-controls wired to the results tabpanel below. */}
-      <div className="mt-5 flex flex-wrap gap-2" role="tablist" aria-label="Filter orders by status">
+      <div className="mt-5 flex flex-wrap gap-2" role="tablist" aria-label={t('filterTabsAria')}>
         {FILTER_TABS.map((s, i) => (
           <button
             key={s}
@@ -262,7 +283,7 @@ export default function MyOrdersPage() {
                 : 'border border-stone-300 bg-white text-stone-600 hover:bg-stone-100'
             }`}
           >
-            {s === 'all' ? 'All' : s.charAt(0).toUpperCase() + s.slice(1)}
+            {s === 'all' ? t('tabAll') : t(`status${STATUS_CAP[s as OrderStatus]}`)}
           </button>
         ))}
       </div>
@@ -279,7 +300,7 @@ export default function MyOrdersPage() {
             onClick={() => setReloadKey((k) => k + 1)}
             className="shrink-0 rounded-lg border border-rose-200 bg-white px-3 py-1 text-xs font-bold text-rose-700 hover:bg-rose-50"
           >
-            Try again
+            {t('tryAgain')}
           </button>
         </p>
       )}
@@ -303,18 +324,18 @@ export default function MyOrdersPage() {
         <div className="mt-6 rounded-2xl border border-dashed border-stone-300 bg-white p-10 text-center">
           <p className="text-2xl">🍽️</p>
           <h2 className="mt-2 text-lg font-bold">
-            {filter === 'all' ? 'No orders yet' : `No ${filter} orders`}
+            {filter === 'all'
+              ? t('emptyAllTitle')
+              : t('emptyStatusTitle', { status: t(`word${STATUS_CAP[filter as OrderStatus]}`) })}
           </h2>
           <p className="mt-1 text-sm text-stone-500">
-            {filter === 'all'
-              ? 'When you check out, your orders show up here with live status.'
-              : 'Try another status filter or check all orders.'}
+            {filter === 'all' ? t('histEmptyAllBody') : t('histEmptyStatusBody')}
           </p>
           <Link
             href="/"
             className="mt-6 inline-block rounded-xl bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-700"
           >
-            Find food
+            {t('histFindFood')}
           </Link>
         </div>
       ) : data ? (
@@ -336,10 +357,10 @@ export default function MyOrdersPage() {
                     <span className="text-xs text-stone-500">{formatDateTime(order.createdAt)}</span>
                   </div>
                   <p className="mt-2 text-sm font-semibold text-stone-700">
-                    {order.restaurant?.name ?? 'Restaurant'}
+                    {order.restaurant?.name ?? t('restaurantLabel')}
                     {order.restaurant?.cuisine ? ` · ${order.restaurant.cuisine}` : ''}
                   </p>
-                  <p className="mt-1 truncate text-sm text-stone-500">{itemSummary(order)}</p>
+                  <p className="mt-1 truncate text-sm text-stone-500">{summaryText(order)}</p>
                   <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-stone-100 pt-3">
                     <span className="text-sm font-extrabold">{formatPrice(order.totalCents)}</span>
                     <div className="flex items-center gap-2">
@@ -349,14 +370,14 @@ export default function MyOrdersPage() {
                           disabled={busyId === order.id}
                           className="rounded-lg border border-rose-200 px-3 py-1.5 text-xs font-bold text-rose-700 hover:bg-rose-50 disabled:opacity-50"
                         >
-                          {busyId === order.id ? 'Cancelling…' : 'Cancel order'}
+                          {busyId === order.id ? t('histCancelling') : t('histCancelOrder')}
                         </button>
                       )}
                       <Link
                         href={`/orders/${order.id}${order.contactEmail ? `?email=${encodeURIComponent(order.contactEmail)}` : ''}`}
                         className="rounded-lg bg-stone-900 px-3 py-1.5 text-xs font-bold text-white hover:bg-stone-700"
                       >
-                        Details
+                        {t('details')}
                       </Link>
                     </div>
                   </div>
@@ -368,7 +389,13 @@ export default function MyOrdersPage() {
           {/* Pagination */}
           <div className="mt-6 flex items-center justify-between">
             <p className="text-sm text-stone-500">
-              Page {data.page} of {totalPages} · {data.total} order{data.total === 1 ? '' : 's'}
+              {t('pagination', {
+                page: data.page,
+                totalPages,
+                count: data.total,
+                unit: data.total === 1 ? t('unitOrder') : t('unitOrders'),
+                status: '',
+              })}
             </p>
             <div className="flex gap-2">
               <button
@@ -376,14 +403,14 @@ export default function MyOrdersPage() {
                 disabled={data.page <= 1}
                 className="rounded-lg border border-stone-300 bg-white px-4 py-1.5 text-sm font-semibold text-stone-700 hover:bg-stone-100 disabled:opacity-40"
               >
-                ← Prev
+                {t('prevPage')}
               </button>
               <button
                 onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                 disabled={data.page >= totalPages}
                 className="rounded-lg border border-stone-300 bg-white px-4 py-1.5 text-sm font-semibold text-stone-700 hover:bg-stone-100 disabled:opacity-40"
               >
-                Next →
+                {t('nextPage')}
               </button>
             </div>
           </div>

@@ -175,16 +175,34 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   kitchen additionally shows one all-clear banner when every loaded lane
   totals zero; a Refresh that fails with data on screen keeps the last
   good board with the amber strip instead of blanking.
-- **Portal chrome speaks the message files** (session 92): every user-visible
-  label on `/dashboard`, `/dashboard/kitchen`, `/driver`, `/admin`, the shared
-  `PortalTabs` nav and the `StatusBadge` pill lives in the `Portal` message
-  namespace (EN/ID), never as a literal. The EN values are pinned BYTE-IDENTICAL
-  to the pre-session-92 literals because the e2e suite asserts them; changing
-  one means changing the specs. Files that already bound `t` to another
-  namespace (kitchen/driver use `PortalStates`) take a SECOND translator
-  (`tc = useTranslations('Portal')`) — never route Portal keys through the
-  wrong instance. When adding translations to an existing dict, audit for
-  values left identical to EN on purpose (loanwords) versus by accident.
+- **Portal chrome speaks the message files** (sessions 92+93): every user-visible
+  label on `/dashboard` (incl. `/dashboard/menu` + its `MenuItemForm` dialog and
+  `/dashboard/analytics`), `/driver`, `/admin` (incl. the deferred `TrafficPanel`
+  and its code-split skeleton aria), the customer `/orders/my` history chrome,
+  the shared `PortalTabs` nav and the `StatusBadge` pill lives in the `Portal`
+  message namespace (EN/ID), never as a literal. The EN values are pinned
+  BYTE-IDENTICAL to the pre-session-92 literals because the e2e suite asserts
+  them; changing one means changing the specs. Files that already bound `t` to
+  another namespace (kitchen/driver use `PortalStates`; menu/analytics borrow
+  `ts = useTranslations('PortalStates')` only for the shared no-restaurant h2)
+  take a SECOND translator (`tc = useTranslations('Portal')`) — never route
+  Portal keys through the wrong instance. When adding translations to an
+  existing dict, audit for values left identical to EN on purpose (loanwords)
+  versus by accident. Numeric ICU params that were RAW `${n}` interpolations
+  pre-session must be passed as `String(n)` — Intl would otherwise reformat
+  them (grouping, decimal comma) and break byte-pinned assertions.
+- **Portal document `<title>`s are owned by pass-through route layouts**
+  (session 93): the portal pages are client components and cannot export
+  metadata, so each portal route carries a server `layout.tsx` whose only jobs
+  are `generateMetadata` (localized `Portal.title*` value) and rendering
+  `children` with zero DOM. Adding such a layout must never add a
+  `loading.tsx` boundary (the session-77 soft-404/DOM-duplication rule holds).
+- **Login-then-navigate e2e flows must wait for the redirect to settle**
+  (session 93): the role-gated header is already visible on `/login`, so
+  clicking a nav link right after sign-in can race the post-login
+  `router.replace(next)` — the click starts, the redirect commits and lands
+  on home (A/B-quantified 1/5 cold on both trees; the suite guards it with
+  `expect(page).not.toHaveURL(/\/login/)` before clicking).
 - **Order status machine** — transitions validated server-side
   (`pending→confirmed→preparing→delivering→completed`, cancellable through preparing).
   `POST /orders/:id/cancel` lets the *customer* use exactly that machine edge
