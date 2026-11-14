@@ -1,12 +1,29 @@
 'use client';
 
 import Link from 'next/link';
+import dynamic from 'next/dynamic';
 import { useEffect, useState } from 'react';
 import { useAuth } from '@/lib/auth';
 import { authedCall } from '@/lib/authed-call';
 import { AdminOverview, api, formatPrice, MetricsSnapshot } from '@/lib/api';
 import StatusBadge from '@/components/StatusBadge';
-import TrafficPanel from '@/components/TrafficPanel';
+
+// Bundle trim (Phase 8): the traffic panel is NOT part of the /admin route
+// payload anymore. The dynamic import only starts when the component is
+// first RENDERED, and the render gate below is `metrics != null` — so the
+// chunk is fetched strictly BEHIND the GET /admin/metrics round-trip. Admins
+// on a metrics outage (or a 401) never download it. ssr:false because the
+// snapshot is bearer-only client data — there is nothing to server-render.
+const TrafficPanel = dynamic(() => import('@/components/TrafficPanel'), {
+  ssr: false,
+  loading: () => (
+    <div
+      className="h-40 animate-pulse rounded-2xl border border-stone-200 bg-stone-50"
+      aria-label="Loading traffic metrics"
+      data-testid="traffic-panel-loading"
+    />
+  ),
+});
 
 function formatDate(iso: string): string {
   try {
