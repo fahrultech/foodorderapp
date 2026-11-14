@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from 'react';
 import { formatPrice, optionRowLabels } from '@/lib/api';
+import { useTranslations } from 'next-intl';
 import { optionsDeltaCents, type SwitchRequest } from '@/lib/cart';
 
 interface Props {
@@ -27,6 +28,8 @@ export default function CartSwitchDialog({
   onConfirm,
   onCancel,
 }: Props) {
+  const t = useTranslations('Cart');
+  const c = useTranslations('Common');
   const keepBtnRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
@@ -55,23 +58,23 @@ export default function CartSwitchDialog({
         onClick={(e) => e.stopPropagation()}
       >
         <h2 id="cart-switch-title" className="text-lg font-extrabold">
-          Start a new cart?
+          {t('switchTitle')}
         </h2>
         <p id="cart-switch-desc" className="mt-2 text-sm leading-relaxed text-stone-600">
-          Your cart holds{' '}
+          {t('switchHolds')}{' '}
           <strong>
-            {currentCount} item{currentCount === 1 ? '' : 's'} from {currentRestaurantName}
+            {t('switchHeldItems', { count: currentCount, name: currentRestaurantName ?? '' })}
           </strong>{' '}
-          ({formatPrice(currentSubtotalCents)}). FoodOrder carts cover a single kitchen at a
-          time, so adding <strong>{request.item.name}</strong> from{' '}
-          <strong>{request.restaurant.name}</strong> would discard your current cart.
+          {t('switchKitchen', { price: formatPrice(currentSubtotalCents) })}{' '}
+          <strong>{request.item.name}</strong> {t('switchFrom')}{' '}
+          <strong>{request.restaurant.name}</strong> {t('switchDiscard')}
         </p>
 
         <div className="mt-4 rounded-xl border border-stone-200 bg-stone-50 px-4 py-3 text-sm">
-          <p className="font-semibold text-stone-700">New cart would contain</p>
+          <p className="font-semibold text-stone-700">{t('switchNewTitle')}</p>
           <p className="mt-1 flex items-center justify-between">
             <span>
-              1 × {request.item.name}
+              {c('qtyLine', { count: '1', name: request.item.name })}
               <span className="text-stone-400"> · {request.restaurant.name}</span>
               {request.options && request.options.length > 0 && (
                 <span className="block text-xs text-stone-500">
@@ -93,13 +96,13 @@ export default function CartSwitchDialog({
             onClick={onCancel}
             className="rounded-xl border border-stone-300 px-4 py-2.5 text-sm font-semibold text-stone-700 hover:bg-stone-100"
           >
-            Keep current cart
+            {t('keepCart')}
           </button>
           <button
             onClick={onConfirm}
             className="rounded-xl bg-red-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-red-700"
           >
-            Replace cart
+            {t('replaceCart')}
           </button>
         </div>
       </div>

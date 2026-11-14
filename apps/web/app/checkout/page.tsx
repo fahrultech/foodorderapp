@@ -7,6 +7,7 @@ import { useCart } from '@/lib/cart';
 import { useAuth } from '@/lib/auth';
 import { useIsCompactViewport } from '@/lib/use-compact-viewport';
 import { api, formatPrice, optionRowLabels, DeliveryAddress, PromoPreview, Restaurant } from '@/lib/api';
+import { useTranslations } from 'next-intl';
 
 /** A validated promo from the soft-200 /promos/validate endpoint. */
 type AppliedPromo = Extract<PromoPreview, { valid: true }>;
@@ -21,6 +22,8 @@ type PricingState = 'loading' | 'ready' | 'unavailable';
 
 export default function CheckoutPage() {
   const router = useRouter();
+  const t = useTranslations('Checkout');
+  const c = useTranslations('Common');
   const { status, user, getAccessToken } = useAuth();
   const { lines, subtotalCents, restaurantId, restaurantName, clear } = useCart();
   const [submitting, setSubmitting] = useState(false);
@@ -132,8 +135,8 @@ export default function CheckoutPage() {
   if (lines.length === 0 || !restaurantId) {
     return (
       <div className="mx-auto max-w-lg rounded-2xl border border-dashed border-stone-300 bg-white p-10 text-center">
-        <h1 className="text-xl font-bold">Nothing to check out</h1>
-        <p className="mt-1 text-sm text-stone-500">Add some dishes to your cart first.</p>
+        <h1 className="text-xl font-bold">{t('emptyTitle')}</h1>
+        <p className="mt-1 text-sm text-stone-500">{t('emptyBody')}</p>
       </div>
     );
   }
@@ -167,7 +170,7 @@ export default function CheckoutPage() {
     } catch {
       // Endpoint unreachable — the order itself will still server-check the
       // code on submit, but right now we can only offer the honest message.
-      setPromoError('Could not check the promo code right now.');
+      setPromoError(t('promoCheckError'));
     } finally {
       setPromoChecking(false);
     }
@@ -215,7 +218,7 @@ export default function CheckoutPage() {
         `/orders/${order.id}?code=${order.code}${proof}${status === 'signedIn' ? '&pay=1' : ''}`,
       );
     } catch (err: any) {
-      setError(err.message || 'Could not place the order');
+      setError(err.message || t('orderError'));
       setSubmitting(false);
     }
   }
@@ -229,32 +232,33 @@ export default function CheckoutPage() {
     <>
     <div className="mx-auto grid max-w-4xl gap-8 md:grid-cols-2">
       <div>
-        <h1 className="text-2xl font-extrabold">Checkout</h1>
+        <h1 className="text-2xl font-extrabold">{t('title')}</h1>
         <form id="checkout-form" onSubmit={submit} className="mt-6 space-y-4">
           {belowMinimum && (
             <div
               role="alert"
               className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800"
             >
-              {restaurantName ?? 'This restaurant'} has a minimum order of{' '}
-              {formatPrice(minOrderCents!)}. Add {formatPrice(missingCents)} more to your cart to
-              check out —{' '}
+              {t('minAlert', {
+                name: restaurantName ?? t('minThisRestaurant'),
+                price: formatPrice(minOrderCents!),
+                gap: formatPrice(missingCents),
+              })}{' '}
               <a className="underline" href="/cart">
-                back to cart
+                {t('backToCart')}
               </a>
               .
             </div>
           )}
           {pricing === 'unavailable' && (
             <p className="rounded-xl bg-stone-100 px-4 py-3 text-sm text-stone-600">
-              Couldn&apos;t load the delivery fee for this restaurant right now. You can still
-              place the order — the fee and minimum will be applied server-side.
+              {t('pricingDown')}
             </p>
           )}
           {status === 'signedIn' && addresses.length > 0 && (
             <fieldset className="rounded-2xl border border-stone-200 bg-stone-50 p-4">
               <legend className="px-1 text-sm font-semibold text-stone-700">
-                Deliver to a saved address
+                {t('savedTitle')}
               </legend>
               <div className="space-y-2" data-testid="checkout-address-picker">
                 {addresses.map((a) => (
@@ -279,12 +283,12 @@ export default function CheckoutPage() {
                         {a.label}
                         {a.isDefault && (
                           <span className="ml-2 rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-bold text-emerald-700">
-                            Default
+                            {t('defaultBadge')}
                           </span>
                         )}
                       </span>
                       <span className="block truncate text-stone-500">
-                        {a.recipientName} · {a.address}
+                        {t('addrLine', { name: a.recipientName, address: a.address })}
                       </span>
                     </span>
                   </label>
@@ -296,20 +300,20 @@ export default function CheckoutPage() {
                     selectedAddressId === null ? 'text-brand-600' : 'text-stone-500'
                   }`}
                 >
-                  Enter details manually instead
+                  {t('manualCta')}
                 </button>
               </div>
               <p className="mt-2 text-xs text-stone-500">
-                Managing the book?{' '}
+                {t('manageBook')}{' '}
                 <Link href="/addresses" className="font-medium text-brand-600 hover:underline">
-                  Edit saved addresses
+                  {t('editAddresses')}
                 </Link>
               </p>
             </fieldset>
           )}
           <div>
             <label className="mb-1 block text-sm font-medium" htmlFor="checkout-name">
-              Your name
+              {t('nameLabel')}
             </label>
             <input
               id="checkout-name"
@@ -318,12 +322,12 @@ export default function CheckoutPage() {
               className={field}
               value={form.customerName}
               onChange={(e) => setContactField('customerName', e.target.value)}
-              placeholder="Jane Doe"
+              placeholder={t('namePlaceholder')}
             />
           </div>
           <div>
             <label className="mb-1 block text-sm font-medium" htmlFor="checkout-phone">
-              Phone
+              {t('phoneLabel')}
             </label>
             <input
               id="checkout-phone"
@@ -338,7 +342,7 @@ export default function CheckoutPage() {
           </div>
           <div>
             <label className="mb-1 block text-sm font-medium" htmlFor="checkout-email">
-              Contact email
+              {t('emailLabel')}
             </label>
             <input
               id="checkout-email"
@@ -353,13 +357,12 @@ export default function CheckoutPage() {
               aria-describedby="checkout-email-help"
             />
             <p id="checkout-email-help" className="mt-1 text-xs text-stone-500">
-              Keeps the receipt page yours: this email is what unlocks the order
-              page for guests (the link alone no longer shows anything).
+              {t('emailHelp')}
             </p>
           </div>
           <div>
             <label className="mb-1 block text-sm font-medium" htmlFor="checkout-address">
-              Delivery address
+              {t('addressLabel')}
             </label>
             <textarea
               id="checkout-address"
@@ -369,12 +372,12 @@ export default function CheckoutPage() {
               className={field}
               value={form.deliveryAddress}
               onChange={(e) => setContactField('deliveryAddress', e.target.value)}
-              placeholder="Street, number, city, landmarks…"
+              placeholder={t('addressPlaceholder')}
             />
           </div>
           <div>
             <label className="mb-1 block text-sm font-medium" htmlFor="checkout-note">
-              Note for the restaurant
+              {t('noteLabel')}
             </label>
             <textarea
               id="checkout-note"
@@ -382,7 +385,7 @@ export default function CheckoutPage() {
               className={field}
               value={form.note}
               onChange={(e) => setForm({ ...form, note: e.target.value })}
-              placeholder="e.g. no chili, gate code 1234"
+              placeholder={t('notePlaceholder')}
             />
           </div>
           {error && (
@@ -399,23 +402,23 @@ export default function CheckoutPage() {
             className="inline-flex min-h-11 w-full items-center justify-center rounded-xl bg-brand-600 px-6 py-3 text-sm font-semibold text-white hover:bg-brand-700 disabled:bg-stone-300"
           >
             {submitting
-              ? 'Placing order…'
+              ? t('placing')
               : pricingLoading
-                ? 'Loading delivery fee…'
+                ? t('loadingFee')
                 : belowMinimum
-                  ? 'Below minimum order'
-                  : `Place order — ${formatPrice(totalCents ?? subtotalCents)}`}
+                  ? t('belowMin')
+                  : t('placeOrderPrice', { price: formatPrice(totalCents ?? subtotalCents) })}
           </button>
         </form>
       </div>
 
       <aside className="h-fit rounded-2xl border border-stone-200 bg-white p-5">
-        <h2 className="font-bold">Order summary</h2>
+        <h2 className="font-bold">{t('summaryTitle')}</h2>
         <ul className="mt-3 space-y-2 text-sm">
           {lines.map((l) => (
             <li key={l.lineKey} className="flex justify-between">
               <span>
-                {l.quantity} × {l.name}
+                {c('qtyLine', { count: String(l.quantity), name: l.name })}
                 {l.options.length > 0 && (
                   <span className="block text-xs text-stone-500">
                     {optionRowLabels(l.options).join(' · ')}
@@ -428,30 +431,30 @@ export default function CheckoutPage() {
         </ul>
         <div className="mt-4 border-t border-stone-200 pt-3 text-sm">
           <div className="flex justify-between text-stone-500">
-            <span>Subtotal</span>
+            <span>{c('subtotal')}</span>
             <span>{formatPrice(subtotalCents)}</span>
           </div>
           <div className="mt-1 flex justify-between text-stone-500">
-            <span>Delivery</span>
+            <span>{c('wordDelivery')}</span>
             <span data-testid="checkout-delivery">
               {pricingLoading
-                ? 'loading…'
+                ? t('feeLoading')
                 : deliveryFeeCents === null
-                  ? 'calculated by the kitchen'
+                  ? t('feeKitchen')
                   : deliveryFeeCents === 0
-                    ? 'free'
+                    ? t('feeFree')
                     : formatPrice(deliveryFeeCents)}
             </span>
           </div>
           {minOrderCents !== null && (
             <div className="mt-1 flex justify-between text-stone-500">
-              <span>Minimum order</span>
+              <span>{t('minOrderRow')}</span>
               <span>{formatPrice(minOrderCents)}</span>
             </div>
           )}
           {discountCents > 0 && (
             <div className="mt-1 flex justify-between font-medium text-emerald-600">
-              <span data-testid="checkout-promo-label">Promo ({appliedPromo!.code})</span>
+              <span data-testid="checkout-promo-label">{c('promoLine', { code: appliedPromo!.code })}</span>
               <span data-testid="checkout-promo">-{formatPrice(discountCents)}</span>
             </div>
           )}
@@ -460,7 +463,7 @@ export default function CheckoutPage() {
               htmlFor="checkout-promo-code"
               className="block text-xs font-medium uppercase tracking-wide text-stone-500"
             >
-              Promo code
+              {t('promoLabel')}
             </label>
             <div className="flex gap-2">
               <input
@@ -478,7 +481,7 @@ export default function CheckoutPage() {
                     applyPromo();
                   }
                 }}
-                placeholder="e.g. WELCOME10"
+                placeholder={t('promoPlaceholder')}
                 maxLength={24}
                 data-testid="checkout-promo-input"
               />
@@ -488,7 +491,7 @@ export default function CheckoutPage() {
                 disabled={!promoInput.trim() || promoChecking}
                 className="inline-flex min-h-11 shrink-0 items-center justify-center rounded-xl border border-brand-600 px-3 py-2 text-sm font-semibold text-brand-600 hover:bg-brand-50 disabled:border-stone-300 disabled:text-stone-400"
               >
-                {promoChecking ? 'Checking…' : appliedPromo ? 'Applied' : 'Apply'}
+                {promoChecking ? t('checkingPromo') : appliedPromo ? t('applied') : t('apply')}
               </button>
             </div>
             {appliedPromo && (
@@ -501,7 +504,7 @@ export default function CheckoutPage() {
             )}
           </div>
           <div className="mt-2 flex justify-between text-base font-extrabold">
-            <span>Total</span>
+            <span>{c('total')}</span>
             <span data-testid="checkout-total">
               {totalCents === null ? '—' : formatPrice(totalCents)}
             </span>
@@ -516,7 +519,7 @@ export default function CheckoutPage() {
         className="sticky bottom-0 z-10 -mx-4 mt-6 flex items-center gap-4 border-t border-stone-200 bg-white/90 px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur"
       >
         <div className="min-w-0">
-          <p className="text-xs text-stone-500">Total</p>
+          <p className="text-xs text-stone-500">{c('total')}</p>
           <p className="text-lg font-extrabold leading-tight">
             {formatPrice(totalCents ?? subtotalCents)}
           </p>
@@ -532,12 +535,12 @@ export default function CheckoutPage() {
           className="inline-flex min-h-11 flex-1 items-center justify-center rounded-xl bg-brand-600 px-4 text-sm font-semibold text-white hover:bg-brand-700 disabled:bg-stone-300"
         >
           {submitting
-            ? 'Placing order…'
+            ? t('placing')
             : pricingLoading
-              ? 'Loading delivery fee…'
+              ? t('loadingFee')
               : belowMinimum
-                ? 'Below minimum order'
-                : 'Place order'}
+                ? t('belowMin')
+                : t('placeOrder')}
         </button>
       </div>
     )}

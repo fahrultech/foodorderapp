@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import { useCart } from '@/lib/cart';
 import { useIsCompactViewport } from '@/lib/use-compact-viewport';
 import { formatPrice, optionRowLabels } from '@/lib/api';
+import { useTranslations } from 'next-intl';
 
 /** Stepper buttons target 44×44 (WCAG 2.5.5 mobile minimum). */
 const STEP_BTN =
@@ -12,6 +13,8 @@ const STEP_BTN =
 
 export default function CartPage() {
   const { lines, setQty, clear, subtotalCents, restaurantName, restaurantId } = useCart();
+  const t = useTranslations('Cart');
+  const c = useTranslations('Common');
   const [online, setOnline] = useState(true);
   // Phone-width only: a sticky bottom bar owns the subtotal + checkout CTA
   // so the primary action never scrolls away on a long cart (session 83).
@@ -34,13 +37,13 @@ export default function CartPage() {
     return (
       <div className="mx-auto max-w-lg rounded-2xl border border-dashed border-stone-300 bg-white p-10 text-center">
         <p className="text-2xl">🛒</p>
-        <h1 className="mt-2 text-xl font-bold">Your cart is empty</h1>
-        <p className="mt-1 text-sm text-stone-500">Browse restaurants and add dishes to get started.</p>
+        <h1 className="mt-2 text-xl font-bold">{t('emptyTitle')}</h1>
+        <p className="mt-1 text-sm text-stone-500">{t('emptyBody')}</p>
         <Link
           href="/"
           className="mt-6 inline-flex min-h-11 items-center rounded-xl bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-700"
         >
-          Find food
+          {t('findFood')}
         </Link>
       </div>
     );
@@ -48,11 +51,13 @@ export default function CartPage() {
 
   return (
     <div className="mx-auto max-w-2xl">
-      <h1 className="text-2xl font-extrabold">Your cart</h1>
-      {restaurantName && <p className="mt-1 text-sm text-stone-500">From {restaurantName}</p>}
+      <h1 className="text-2xl font-extrabold">{t('title')}</h1>
+      {restaurantName && (
+        <p className="mt-1 text-sm text-stone-500">{t('from', { name: restaurantName })}</p>
+      )}
       {!online && (
         <p className="mt-4 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900" role="status">
-          You are offline. Cart changes stay on this device; checkout needs a connection.
+          {t('offlineNote')}
         </p>
       )}
 
@@ -71,9 +76,9 @@ export default function CartPage() {
                   </p>
                 )}
                 <p className="mt-0.5 text-sm text-stone-500">
-                  {formatPrice(l.priceCents)} each
+                  {t('each', { price: formatPrice(l.priceCents) })}
                   {l.options.length > 0 && (
-                    <span className="text-stone-400"> · incl. options</span>
+                    <span className="text-stone-400">{t('inclOptions')}</span>
                   )}
                 </p>
               </div>
@@ -83,7 +88,7 @@ export default function CartPage() {
               <button
                 onClick={() => setQty(l.lineKey, l.quantity - 1)}
                 className={STEP_BTN}
-                aria-label="Decrease quantity"
+                aria-label={t('decrease')}
               >
                 −
               </button>
@@ -91,7 +96,7 @@ export default function CartPage() {
               <button
                 onClick={() => setQty(l.lineKey, l.quantity + 1)}
                 className={STEP_BTN}
-                aria-label="Increase quantity"
+                aria-label={t('increase')}
               >
                 +
               </button>
@@ -105,7 +110,7 @@ export default function CartPage() {
           never hidden-but-present — see use-compact-viewport). */}
       <div className="mt-6 hidden items-center justify-between rounded-2xl border border-stone-200 bg-white p-4 sm:flex">
         <p className="text-sm text-stone-500">
-          Subtotal <span className="mx-1">·</span> delivery fee added at checkout
+          {c('subtotal')} <span className="mx-1">·</span> {t('feeAdded')}
         </p>
         <p className="text-xl font-extrabold">{formatPrice(subtotalCents)}</p>
       </div>
@@ -115,13 +120,13 @@ export default function CartPage() {
           onClick={clear}
           className="inline-flex min-h-11 items-center rounded-lg px-2 text-sm font-medium text-stone-500 hover:text-red-600"
         >
-          Clear cart
+          {t('clearCart')}
         </button>
         <Link
           href={checkoutHref}
           className="inline-flex min-h-11 items-center rounded-xl bg-brand-600 px-6 py-3 text-sm font-semibold text-white hover:bg-brand-700"
         >
-          Checkout →
+          {t('checkoutCta')}
         </Link>
       </div>
 
@@ -134,10 +139,10 @@ export default function CartPage() {
             onClick={clear}
             className="inline-flex min-h-11 shrink-0 items-center rounded-lg px-2 text-sm font-medium text-stone-500 hover:text-red-600"
           >
-            Clear cart
+            {t('clearCart')}
           </button>
           <div className="ml-auto text-right">
-            <p className="text-xs text-stone-500">Subtotal · fee at checkout</p>
+            <p className="text-xs text-stone-500">{t('mobileFeeNote')}</p>
             <p data-testid="mobile-cart-subtotal" className="text-lg font-extrabold leading-tight">
               {formatPrice(subtotalCents)}
             </p>
@@ -147,7 +152,7 @@ export default function CartPage() {
             data-testid="mobile-checkout-cta"
             className="inline-flex min-h-11 shrink-0 items-center rounded-xl bg-brand-600 px-5 text-sm font-semibold text-white hover:bg-brand-700"
           >
-            Checkout →
+            {t('checkoutCta')}
           </Link>
         </div>
       )}

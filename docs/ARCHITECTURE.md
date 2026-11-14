@@ -128,7 +128,14 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   an HTTP-only, same-site cookie; `i18n/request.ts` rejects unknown cookie values
   back to English. This preserves every existing URL, cart link, callback, and
   SEO route while localizing metadata, shared header/footer, restaurant browse
-  cards, restaurant detail/reviews, menu search states, and add-to-cart labels.
+  cards, restaurant detail/reviews, menu search states, add-to-cart labels,
+  the whole order funnel (cart page, cart-switch dialog, checkout, receipt +
+  timeline/live-feed/payment/verify/rate islands, offline shell — session 94)
+  and the four portal surfaces + their title-owning layouts (sessions 92–93).
+  Every message ships in EN and ID with byte-parity; EN values are
+  byte-pinned against the existing e2e suite (reuse-over-duplication via
+  `Common`/`Header`/`Portal` shared keys; ICU counts that replaced raw
+  interpolations pass `String(n)`).
   The root `NextIntlClientProvider` gives client islands the same request locale
   as server components, and `<html lang>` follows the active choice.
 - **Dark mode is server-selected and cookie-persisted** — the shared header

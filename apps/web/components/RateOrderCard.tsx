@@ -6,6 +6,7 @@ import { ApiError, api } from '@/lib/api';
 import type { ReviewRow } from '@/lib/api';
 import { authedCall } from '@/lib/authed-call';
 import { useAuth } from '@/lib/auth';
+import { useTranslations } from 'next-intl';
 import Stars from './Stars';
 
 const COMMENT_MAX = 2000;
@@ -26,6 +27,8 @@ type CreateOutcome = { kind: 'created'; review: ReviewRow } | { kind: 'duplicate
  */
 export default function RateOrderCard({ orderId }: { orderId: string }) {
   const { status, getAccessToken, logout } = useAuth();
+  const t = useTranslations('Order');
+  const th = useTranslations('Header');
   const [existing, setExisting] = useState<ReviewRow | null>(null);
   const [checking, setChecking] = useState(true);
   const [draft, setDraft] = useState(0);
@@ -78,7 +81,7 @@ export default function RateOrderCard({ orderId }: { orderId: string }) {
   };
 
   if (status === 'loading' || checking) {
-    return <p className="mt-2 text-sm text-stone-400">Loading…</p>;
+    return <p className="mt-2 text-sm text-stone-400">{t('loading')}</p>;
   }
 
   if (status !== 'signedIn') {
@@ -88,9 +91,9 @@ export default function RateOrderCard({ orderId }: { orderId: string }) {
           href={`/login?next=${encodeURIComponent(`/orders/${orderId}`)}`}
           className="font-semibold text-brand-600 hover:underline"
         >
-          Sign in
+          {th('signIn')}
         </Link>{' '}
-        to rate this order — your review helps other diners.
+        {t('rateTail')}
       </p>
     );
   }
@@ -101,12 +104,12 @@ export default function RateOrderCard({ orderId }: { orderId: string }) {
         <div className="flex items-center gap-2">
           <Stars rating={existing.rating} className="text-lg" />
           <span className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
-            Your review
+            {t('yourReview')}
           </span>
         </div>
         {existing.comment && <p className="mt-2 text-sm text-stone-700">{existing.comment}</p>}
         <p className="mt-2 text-xs text-stone-400">
-          Thanks for the feedback! It counts toward {existing.restaurantName}&apos;s rating.
+          {t('thanksReview', { name: existing.restaurantName })}
         </p>
       </div>
     );
@@ -119,7 +122,7 @@ export default function RateOrderCard({ orderId }: { orderId: string }) {
           reader announced "radio, 1 of 5" with no meaning. Each now carries
           "N star(s)". */}
       <fieldset className="flex items-center gap-1">
-        <legend className="sr-only">Your rating</legend>
+        <legend className="sr-only">{t('ratingLegend')}</legend>
         {[1, 2, 3, 4, 5].map((n) => (
           <label key={n} className="cursor-pointer">
             <input
@@ -128,7 +131,7 @@ export default function RateOrderCard({ orderId }: { orderId: string }) {
               value={n}
               checked={draft === n}
               onChange={() => setDraft(n)}
-              aria-label={`${n} star${n === 1 ? '' : 's'}`}
+              aria-label={t('starAria', { count: n })}
               className="sr-only"
             />
             <span
@@ -143,13 +146,13 @@ export default function RateOrderCard({ orderId }: { orderId: string }) {
         ))}
       </fieldset>
       <label htmlFor="review-comment" className="sr-only">
-        Your comment
+        {t('commentLabel')}
       </label>
       <textarea
         id="review-comment"
         value={comment}
         onChange={(e) => setComment(e.target.value.slice(0, COMMENT_MAX))}
-        placeholder="How was the food and delivery? (optional)"
+        placeholder={t('commentPlaceholder')}
         rows={3}
         maxLength={COMMENT_MAX}
         aria-describedby="review-comment-count"
@@ -165,7 +168,7 @@ export default function RateOrderCard({ orderId }: { orderId: string }) {
           disabled={!draft || busy}
           className="rounded-full bg-brand-600 px-5 py-2 text-sm font-bold text-white transition hover:bg-brand-700 disabled:opacity-40"
         >
-          {busy ? 'Submitting…' : 'Submit review'}
+          {busy ? t('submitting') : t('submitReview')}
         </button>
       </div>
       {error && (

@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth';
 import { api } from '@/lib/api';
+import { useTranslations } from 'next-intl';
 
 /**
  * Receipt-proof fallback (API Phase 6 ownership fix). `GET /orders/:id` no
@@ -22,6 +23,7 @@ import { api } from '@/lib/api';
 export default function OrderVerify({ orderId }: { orderId: string }) {
   const router = useRouter();
   const { status, getAccessToken } = useAuth();
+  const t = useTranslations('Order');
   const [checking, setChecking] = useState(false);
   const [email, setEmail] = useState('');
   const [busy, setBusy] = useState(false);
@@ -59,7 +61,7 @@ export default function OrderVerify({ orderId }: { orderId: string }) {
   if (checking) {
     return (
       <p className="mt-4 text-sm text-stone-500" data-testid="order-verify-checking">
-        Checking your saved orders…
+        {t('verifyChecking')}
       </p>
     );
   }
@@ -83,14 +85,13 @@ export default function OrderVerify({ orderId }: { orderId: string }) {
 
   return (
     <div className="mt-6 rounded-2xl border border-stone-200 bg-white p-6 text-left">
-      <h2 className="text-sm font-bold">Is this your order?</h2>
+      <h2 className="text-sm font-bold">{t('verifyTitle')}</h2>
       <p id="order-verify-hint" className="mt-1 text-xs text-stone-500">
-        Receipts need a key now: the email you checked out with (or a signed-in
-        account for orders that belong to you).
+        {t('verifyHint')}
       </p>
       <form onSubmit={submit} className="mt-3 flex gap-2">
         <label className="sr-only" htmlFor="order-verify-email">
-          Checkout email
+          {t('verifyEmailLabel')}
         </label>
         <input
           id="order-verify-email"
@@ -107,12 +108,12 @@ export default function OrderVerify({ orderId }: { orderId: string }) {
           disabled={busy}
           className="shrink-0 rounded-xl bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-50"
         >
-          {busy ? 'Checking…' : 'Unlock'}
+          {busy ? t('verifyCheckingBtn') : t('verifyUnlock')}
         </button>
       </form>
       {failed && (
         <p role="alert" className="mt-2 text-sm text-red-600" data-testid="order-verify-failed">
-          Nothing unlocked — wrong email, or there is no order with that combination.
+          {t('verifyFailed')}
         </p>
       )}
     </div>

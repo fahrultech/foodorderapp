@@ -3,6 +3,7 @@
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '@/lib/auth';
+import { useTranslations } from 'next-intl';
 import { POLL_INTERVAL_MS, PUSH_SYNC_DEBOUNCE_MS } from '@/lib/live-sync';
 import { useOrderFeed } from '@/lib/use-order-feed';
 import { isTerminalOrderStatus, type FeedEventPayload } from '@/lib/ws-feed';
@@ -41,6 +42,7 @@ export default function OrderLiveFeed({
   orderStatus: string;
 }) {
   const { status: authStatus, getAccessToken } = useAuth();
+  const t = useTranslations('Order');
   const router = useRouter();
   // Coalescing timer: a burst of events (fast status moves) costs ONE refresh.
   const refreshTimerRef = useRef<number | null>(null);
@@ -80,8 +82,8 @@ export default function OrderLiveFeed({
     if (prevStatusRef.current === orderStatus) return;
     const from = prevStatusRef.current;
     prevStatusRef.current = orderStatus;
-    setAnnouncement(`Order status changed from ${from} to ${orderStatus}.`);
-  }, [orderStatus]);
+    setAnnouncement(t('announce', { from, to: orderStatus }));
+  }, [orderStatus, t]);
 
   // Fallback transport: with the feed down, a signed-in customer still gets
   // 10s freshness via plain refreshes. Hidden tabs skip ticks; a push
@@ -141,10 +143,10 @@ export default function OrderLiveFeed({
           }`}
         />
         {!live
-          ? 'Reload to check for updates'
+          ? t('reloadHint')
           : wsUp
-            ? 'Live — push feed connected'
-            : 'Live — polling (push feed down)'}
+            ? t('liveWs')
+            : t('livePoll')}
       </span>
     </>
   );

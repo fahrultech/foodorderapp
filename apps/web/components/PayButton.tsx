@@ -3,6 +3,7 @@
 import { useCallback, useState } from 'react';
 import { api, ApiError, formatPrice } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
+import { useTranslations } from 'next-intl';
 
 /**
  * Pay button for a payable order (Phase 5 "web pay button").
@@ -32,6 +33,7 @@ export default function PayButton({
   onUnavailable?: () => void;
 }) {
   const { getAccessToken } = useAuth();
+  const t = useTranslations('Order');
   const [stage, setStage] = useState<'idle' | 'intent' | 'capture'>('idle');
   const [error, setError] = useState<string | null>(null);
 
@@ -39,7 +41,7 @@ export default function PayButton({
     setError(null);
     const token = await getAccessToken();
     if (!token) {
-      setError('Your session expired — sign in again to pay.');
+      setError(t('sessionExpired'));
       return;
     }
     try {
@@ -60,8 +62,7 @@ export default function PayButton({
       // status we don't render as paid: show the truth, keep retry available.
       setStage('idle');
       setError(
-        captured.failureReason ??
-          'The payment is not settled yet. Try again in a moment.',
+        captured.failureReason ?? t('notSettled'),
       );
     } catch (err) {
       setStage('idle');
@@ -79,23 +80,23 @@ export default function PayButton({
           return;
         }
         if (err.status === 429) {
-          setError('Too many payment attempts — wait a minute and retry.');
+          setError(t('rateLimited'));
           return;
         }
         if (err.status === 502) {
-          setError('The payment gateway refused the charge. You can retry.');
+          setError(t('gatewayRefused'));
           return;
         }
         if (err.status === 404) {
-          setError('This order cannot be paid from this account.');
+          setError(t('cannotPay'));
           return;
         }
         setError(err.message);
       } else {
-        setError('Cannot reach the API. Is the server running?');
+        setError(t('apiUnreachable'));
       }
     }
-  }, [getAccessToken, orderId, onPaid, onUnavailable]);
+  }, [getAccessToken, orderId, onPaid, onUnavailable, t]);
 
   return (
     <div className="mt-3" data-testid="pay-button-wrap">
@@ -106,10 +107,10 @@ export default function PayButton({
         className="w-full rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-emerald-700 disabled:bg-stone-300"
       >
         {stage === 'intent'
-          ? 'Contacting the payment gateway…'
+          ? t('stageIntent')
           : stage === 'capture'
-            ? 'Capturing payment…'
-            : `Pay ${formatPrice(totalCents)}`}
+            ? t('stageCapture')
+            : t('payCta', { price: formatPrice(totalCents) })}
       </button>
       {error && (
         <p

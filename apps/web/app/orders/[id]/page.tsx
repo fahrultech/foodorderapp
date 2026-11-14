@@ -5,17 +5,9 @@ import OrderLiveFeed from '@/components/OrderLiveFeed';
 import RateOrderCard from '@/components/RateOrderCard';
 import PaymentPanel from '@/components/PaymentPanel';
 import OrderVerify from '@/components/OrderVerify';
+import { getTranslations } from 'next-intl/server';
 
 export const dynamic = 'force-dynamic';
-
-const STATUS_LABEL: Record<string, string> = {
-  pending: '🕐 Pending — waiting for the restaurant to confirm',
-  confirmed: '✅ Confirmed by the restaurant',
-  preparing: '👨‍🍳 Being prepared',
-  delivering: '🛵 On the way to you',
-  completed: '🎉 Delivered — enjoy your meal!',
-  cancelled: '❌ Cancelled',
-};
 
 export default async function OrderPage({
   params,
@@ -26,6 +18,16 @@ export default async function OrderPage({
 }) {
   const { id } = await params;
   const { code, pay, email } = await searchParams;
+  const t = await getTranslations('Order');
+  const c = await getTranslations('Common');
+  const STATUS_LABEL: Record<string, string> = {
+    pending: t('pillPending'),
+    confirmed: t('pillConfirmed'),
+    preparing: t('pillPreparing'),
+    delivering: t('pillDelivering'),
+    completed: t('pillCompleted'),
+    cancelled: t('pillCancelled'),
+  };
   let order;
   try {
     // Phase 6 ownership fix: the uuid alone no longer reads a receipt. The
@@ -37,14 +39,13 @@ export default async function OrderPage({
   } catch {
     return (
       <div className="mx-auto max-w-lg rounded-2xl border border-dashed border-stone-300 bg-white p-10 text-center">
-        <h1 className="text-xl font-bold">Order not found</h1>
+        <h1 className="text-xl font-bold">{t('notFoundTitle')}</h1>
         <p className="mt-1 text-sm text-stone-500">
-          The API may be offline, the link is wrong, or the receipt needs its
-          email key (open it from the checkout redirect or your order history).
+          {t('notFoundBody')}
         </p>
         <OrderVerify orderId={id} />
         <Link href="/" className="mt-6 inline-block text-sm font-semibold text-brand-600 hover:underline">
-          ← Back to restaurants
+          {t('backToRestaurants')}
         </Link>
       </div>
     );
@@ -55,11 +56,13 @@ export default async function OrderPage({
       <div className="rounded-2xl border border-stone-200 bg-white p-8 text-center">
         <p className="text-4xl">{order.status === 'cancelled' ? '❌' : '🎉'}</p>
         <h1 className="mt-3 text-2xl font-extrabold">
-          {order.status === 'cancelled' ? `Order ${order.code} cancelled` : `Order ${order.code} placed!`}
+          {order.status === 'cancelled'
+            ? t('cancelledTitle', { code: order.code })
+            : t('placedTitle', { code: order.code })}
         </h1>
         <p className="mt-1 text-sm text-stone-500">
-          {(code || order.code) && `Reference: ${order.code}`} ·{' '}
-          {order.restaurant?.name ?? 'Restaurant'}
+          {(code || order.code) && t('reference', { code: order.code })} ·{' '}
+          {order.restaurant?.name ?? t('restaurantFallback')}
         </p>
         <p className="mt-4 inline-block rounded-full bg-stone-100 px-4 py-2 text-sm font-semibold">
           {STATUS_LABEL[order.status] ?? order.status}
@@ -77,7 +80,7 @@ export default async function OrderPage({
 
       <div className="mt-6 rounded-2xl border border-stone-200 bg-white p-5">
         <div className="flex items-baseline justify-between">
-          <h2 className="font-bold">Order progress</h2>
+          <h2 className="font-bold">{t('progressTitle')}</h2>
           <OrderLiveFeed orderId={order.id} orderStatus={order.status} />
         </div>
         <OrderTimeline order={order} />
@@ -85,21 +88,21 @@ export default async function OrderPage({
 
       {order.status === 'completed' && (
         <div className="mt-6 rounded-2xl border border-stone-200 bg-white p-5">
-          <h2 className="font-bold">Rate your order</h2>
+          <h2 className="font-bold">{t('rateTitle')}</h2>
           <p className="mt-1 text-sm text-stone-500">
-            How was {order.restaurant?.name ?? 'the restaurant'}? One review per completed order.
+            {t('rateBody', { name: order.restaurant?.name ?? t('rateRestaurantFallback') })}
           </p>
           <RateOrderCard orderId={order.id} />
         </div>
       )}
 
       <div className="mt-6 rounded-2xl border border-stone-200 bg-white p-5">
-        <h2 className="font-bold">Items</h2>
+        <h2 className="font-bold">{t('itemsTitle')}</h2>
         <ul className="mt-3 space-y-2 text-sm">
           {order.items.map((i) => (
             <li key={i.id}>
               <div className="flex justify-between">
-                <span>{i.quantity} × {i.name}</span>
+                <span>{c('qtyLine', { count: String(i.quantity), name: i.name })}</span>
                 <span>{formatPrice(i.unitPriceCents * i.quantity)}</span>
               </div>
               {i.optionSelections && i.optionSelections.length > 0 && (
@@ -112,34 +115,35 @@ export default async function OrderPage({
         </ul>
         <div className="mt-4 space-y-1 border-t border-stone-200 pt-3 text-sm">
           <div className="flex justify-between text-stone-500">
-            <span>Subtotal</span>
+            <span>{c('subtotal')}</span>
             <span>{formatPrice(order.subtotalCents)}</span>
           </div>
           {order.discountCents > 0 && (
             <div className="flex justify-between font-medium text-emerald-600">
-              <span>Promo ({order.promoCode})</span>
+              <span>{c('promoLine', { code: order.promoCode ?? '' })}</span>
               <span>-{formatPrice(order.discountCents)}</span>
             </div>
           )}
           <div className="flex justify-between text-stone-500">
-            <span>Delivery</span>
+            <span>{c('wordDelivery')}</span>
             <span>{formatPrice(order.deliveryFeeCents)}</span>
           </div>
           <div className="flex justify-between text-base font-extrabold">
-            <span>Total</span>
+            <span>{c('total')}</span>
             <span>{formatPrice(order.totalCents)}</span>
           </div>
         </div>
         <div className="mt-4 border-t border-stone-200 pt-3 text-sm text-stone-500">
           <p>
-            <strong className="text-stone-700">Delivering to:</strong> {order.deliveryAddress}
+            <strong className="text-stone-700">{t('deliveringTo')}</strong> {order.deliveryAddress}
           </p>
           <p className="mt-1">
-            <strong className="text-stone-700">Contact:</strong> {order.customerName} · {order.contactPhone}
+            <strong className="text-stone-700">{t('contactLabel')}</strong> {order.customerName} ·{' '}
+            {order.contactPhone}
           </p>
           {order.note && (
             <p className="mt-1">
-              <strong className="text-stone-700">Note:</strong> {order.note}
+              <strong className="text-stone-700">{t('noteLabel')}</strong> {order.note}
             </p>
           )}
         </div>
@@ -147,7 +151,7 @@ export default async function OrderPage({
 
       <div className="mt-6 text-center">
         <Link href="/" className="text-sm font-semibold text-brand-600 hover:underline">
-          ← Order more food
+          {t('orderMore')}
         </Link>
       </div>
     </div>

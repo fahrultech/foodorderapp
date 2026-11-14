@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { api, formatPrice, type PaymentAttempt } from '@/lib/api';
 import { authedCall } from '@/lib/authed-call';
 import { useAuth } from '@/lib/auth';
+import { useTranslations } from 'next-intl';
 import PayButton from './PayButton';
 
 /**
@@ -37,6 +38,8 @@ export default function PaymentPanel({
   highlight?: boolean;
 }) {
   const { status, getAccessToken, logout } = useAuth();
+  const t = useTranslations('Order');
+  const th = useTranslations('Header');
   const [rows, setRows] = useState<PaymentAttempt[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
@@ -77,13 +80,13 @@ export default function PaymentPanel({
       }`}
     >
       <div className="flex items-baseline justify-between">
-        <h2 className="font-bold">Payment</h2>
+        <h2 className="font-bold">{t('payTitle')}</h2>
         <span className="text-sm text-stone-500">{formatPrice(totalCents)}</span>
       </div>
 
       {status === 'loading' && (
         <p className="mt-2 text-sm text-stone-500" data-testid="payment-loading">
-          Loading payment status…
+          {t('payLoading')}
         </p>
       )}
 
@@ -92,12 +95,12 @@ export default function PaymentPanel({
           {payable ? (
             <>
               <Link href="/login" className="font-semibold text-brand-600 hover:underline">
-                Sign in
+                {th('signIn')}
               </Link>{' '}
-              to pay for this order — guest orders can be paid from any account.
+              {t('guestPayableTail')}
             </>
           ) : (
-            'Sign in to view this order’s payment history.'
+            t('guestLocked')
           )}
         </p>
       )}
@@ -110,28 +113,32 @@ export default function PaymentPanel({
         >
           {loadError}{' '}
           <button onClick={reload} className="underline font-semibold">
-            Retry
+            {t('retry')}
           </button>
         </p>
       )}
 
       {status === 'signedIn' && !loadError && rows === null && (
         <p className="mt-2 text-sm text-stone-500" data-testid="payment-loading">
-          Loading payment status…
+          {t('payLoading')}
         </p>
       )}
 
       {status === 'signedIn' && rows !== null && paid && (
         <div className="mt-2" data-testid="payment-paid">
           <p className="rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800">
-            Paid — {formatPrice(paid.amountCents)} via {paid.provider}
+            {t('paidLine', { price: formatPrice(paid.amountCents), provider: paid.provider })}
             {paid.succeededAt ? ` · ${new Date(paid.succeededAt).toLocaleString()}` : ''}
           </p>
           {paid.refundedCents > 0 && (
             <p className="mt-1 text-xs text-stone-600" data-testid="payment-partial-refund">
-              {formatPrice(paid.refundedCents)} refunded
-              {paid.refundedAt ? ` on ${new Date(paid.refundedAt).toLocaleString()}` : ''} —
-              {formatPrice(paid.amountCents - paid.refundedCents)} remains captured.
+              {t('refundedAmount', { price: formatPrice(paid.refundedCents) })}
+              {paid.refundedAt
+                ? t('refundedOn', { when: new Date(paid.refundedAt).toLocaleString() })
+                : ''}
+              {t('remainsCaptured', {
+                price: formatPrice(paid.amountCents - paid.refundedCents),
+              })}
             </p>
           )}
         </div>
@@ -141,19 +148,17 @@ export default function PaymentPanel({
         <div data-testid="payment-unpaid">
           <p className="mt-1 text-sm text-stone-600">
             {highlight
-              ? 'Complete your payment to finish checkout.'
-              : 'No successful payment recorded for this order yet.'}
+              ? t('completePayment')
+              : t('noPayment')}
           </p>
           {pendingAttempt && (
             <p className="mt-1 text-xs text-stone-500" data-testid="payment-pending-note">
-              A previous attempt is still open ({formatPrice(pendingAttempt.amountCents)}); paying
-              again resumes it — no second charge is created.
+              {t('pendingNote', { price: formatPrice(pendingAttempt.amountCents) })}
             </p>
           )}
           {failedCount > 0 && (
             <p className="mt-1 text-xs text-stone-500" data-testid="payment-failed-count">
-              {failedCount} failed attempt{failedCount > 1 ? 's' : ''} on record — retrying starts a
-              fresh one.
+              {t('failedAttempts', { count: failedCount })}
             </p>
           )}
           <PayButton orderId={orderId} totalCents={totalCents} onPaid={reload} onUnavailable={reload} />
@@ -162,10 +167,8 @@ export default function PaymentPanel({
 
       {status === 'signedIn' && rows !== null && !paid && !payable && (
         <p className="mt-2 text-sm text-stone-600" data-testid="payment-unavailable">
-          {fullyRefunded
-            ? 'The payment for this order was fully refunded.'
-            : 'This order can no longer be paid'}
-          {` (status: ${orderStatus}).`}
+          {fullyRefunded ? t('fullyRefunded') : t('noLongerPayable')}
+          {t('statusSuffix', { status: orderStatus })}
         </p>
       )}
     </div>

@@ -3,6 +3,74 @@
 Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
+## 2026-11-14 20:19 — Session 94 — Storefront i18n sweep #2: cart, checkout, receipt (Web, Phase 8)
+
+**Built:**
+
+- 153 new message keys × EN/ID across three new namespaces (`Cart` 23,
+  `Checkout` 39, `Order` 83) plus `Common` (+5: subtotal/total/wordDelivery/
+  promoLine/qtyLine shared by checkout AND receipt) and `Offline` (+3 for the
+  PWA shell page) — localizing every remaining storefront English surface the
+  sessions 74–92 note scoped out: the cart page (chrome, steppers, offline
+  note, desktop/mobile fee lines), the cart-switch dialog (fragment split so
+  the `<strong>` runs keep their DOM), the whole checkout form (labels,
+  hints, saved-address picker, promo engine ladder, both submit buttons), the
+  SSR receipt page (header templates, six status pills, items/summary/contact
+  rows), and its islands: `OrderTimeline` (steps + sr-only summary),
+  `OrderLiveFeed` (transport pills + status-change announcement),
+  `PaymentPanel`/`PayButton` (every state incl. refund/pending/failed-count
+  templates), `OrderVerify` (deny + unlock paths) and `RateOrderCard` (legend,
+  star radios via ICU plural, submit ladder).
+- EN values byte-identical to the JSX they replaced: the ICU split of the
+  below-minimum alert (` — ` + link tail), `Paid — {price} via {provider}`,
+  the refunded running line as three conditional fragments, pluralized
+  `# failed attempt(s)` and `# star(s)` — all assembled so the rendered text
+  nodes match the old literals exactly (the untouched 66-test EN suite is
+  the proof).
+- Reuse per doctrine: guest `Sign in` links read `Header.signIn`, shared
+  words flow through `Common`; `String(n)` passed for every `{count}`/price
+  ICU param. Deliberate ID==EN loanwords/symbols only: Checkout, Promo,
+  Subtotal, Total, Keranjang→cart CTA arrows, `N × dish`, ` (status: x).`
+- `OrderTimeline` timestamps became locale-aware (`id` → `id-ID`, `en` keeps
+  the historical `en-US` rendering byte-identical).
+- `docs/ARCHITECTURE.md`: the storefront-localization rule now names the
+  whole order funnel + byte-pin/`String(n)` doctrine as durable contract.
+
+**Verified:**
+
+- `next build` green; API untouched — `nest build` + jest re-run prove delta
+  0 (91 suites / 1142 tests, same as sessions 90–93).
+- EN/ID key parity asserted programmatically per namespace (533=533 overall)
+  and every ICU token set EN↔ID-matched; EN byte-pin dict (42 strings the
+  e2e suite pins — headings, labels, `Pay $21.00`, `Place order — $39.00`
+  templates, aria names) asserted against the on-disk JSON before any edit.
+- NEW 3 `storefront-i18n-checkout-id` tests (66→69): ID cart+checkout chrome
+  through the real add-to-cart flow incl. live-priced `Buat pesanan —
+  $21.00` enabled submit; ID receipt on a self-created order (title, status
+  pill, timeline subs, payment guest hint, contact rows); ID OrderVerify
+  denial path (exact-text `Tidak ada yang terbuka…`), all locale-cookie,
+  read-only or self-owned orders, sorted after the seed-absolute specs.
+- Full suite 69/69 green ×2 CONSECUTIVE on fresh seeds — zero EN assertions
+  edited. (An intermediate run failed only `admin.spec` 10→11 orders: the
+  targeted new-spec run had consumed the seed — suite contract, not a
+  regression; the doctrine's reseed-between-runs rule applies.)
+- Sanitizer scan: 676 added lines, 0 `***`; messages written by a python
+  `ensure_ascii` dump (escapes generated host-side), codepoint probes on
+  disk verified em-dash/ellipsis/emoji/`\\u2019`-apostrophe values intact;
+  `git diff --check` clean.
+
+**Left for next sessions:**
+
+- `lib/authed-call.ts` + `lib/api.ts` client fallback error strings ('Cannot
+  reach the API. Is the server running?' etc.) are locale-free plumbing
+  literals shared by portal + storefront — a lib-level message pass would
+  need a locale-aware helper; deliberately untouched (favorites error testid
+  byte-pin stays safe).
+- Saved-address book page (`/addresses`) and login/register forms remain
+  English chrome — natural storefront i18n sweep #3 candidates.
+- Receipt/checkout document `<title>`s still come from the global metadata.
+
+---
 ## 2026-11-14 20:52 — Session 93 — Localization leftovers: portal titles, menu/analytics/history chrome, TrafficPanel (Web, Phase 8)
 
 **Built:**

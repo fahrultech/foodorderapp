@@ -1,4 +1,5 @@
 import type { Order } from '@/lib/api';
+import { useLocale, useTranslations } from 'next-intl';
 
 /**
  * Customer-facing tracking timeline (Phase 3). Pure presentation of the
@@ -15,8 +16,10 @@ interface Step {
   at: string | null;
 }
 
-function formatTime(iso: string): string {
-  return new Intl.DateTimeFormat('en-US', {
+// App locale → CLDR tag for the step timestamps; 'en' keeps the historical
+// en-US rendering byte-identical (session 94 storefront i18n sweep).
+function formatTime(iso: string, locale: string): string {
+  return new Intl.DateTimeFormat(locale === 'id' ? 'id-ID' : 'en-US', {
     month: 'short',
     day: 'numeric',
     hour: '2-digit',
@@ -25,16 +28,18 @@ function formatTime(iso: string): string {
 }
 
 export default function OrderTimeline({ order }: { order: Order }) {
+  const t = useTranslations('Order');
+  const locale = useLocale();
   const cancelled = order.status === 'cancelled';
   const steps: Step[] = [
-    { key: 'pending', label: 'Placed', sub: 'Order sent to the restaurant', at: order.createdAt ?? null },
-    { key: 'confirmed', label: 'Confirmed', sub: 'Accepted by the restaurant', at: order.confirmedAt ?? null },
-    { key: 'preparing', label: 'Preparing', sub: 'In the kitchen', at: order.preparingAt ?? null },
-    { key: 'delivering', label: 'On the way', sub: 'Out for delivery', at: order.deliveringAt ?? null },
-    { key: 'completed', label: 'Delivered', sub: 'Enjoy your meal!', at: order.completedAt ?? null },
+    { key: 'pending', label: t('tlPlaced'), sub: t('tlPlacedSub'), at: order.createdAt ?? null },
+    { key: 'confirmed', label: t('tlConfirmed'), sub: t('tlConfirmedSub'), at: order.confirmedAt ?? null },
+    { key: 'preparing', label: t('tlPreparing'), sub: t('tlPreparingSub'), at: order.preparingAt ?? null },
+    { key: 'delivering', label: t('tlOnTheWay'), sub: t('tlOnTheWaySub'), at: order.deliveringAt ?? null },
+    { key: 'completed', label: t('tlDelivered'), sub: t('tlDeliveredSub'), at: order.completedAt ?? null },
   ];
   if (cancelled) {
-    steps.push({ key: 'cancelled', label: 'Cancelled', sub: 'This order was cancelled', at: order.cancelledAt ?? null });
+    steps.push({ key: 'cancelled', label: t('tlCancelled'), sub: t('tlCancelledSub'), at: order.cancelledAt ?? null });
   }
 
   const reachedCount = steps.filter((s) => s.at).length;
@@ -87,7 +92,7 @@ export default function OrderTimeline({ order }: { order: Order }) {
                 <p className="text-xs text-stone-400">{step.sub}</p>
               </div>
               <p className={`shrink-0 text-xs font-medium tabular-nums ${done ? 'text-stone-600' : 'text-stone-300'}`}>
-                {step.at ? formatTime(step.at) : isWaiting ? 'waiting…' : '—'}
+                {step.at ? formatTime(step.at, locale) : isWaiting ? t('tlWaiting') : '—'}
               </p>
             </div>
           </li>
@@ -95,8 +100,8 @@ export default function OrderTimeline({ order }: { order: Order }) {
       })}
       <p className="sr-only">
         {cancelled
-          ? 'This order was cancelled.'
-          : `${reachedCount} of ${steps.length} steps reached.`}
+          ? t('srCancelled')
+          : t('srSteps', { done: String(reachedCount), total: String(steps.length) })}
       </p>
     </ol>
   );
