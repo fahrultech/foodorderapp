@@ -474,7 +474,24 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   `event: "request_metrics"` every `METRICS_LOG_INTERVAL_SEC` (default 60,
   `0` disables the fold, garbage falls back to default — never crashes boot)
   and pull-based ADMIN `GET /admin/metrics`. Snapshots are cumulative
-  since boot by design. On top of them sits the DI-free alert engine
+  since boot by design — and DURABLE since session 89:
+  `MetricsPersistenceService` writes the full snapshot to the
+  `metrics_snapshots` table (jsonb payload + capturedAt + the producing
+  registry's bootStartedAt) every `METRICS_SNAPSHOT_INTERVAL_SEC` (default
+  300, `0` disables, garbage→default never crash-boots) and prunes rows
+  older than `METRICS_SNAPSHOT_RETENTION_SEC` (default 24h; `0` counts as
+  garbage). The DELETE clause must reference the RAW quoted column
+  (`"capturedAt" < :cutoff`), never the query alias — this TypeORM's
+  DeleteQueryBuilder drops the alias from FROM, leaving `snap.capturedAt`
+  a live "missing FROM-clause entry" error. `GET /admin/metrics` adds
+  `durability` + `window` fields (strictly additive — the pre-existing
+  snapshot shape never changed, so the admin TrafficPanel is untouched):
+  the window is exact subtraction of the NEWEST SAME-BOOT row from the
+  live totals; a row stamped by a previous boot yields `window=null`
+  until the new process writes its first row (a restart can never inherit
+  a false baseline), and store read failures degrade to
+  `durability.error=true` with the route still 200 — a dead smoke detector
+  must never 5xx like a fire. On top of the snapshots sits the DI-free alert engine
   `ops/alerts.ts` (session 86): three rules — `error_budget` (5xx rate vs
   the 99.5% availability SLO, gated by a minimum sample), `p95_latency`
   (histogram estimate vs ceiling) and `route_key_overflow` (cardinality-cap

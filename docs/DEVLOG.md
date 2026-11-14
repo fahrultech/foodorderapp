@@ -4,6 +4,92 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 
+## 2026-11-14 11:12 — Session 89 — Metrics durability: persisted snapshots + window deltas on /admin/metrics (API, Phase 8)
+
+**Built:**
+
+- `metrics_snapshots` table (27th migration, hand-written DDL with named
+  PK/CHECK/IDX + `jsonb_typeof(payload)='object'` guard; indexed
+  `capturedAt` serves both the newest-row lookup and the range prune) +
+  `MetricsSnapshotRow` entity registered in `data-source.ts` (21 entities)
+  and via `TypeOrmModule.forFeature` in `MetricsModule`.
+- `common/metrics/metrics-persistence.service.ts` — the scheduler: writes
+  the FULL cumulative snapshot (`payload`) stamped with `capturedAt` AND
+  the producing registry's `bootStartedAt` every
+  `METRICS_SNAPSHOT_INTERVAL_SEC` (default 300; `0` disables everything
+  incl. reads; garbage→default, never crash-boot — same doctrine as the
+  pino fold knob) and prunes rows past `METRICS_SNAPSHOT_RETENTION_SEC`
+  (default 24h → bounded ~288 rows; `0` is treated as GARBAGE because a
+  zero retention would prune its own writes). `persistNow` never throws
+  out of the heartbeat (caught + warned), so a DB blip can't take down
+  observability or surface an unhandled rejection. The registry exposes
+  `bootStartedAtMs` so no row can ever be subtracted across process boots.
+- `common/metrics/metrics-window.ts` — DI-free pure `computeWindowDelta`:
+  element-wise subtraction of two cumulative snapshots (totals,
+  status-class tallies, route-key sets, per-route request/byStatus/sumMs
+  tallies, merged delta histogram + nearest-bound percentiles computed
+  over the BOUNDS THE SNAPSHOTS THEMSELVES declare). ANY negative
+  subtraction, vanished route key, bounds mismatch, or operator-corrupted
+  jsonb ⇒ the whole window is `null` — never a clamped fiction; min/max
+  deliberately absent (not subtractable).
+- `GET /admin/metrics` returns the live snapshot **plus two strictly
+  additive fields** (pre-existing shape untouched, so the admin
+  TrafficPanel keeps working): `durability` (enabled, resolved knobs,
+  bootStartedAt, stored, lastCapturedAt, bootAligned, error) and `window`
+  (exact traffic since the newest SAME-BOOT row, else null). Cross-boot
+  baseline REFUSED: right after a restart `bootAligned=false` +
+  `window=null` while `stored` still reports the surviving history — the
+  roadmap item's whole point. Store read errors degrade to
+  `error:true, window=null` and the route still 200s with the full live
+  snapshot (session-86 doctrine: a dead smoke detector never 5xxs).
+  Swagger contract extended (`MetricsDurabilityResponse` +
+  `MetricsWindowResponse` + `MetricsWindowRouteResponse`; route summary
+  reworded); env.schema gained the two optional knobs; the controller
+  HTTP spec now round-trips the REAL persistence service over a fake
+  repo, hand-pinned to exact window numbers.
+
+**Verified:**
+
+- `npm run build` green; `npx jest --silent` **91 suites / 1142 tests**
+  (was 89/1117: +2 suites / +25 tests — window arithmetic incl. integrity
+  guards, scheduler/persistence incl. disabled + prune + failure paths, 3
+  reworked + 2 new HTTP metrics cases).
+- Live smoke **30/30** on a 27-migration from-empty scratch DB, 2s tick:
+  EXACT identity `window.requests == live totals − the stored row the
+  response itself names` (row matched by payload generatedAt, count==1
+  asserted); byStatus sums + histogram monotonicity; REAL RESTART —
+  registry zeroed while `stored` survived, `bootAligned=false`/`window=null`
+  before the new boot's first tick, `bootAligned=true` after; boot stamps
+  verified against the table; RETENTION PRUNE proven by aging the oldest
+  row 2h and asserting zero rows older than the cutoff survive + the aged
+  id is gone while fresh rows stay; DISABLED boot writes no rows and the
+  route reports `enabled=false` without touching the DB; docs-json exposes
+  the new component schemas; 0 error-level API-log lines; 401/403 ladder
+  unchanged.
+- Two GENUINE product bugs the live driver caught that unit mocks had
+  papered over (both now pinned): (1) order-only `repo.findOne({order})`
+  is REJECTED by this TypeORM ("You must provide selection conditions…")
+  — the read path would have 100% errored in production → `find+take:1`;
+  (2) the prune DELETE with the query alias emitted
+  `DELETE FROM "metrics_snapshots" WHERE snap.capturedAt` (alias dropped
+  from FROM) → Postgres "missing FROM-clause entry" every tick — proven
+  by a direct QB `getSql()` probe → raw quoted `"capturedAt"` clause.
+  Harness lessons too: the template rewrite initially DROPPED the seed
+  step (401 on logins, users=0), and per-boot `>LOG` truncation hid the
+  prune warns — smoke logs now carry seed output and the final grep reads
+  the LAST boot's log only.
+- Sanitizer scan: 15 touched files, zero U+2026/`***` in added lines;
+  `git diff --check` clean.
+
+**Left for next sessions:**
+
+- Alerts window mode: the evaluator still reads cumulative-since-boot
+  totals; `window.fiveXxRatePct` is now the restart-surviving sibling it
+  could switch to (plus the fold line could carry the window verdict).
+- Perf: admin panel bundle trim is next top unchecked item.
+
+---
+
 ## 2026-11-13 20:01 — Session 88 — GDPR self-service web surface + e2e coverage (Web, Phase 8)
 
 **Built:**
