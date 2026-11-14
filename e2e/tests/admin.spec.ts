@@ -8,6 +8,12 @@ test('admin can open the platform overview', async ({ page }) => {
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
 
   await expect(page.getByRole('link', { name: 'Admin' })).toBeVisible();
+  // Race hardening (session 93, A/B-quantified 1/5 on BOTH trees): the
+  // role-gated 'Admin' link is already visible on /login itself, so the click
+  // can start before the post-login router.replace('/') commits — and the
+  // redirect then lands on home and swallows the navigation. Wait for the
+  // redirect to settle first.
+  await expect(page).not.toHaveURL(/\/login/);
   await page.getByRole('link', { name: 'Admin' }).click();
 
   await expect(page.getByRole('heading', { level: 1, name: 'Admin overview' })).toBeVisible();

@@ -17,6 +17,9 @@ async function signInAsAdmin(page: import('@playwright/test').Page) {
   await page.locator('#password').fill(['demo', '1234'].join(''));
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page.getByRole('link', { name: 'Admin' })).toBeVisible();
+  // Session 93: let the post-login '/' redirect commit before clicking (see
+  // admin.spec.ts for the A/B-quantified race this guard removes).
+  await expect(page).not.toHaveURL(/\/login/);
 }
 
 test('admin traffic cards mirror the live /admin/metrics payload', async ({ page }) => {

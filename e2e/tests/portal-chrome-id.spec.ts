@@ -124,3 +124,100 @@ test('admin: overview tables and gate chrome render in Indonesian', async ({ pag
   await expect(page.getByRole('columnheader', { name: 'Dibuat' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Muat ulang', exact: true })).toBeVisible();
 });
+
+/**
+ * Session 93 — the localization LEFTOVERS: portal document <title>s (route
+ * layouts), /dashboard/menu + /dashboard/analytics chrome, the /orders/my
+ * history chrome and the TrafficPanel internals + its code-split spinner.
+ * Read-only throughout; no seeded state is touched.
+ */
+
+const PORTAL_TITLES: Array<[string, string, string]> = [
+  ['/dashboard', 'Restaurant dashboard — FoodOrder', 'Dasbor restoran — FoodOrder'],
+  ['/dashboard/kitchen', 'Kitchen display — FoodOrder', 'Tampilan dapur — FoodOrder'],
+  ['/dashboard/menu', 'Menu manager — FoodOrder', 'Manajer menu — FoodOrder'],
+  ['/dashboard/analytics', 'Restaurant analytics — FoodOrder', 'Analitik restoran — FoodOrder'],
+  ['/driver', 'Driver deliveries — FoodOrder', 'Antaran kurir — FoodOrder'],
+  ['/admin', 'Admin overview — FoodOrder', 'Ringkasan admin — FoodOrder'],
+];
+
+test('portal document titles are localized per locale (guest-safe: layouts own the metadata)', async ({
+  page,
+}) => {
+  for (const [path, enTitle] of PORTAL_TITLES) {
+    await page.goto(path);
+    await expect(page).toHaveTitle(enTitle);
+  }
+  await useIndonesian(page);
+  for (const [path, , idTitle] of PORTAL_TITLES) {
+    await page.goto(path);
+    await expect(page).toHaveTitle(idTitle);
+  }
+});
+
+test('menu manager: chrome, rows and the dish dialog render in Indonesian', async ({ page }) => {
+  await signIn(page, 'owner@foodorder.app');
+  await useIndonesian(page);
+  await page.goto('/dashboard/menu');
+  await expect(page.getByRole('heading', { level: 1, name: 'Manajer menu' })).toBeVisible();
+  // Pin the known restaurant (owner default is Seoul Street — live-feed doctrine).
+  const switcher = page.getByLabel('Restoran');
+  await expect(switcher).toBeVisible({ timeout: 10_000 });
+  await switcher.selectOption({ label: 'Warung Nusantara' });
+  await expect(page.getByText('Hidangan untuk Warung Nusantara')).toBeVisible();
+  await expect(page.getByRole('button', { name: '+ Tambah hidangan' })).toBeVisible();
+  // Row action labels + the availability toggle title tooltip.
+  await expect(page.getByRole('button', { name: 'Ubah', exact: true }).first()).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: 'Sembunyikan' }).or(page.getByRole('button', { name: 'Tampilkan' })).first(),
+  ).toBeVisible();
+  // Dialog chrome opens and closes WITHOUT saving (read-only).
+  await page.getByRole('button', { name: '+ Tambah hidangan' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Tambah hidangan' });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByLabel('Nama *')).toBeVisible();
+  await expect(dialog.getByText('Batasi unit yang dijual')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+});
+
+test('analytics: summary cards and hourly table render in Indonesian', async ({ page }) => {
+  await signIn(page, 'owner@foodorder.app');
+  await useIndonesian(page);
+  await page.goto('/dashboard/analytics');
+  await expect(page.getByRole('heading', { level: 1, name: 'Analitik restoran' })).toBeVisible();
+  await expect(page.getByTestId('analytics-gross-revenue')).toContainText('Pendapatan kotor');
+  await expect(page.getByTestId('analytics-completed-orders')).toContainText('Pesanan selesai');
+  await expect(page.getByTestId('analytics-busiest-hour')).toContainText('Jam tersibuk');
+  await expect(page.getByRole('heading', { level: 2, name: 'Permintaan per jam' })).toBeVisible();
+  await expect(page.getByRole('columnheader', { name: 'Jam UTC' })).toBeVisible();
+});
+
+test('order history: tabs, rows and pagination render in Indonesian', async ({ page }) => {
+  await signIn(page, 'demo@foodorder.app');
+  await useIndonesian(page);
+  await page.goto('/orders/my');
+  await expect(page.getByRole('heading', { level: 1, name: 'Pesanan saya' })).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'Semua' })).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'Menunggu' })).toBeVisible();
+  await expect(page.getByRole('button', { name: '↻ Muat ulang' })).toBeVisible();
+  // The seeded history renders with localized link + tabpanel furniture.
+  const card = page.locator('[data-testid^="order-card-"]').first();
+  await expect(card).toBeVisible({ timeout: 10_000 });
+  await expect(card.getByRole('link', { name: 'Detail' })).toBeVisible();
+  await expect(page.getByText(/Halaman 1 dari/)).toBeVisible();
+});
+
+test('admin traffic panel + skeleton labels render in Indonesian', async ({ page }) => {
+  await signIn(page, 'admin@foodorder.app');
+  await useIndonesian(page);
+  const [response] = await Promise.all([
+    page.waitForResponse((res) => res.url().includes('/api/admin/metrics') && res.status() === 200),
+    page.goto('/admin'),
+  ]);
+  expect(await response.json()).toHaveProperty('totals');
+  await expect(page.getByRole('heading', { level: 2, name: 'Lalu lintas & anggaran error' })).toBeVisible();
+  await expect(page.getByTestId('traffic-card-requests')).toContainText('kunci rute');
+  await expect(page.getByTestId('traffic-card-budget')).toContainText('Anggaran error');
+  await expect(page.getByTestId('traffic-route-table')).toBeVisible();
+});
