@@ -21,6 +21,7 @@ import { City } from '../cities/city.entity';
 import { FeatureFlag } from '../feature-flags/feature-flag.entity';
 import { OrderStatusAudit } from '../orders/order-status-audit.entity';
 import { PromoUsage } from '../promos/promo-usage.entity';
+import { MetricsSnapshotRow } from '../common/metrics/metrics-snapshot.entity';
 
 /**
  * Single source of truth for TypeORM connection + schema options.
@@ -41,7 +42,7 @@ export const dataSourceOptions = {
   url:
     process.env.DATABASE_URL ||
     'postgresql://foodorder:foodorder@localhost:5432/foodorder',
-  entities: [User, Favorite, DeliveryAddress, RefreshToken, City, Restaurant, RestaurantHours, MenuItem, MenuOptionGroup, MenuOptionChoice, Order, OrderItem, OrderStatusAudit, Review, PromoCode, PromoUsage, Payment, PaymentRefund, PushSubscription, FeatureFlag],
+  entities: [User, Favorite, DeliveryAddress, RefreshToken, City, Restaurant, RestaurantHours, MenuItem, MenuOptionGroup, MenuOptionChoice, Order, OrderItem, OrderStatusAudit, Review, PromoCode, PromoUsage, Payment, PaymentRefund, PushSubscription, FeatureFlag, MetricsSnapshotRow],
   // Glob works for ts-node (src) and compiled output (dist) alike.
   migrations: [path.join(__dirname, 'migrations', '*.{ts,js}')],
   migrationsRun: true,

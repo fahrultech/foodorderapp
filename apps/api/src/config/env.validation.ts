@@ -160,6 +160,22 @@ export class EnvVars {
   @IsString()
   METRICS_LOG_INTERVAL_SEC?: string;
 
+  // ── Ops metrics durability (optional, session 89) ────────────────────────
+  // Seconds between full-snapshot rows written to `metrics_snapshots`
+  // (default 300; '0' disables persistence entirely — GET /admin/metrics
+  // then reports durability.enabled=false + window=null and never touches
+  // the DB). Garbage falls back, never crashes boot.
+  @IsOptional()
+  @IsString()
+  METRICS_SNAPSHOT_INTERVAL_SEC?: string;
+
+  // Snapshot rows older than this many seconds are pruned on every write
+  // (default 86400 = 24 h). '0' is treated as garbage — a zero retention
+  // would silently kill the window feature.
+  @IsOptional()
+  @IsString()
+  METRICS_SNAPSHOT_RETENTION_SEC?: string;
+
   // ── Ops alert thresholds (optional) ──────────────────────────────────────
   // Read ONCE at boot by RequestMetricsService, drive the SAME evaluator for
   // GET /admin/alerts and the `request_metrics` fold verdict (session 86).

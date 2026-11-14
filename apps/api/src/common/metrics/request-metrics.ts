@@ -187,6 +187,15 @@ export class RequestMetricsRegistry {
 
   constructor(private readonly maxKeys: number = MAX_ROUTE_KEYS) {}
 
+  /**
+   * Epoch ms of registry creation (re-stamped by reset()). The persistence
+   * scheduler stamps every stored snapshot with this so a row can never be
+   * subtracted across process boots.
+   */
+  get bootStartedAtMs(): number {
+    return this.startedAt;
+  }
+
   record(key: string, status: number, durationMs: number): void {
     let agg = this.routes.get(key);
     if (!agg) {

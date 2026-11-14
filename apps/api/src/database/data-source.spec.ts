@@ -21,6 +21,7 @@ import { City } from '../cities/city.entity';
 import { FeatureFlag } from '../feature-flags/feature-flag.entity';
 import { OrderStatusAudit } from '../orders/order-status-audit.entity';
 import { InitSchema1792213437047 } from './migrations/1792213437047-InitSchema';
+import { MetricsSnapshotRow } from '../common/metrics/metrics-snapshot.entity';
 
 describe('database/data-source', () => {
   it('turns synchronize off and relies on migrations (schema owned by migrations)', () => {
@@ -28,10 +29,10 @@ describe('database/data-source', () => {
     expect(dataSourceOptions.migrationsRun).toBe(true);
   });
 
-  it('registers exactly the twenty entities and a ts/js migration glob', () => {
-    expect(dataSourceOptions.entities).toHaveLength(20);
+  it('registers exactly the twenty-one entities and a ts/js migration glob', () => {
+    expect(dataSourceOptions.entities).toHaveLength(21);
     expect(dataSourceOptions.entities).toEqual(
-      expect.arrayContaining([User, Favorite, DeliveryAddress, RefreshToken, City, Restaurant, RestaurantHours, MenuItem, MenuOptionGroup, MenuOptionChoice, Order, OrderItem, OrderStatusAudit, Review, PromoCode, PromoUsage, Payment, PaymentRefund, PushSubscription, FeatureFlag]),
+      expect.arrayContaining([User, Favorite, DeliveryAddress, RefreshToken, City, Restaurant, RestaurantHours, MenuItem, MenuOptionGroup, MenuOptionChoice, Order, OrderItem, OrderStatusAudit, Review, PromoCode, PromoUsage, Payment, PaymentRefund, PushSubscription, FeatureFlag, MetricsSnapshotRow]),
     );
     expect(dataSourceOptions.migrations).toHaveLength(1);
     expect(dataSourceOptions.migrations[0]).toMatch(/migrations\/\*\.\{ts,js\}$/);

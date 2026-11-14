@@ -50,6 +50,7 @@ import { CitiesService } from '../cities/cities.service';
 import { AdminController } from '../admin/admin.controller';
 import { AdminService } from '../admin/admin.service';
 import { RequestMetricsService } from '../common/metrics/request-metrics.service';
+import { MetricsPersistenceService } from '../common/metrics/metrics-persistence.service';
 import { SearchController } from '../search/search.controller';
 import { SearchService } from '../search/search.service';
 
@@ -106,6 +107,7 @@ const mockedProviders = [
   { provide: CitiesService, useValue: empty() },
   { provide: AdminService, useValue: empty() },
   { provide: RequestMetricsService, useValue: { snapshot: () => ({}) } },
+  { provide: MetricsPersistenceService, useValue: { decorate: async (s) => s } },
   { provide: SearchService, useValue: empty() },
   { provide: DataSource, useValue: { query: async () => [] } },
   { provide: JwtService, useValue: empty() },

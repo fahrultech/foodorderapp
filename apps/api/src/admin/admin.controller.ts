@@ -15,6 +15,7 @@ import { AdminAlertsReportResponse } from './admin-alerts.response';
 import { AdminOverviewResponse } from './admin.response';
 import { AdminService } from './admin.service';
 import { RequestMetricsService } from '../common/metrics/request-metrics.service';
+import { MetricsPersistenceService } from '../common/metrics/metrics-persistence.service';
 
 @Controller('admin')
 @ApiTags('admin')
@@ -22,6 +23,7 @@ export class AdminController {
   constructor(
     private readonly service: AdminService,
     private readonly metrics: RequestMetricsService,
+    private readonly persistence: MetricsPersistenceService,
   ) {}
 
   @Get('overview')
@@ -45,18 +47,22 @@ export class AdminController {
   @Roles(UserRole.ADMIN)
   @ApiBearerAuth()
   @ApiOperation({
-    summary: 'Request-metrics snapshot',
+    summary: 'Request-metrics snapshot + durability window',
     description:
       'In-process per-route request counters, status-class tallies and duration histograms ' +
       '(cumulative since boot). The same numbers are folded into the pino log stream as ' +
       'periodic `event: "request_metrics"` lines. Route keys use matched templates, never ' +
-      'concrete ids; `/api/health` is excluded. ADMIN only.',
+      'concrete ids; `/api/health` is excluded. Since session 89 the response ALSO carries ' +
+      'additive `durability` (snapshot scheduler state + stored history from the ' +
+      '`metrics_snapshots` table — survives restarts) and `window` (exact traffic since the ' +
+      'newest same-boot snapshot; null until such a row exists, so a restart never inherits ' +
+      'a false baseline). ADMIN only.',
   })
   @ApiOkResponse({ type: AdminMetricsSnapshotResponse })
   @ApiError(401, 'Missing/invalid/expired access token.')
   @ApiError(403, 'Valid token but role is not ADMIN.')
-  metricsSnapshot() {
-    return this.metrics.snapshot();
+  async metricsSnapshot() {
+    return this.persistence.decorate(this.metrics.snapshot());
   }
 
   @Get('alerts')
