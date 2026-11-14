@@ -12,18 +12,18 @@ import { useOrderFeed } from '@/lib/use-order-feed';
 import { feedTransport } from '@/lib/ws-feed';
 import { PortalLoadFailed, PortalOffline } from '@/components/PortalOffline';
 
-const NEXT_STATUS: Partial<Record<OrderStatus, { to: OrderStatus; label: string }>> = {
-  preparing: { to: 'delivering', label: 'Start delivery' },
-  delivering: { to: 'completed', label: 'Mark delivered' },
+const NEXT_STATUS: Partial<Record<OrderStatus, { to: OrderStatus; labelKey: string }>> = {
+  preparing: { to: 'delivering', labelKey: 'actionStartDelivery' },
+  delivering: { to: 'completed', labelKey: 'actionMarkDelivered' },
 };
 
-const STATUS_LABEL: Record<OrderStatus, string> = {
-  pending: 'Pending',
-  confirmed: 'Confirmed',
-  preparing: 'Ready for pickup',
-  delivering: 'Delivering',
-  completed: 'Delivered',
-  cancelled: 'Cancelled',
+const STATUS_KEY: Record<OrderStatus, string> = {
+  pending: 'statusPending',
+  confirmed: 'statusConfirmed',
+  preparing: 'driverReadyForPickup',
+  delivering: 'statusDelivering',
+  completed: 'driverDelivered',
+  cancelled: 'statusCancelled',
 };
 
 function formatTime(iso: string): string {
@@ -36,6 +36,7 @@ function formatTime(iso: string): string {
 export default function DriverPage() {
   const { status, user, getAccessToken, logout } = useAuth();
   const t = useTranslations('PortalStates');
+  const tc = useTranslations('Portal');
   const isDriver = user?.role === 'driver';
   const [page, setPage] = useState<DriverOrdersPage | null>(null);
   const [loading, setLoading] = useState(true);
@@ -142,7 +143,7 @@ export default function DriverPage() {
     };
   }, [status, isDriver, live, wsUp, busyOrderId, fetchOrders, requestSync]);
 
-  async function advance(order: Order, next: { to: OrderStatus; label: string }) {
+  async function advance(order: Order, next: { to: OrderStatus; labelKey: string }) {
     if (busyOrderId) return;
     setBusyOrderId(order.id);
     setError(null);
@@ -160,7 +161,7 @@ export default function DriverPage() {
       );
       lastActionAtRef.current = Date.now();
     } else if (result.kind === 'error') {
-      setError(`${next.label} failed: ${result.message}`);
+      setError(tc('actionFailedPlain', { label: tc(next.labelKey), message: result.message }));
     }
     setBusyOrderId(null);
   }
@@ -173,9 +174,9 @@ export default function DriverPage() {
     return (
       <div className="mx-auto max-w-lg rounded-2xl border border-dashed border-stone-300 bg-white p-10 text-center">
         <p className="text-3xl" aria-hidden>🛵</p>
-        <h1 className="mt-3 text-2xl font-extrabold">Sign in to view deliveries</h1>
-        <p className="mt-2 text-sm text-stone-500">Driver assignments are tied to your account.</p>
-        <Link href="/login?next=/driver" className="mt-6 inline-block rounded-xl bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-700">Sign in</Link>
+        <h1 className="mt-3 text-2xl font-extrabold">{tc('driverGateTitle')}</h1>
+        <p className="mt-2 text-sm text-stone-500">{tc('driverGateBody')}</p>
+        <Link href="/login?next=/driver" className="mt-6 inline-block rounded-xl bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-700">{tc('signIn')}</Link>
       </div>
     );
   }
@@ -184,9 +185,9 @@ export default function DriverPage() {
     return (
       <div className="mx-auto max-w-lg rounded-2xl border border-dashed border-stone-300 bg-white p-10 text-center">
         <p className="text-3xl" aria-hidden>🔑</p>
-        <h1 className="mt-3 text-2xl font-extrabold">Driver access required</h1>
-        <p className="mt-2 text-sm text-stone-500">Only courier accounts can open assigned deliveries.</p>
-        <Link href="/" className="mt-6 inline-block rounded-xl border border-stone-300 px-5 py-2.5 text-sm font-semibold text-stone-700 hover:bg-stone-100">Back to restaurants</Link>
+        <h1 className="mt-3 text-2xl font-extrabold">{tc('driverAccessTitle')}</h1>
+        <p className="mt-2 text-sm text-stone-500">{tc('driverAccessBody')}</p>
+        <Link href="/" className="mt-6 inline-block rounded-xl border border-stone-300 px-5 py-2.5 text-sm font-semibold text-stone-700 hover:bg-stone-100">{tc('backToRestaurants')}</Link>
       </div>
     );
   }
@@ -198,8 +199,8 @@ export default function DriverPage() {
     <div className="mx-auto max-w-4xl">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-extrabold">Driver deliveries</h1>
-          <p className="mt-1 text-sm text-stone-500">Your assigned pickups and drop-offs update live.</p>
+          <h1 className="text-2xl font-extrabold">{tc('driverTitle')}</h1>
+          <p className="mt-1 text-sm text-stone-500">{tc('driverSub')}</p>
         </div>
         <div className="flex gap-2">
           <button
@@ -209,9 +210,9 @@ export default function DriverPage() {
             data-feed-transport={transport}
             className={`rounded-full px-3.5 py-2 text-xs font-bold ${live ? 'bg-emerald-100 text-emerald-800' : 'bg-stone-200 text-stone-600'}`}
           >
-            {live ? (wsUp ? 'Live · push' : 'Live · polling') : 'Paused'}
+            {live ? (wsUp ? tc('pillPush') : tc('pillPolling')) : tc('pillPaused')}
           </button>
-          <button type="button" onClick={() => void fetchOrders('full')} className="rounded-xl border border-stone-300 bg-white px-4 py-2 text-sm font-semibold text-stone-700 hover:bg-stone-100">↻ Refresh</button>
+          <button type="button" onClick={() => void fetchOrders('full')} className="rounded-xl border border-stone-300 bg-white px-4 py-2 text-sm font-semibold text-stone-700 hover:bg-stone-100">{tc('refresh')}</button>
         </div>
       </div>
 
@@ -246,26 +247,26 @@ export default function DriverPage() {
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <h2 className="text-lg font-extrabold">{order.code}</h2>
-                    <p className="mt-1 text-sm font-semibold text-stone-700">{order.restaurant?.name ?? 'Restaurant'}</p>
+                    <p className="mt-1 text-sm font-semibold text-stone-700">{order.restaurant?.name ?? tc('restaurantLabel')}</p>
                   </div>
-                  <span className="rounded-full bg-stone-100 px-3 py-1 text-xs font-bold text-stone-700">{STATUS_LABEL[orderStatus]}</span>
+                  <span className="rounded-full bg-stone-100 px-3 py-1 text-xs font-bold text-stone-700">{tc(STATUS_KEY[orderStatus])}</span>
                 </div>
-                <time dateTime={order.createdAt} className="mt-2 block text-xs text-stone-500">Assigned order · {formatTime(order.createdAt)}</time>
+                <time dateTime={order.createdAt} className="mt-2 block text-xs text-stone-500">{tc('assignedOrder', { time: formatTime(order.createdAt) })}</time>
                 <div className="mt-4 grid gap-3 sm:grid-cols-2">
                   <div className="rounded-xl bg-stone-50 p-3">
-                    <p className="text-xs font-bold uppercase tracking-wide text-stone-500">Drop-off</p>
+                    <p className="text-xs font-bold uppercase tracking-wide text-stone-500">{tc('dropOff')}</p>
                     <p className="mt-1 text-sm font-semibold text-stone-800">{order.customerName}</p>
                     <p className="mt-1 text-sm text-stone-700">{order.deliveryAddress}</p>
                     <p className="mt-1 text-sm text-stone-600">{order.contactPhone}</p>
                   </div>
                   <div className="rounded-xl bg-stone-50 p-3">
-                    <p className="text-xs font-bold uppercase tracking-wide text-stone-500">Items</p>
+                    <p className="text-xs font-bold uppercase tracking-wide text-stone-500">{tc('itemsLabel')}</p>
                     <ul className="mt-1 space-y-1 text-sm text-stone-700">
                       {order.items.map((item) => <li key={item.id}>{item.quantity} × {item.name}</li>)}
                     </ul>
                   </div>
                 </div>
-                {order.note && <p className="mt-3 rounded-xl bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900">Note: {order.note}</p>}
+                {order.note && <p className="mt-3 rounded-xl bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900">{tc('notePrefix', { note: order.note })}</p>}
                 {next && (
                   <button
                     type="button"
@@ -274,13 +275,15 @@ export default function DriverPage() {
                     aria-busy={busyOrderId === order.id}
                     className="mt-4 min-h-12 w-full rounded-xl bg-stone-900 px-4 py-3 text-sm font-extrabold text-white hover:bg-stone-700 disabled:cursor-wait disabled:opacity-50"
                   >
-                    {busyOrderId === order.id ? 'Updating...' : next.label}
+                    {busyOrderId === order.id ? tc('updatingDots') : tc(next.labelKey)}
                   </button>
                 )}
               </article>
             );
           })}
-          {page && page.total > page.items.length && <p className="text-center text-xs font-semibold text-amber-700">Showing the newest 50 of {page.total} assignments.</p>}
+          {page && page.total > page.items.length && (
+            <p className="text-center text-xs font-semibold text-amber-700">{tc('driverCapped', { total: String(page.total) })}</p>
+          )}
         </div>
       )}
     </div>

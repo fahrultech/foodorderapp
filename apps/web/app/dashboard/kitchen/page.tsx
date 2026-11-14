@@ -18,32 +18,32 @@ type ActiveStatus = (typeof ACTIVE_STATUSES)[number];
 
 type Lane = {
   status: ActiveStatus;
-  title: string;
-  hint: string;
-  action: { to: OrderStatus; label: string };
+  titleKey: string;
+  hintKey: string;
+  action: { to: OrderStatus; labelKey: string };
   accent: string;
 };
 
 const LANES: readonly Lane[] = [
   {
     status: 'confirmed',
-    title: 'Queued',
-    hint: 'Paid and accepted — ready to start',
-    action: { to: 'preparing', label: 'Start preparing' },
+    titleKey: 'laneQueued',
+    hintKey: 'laneQueuedHint',
+    action: { to: 'preparing', labelKey: 'actionStartPreparing' },
     accent: 'border-sky-300 bg-sky-50',
   },
   {
     status: 'preparing',
-    title: 'Preparing',
-    hint: 'Currently being cooked or packed',
-    action: { to: 'delivering', label: 'Out for delivery' },
+    titleKey: 'lanePreparing',
+    hintKey: 'lanePreparingHint',
+    action: { to: 'delivering', labelKey: 'actionOutForDelivery' },
     accent: 'border-amber-300 bg-amber-50',
   },
   {
     status: 'delivering',
-    title: 'Out for delivery',
-    hint: 'Handed off and on the way',
-    action: { to: 'completed', label: 'Complete order' },
+    titleKey: 'laneOutForDelivery',
+    hintKey: 'laneOutHint',
+    action: { to: 'completed', labelKey: 'actionCompleteOrder' },
     accent: 'border-emerald-300 bg-emerald-50',
   },
 ];
@@ -75,6 +75,7 @@ function itemSummary(order: Order): string[] {
 export default function KitchenDisplayPage() {
   const { status, user, getAccessToken, logout } = useAuth();
   const t = useTranslations('PortalStates');
+  const tc = useTranslations('Portal');
   const [restaurants, setRestaurants] = useState<Restaurant[] | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [lanes, setLanes] = useState<Record<ActiveStatus, RestaurantOrdersPage | null>>(EMPTY_LANES);
@@ -272,7 +273,7 @@ export default function KitchenDisplayPage() {
       });
       lastActionAtRef.current = Date.now();
     } else if (res.kind === 'error') {
-      setError(`${lane.action.label} failed: ${res.message}`);
+      setError(tc('actionFailedPlain', { label: tc(lane.action.labelKey), message: res.message }));
     }
     setBusyOrderId(null);
   }
@@ -314,10 +315,10 @@ export default function KitchenDisplayPage() {
     return (
       <div className="mx-auto max-w-lg rounded-2xl border border-dashed border-stone-300 bg-white p-10 text-center">
         <p className="text-2xl">👨‍🍳</p>
-        <h1 className="mt-2 text-xl font-bold">Sign in to open the kitchen display</h1>
-        <p className="mt-1 text-sm text-stone-500">The prep board is available to restaurant owners.</p>
+        <h1 className="mt-2 text-xl font-bold">{tc('kitchenGateTitle')}</h1>
+        <p className="mt-1 text-sm text-stone-500">{tc('kitchenGateBody')}</p>
         <Link href="/login?next=/dashboard/kitchen" className="mt-6 inline-block rounded-xl bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-700">
-          Sign in
+          {tc('signIn')}
         </Link>
       </div>
     );
@@ -327,10 +328,10 @@ export default function KitchenDisplayPage() {
     return (
       <div className="mx-auto max-w-lg rounded-2xl border border-dashed border-stone-300 bg-white p-10 text-center">
         <p className="text-2xl">🔑</p>
-        <h1 className="mt-2 text-xl font-bold">This display is for restaurant teams</h1>
-        <p className="mt-1 text-sm text-stone-500">Customer accounts cannot access kitchen orders.</p>
+        <h1 className="mt-2 text-xl font-bold">{tc('kitchenTeamTitle')}</h1>
+        <p className="mt-1 text-sm text-stone-500">{tc('kitchenTeamBody')}</p>
         <Link href="/orders/my" className="mt-6 inline-block rounded-xl bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-700">
-          View my orders instead
+          {tc('viewMyOrders')}
         </Link>
       </div>
     );
@@ -339,7 +340,7 @@ export default function KitchenDisplayPage() {
   if (restaurants && restaurants.length === 0 && !loadFailed) {
     return (
       <div className="mx-auto max-w-7xl">
-        <h1 className="text-2xl font-extrabold">Kitchen display</h1>
+        <h1 className="text-2xl font-extrabold">{tc('kitchenTitle')}</h1>
         <PortalTabs />
         <div
           data-testid="kitchen-no-restaurant"
@@ -357,8 +358,10 @@ export default function KitchenDisplayPage() {
     <div className="mx-auto max-w-7xl">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-extrabold">Kitchen display</h1>
-          <p className="mt-1 text-sm text-stone-500">Active prep flow for {selected?.name ?? 'your restaurant'} · oldest orders first</p>
+          <h1 className="text-2xl font-extrabold">{tc('kitchenTitle')}</h1>
+          <p className="mt-1 text-sm text-stone-500">
+            {tc('kitchenSub', { restaurant: selected?.name ?? tc('fallbackRestaurantName') })}
+          </p>
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -368,10 +371,10 @@ export default function KitchenDisplayPage() {
             data-feed-transport={transport}
             className={`rounded-full px-3.5 py-2 text-xs font-bold ${live ? 'bg-emerald-100 text-emerald-800' : 'bg-stone-200 text-stone-600'}`}
           >
-            {live ? (wsUp ? 'Live · push' : 'Live · polling') : 'Paused'}
+            {live ? (wsUp ? tc('pillPush') : tc('pillPolling')) : tc('pillPaused')}
           </button>
           <button type="button" onClick={() => setReloadKey((key) => key + 1)} className="rounded-xl border border-stone-300 bg-white px-4 py-2 text-sm font-semibold text-stone-700 hover:bg-stone-100">
-            ↻ Refresh
+            {tc('refresh')}
           </button>
         </div>
       </div>
@@ -380,9 +383,9 @@ export default function KitchenDisplayPage() {
 
       {restaurants && restaurants.length > 0 && (
         <label className="mt-4 flex items-center gap-2 text-sm font-semibold text-stone-700">
-          Restaurant
+          {tc('restaurantLabel')}
           <select
-            aria-label="Restaurant"
+            aria-label={tc('restaurantLabel')}
             value={selectedId ?? ''}
             onChange={(event) => {
               setSelectedId(event.target.value);
@@ -433,8 +436,8 @@ export default function KitchenDisplayPage() {
             <section key={lane.status} data-testid={`kitchen-lane-${lane.status}`} className={`min-w-0 rounded-2xl border-t-4 p-3 ${lane.accent}`} aria-labelledby={`kitchen-${lane.status}`}>
               <div className="flex items-start justify-between gap-2 px-1 pb-3">
                 <div>
-                  <h2 id={`kitchen-${lane.status}`} className="text-lg font-extrabold">{lane.title}</h2>
-                  <p className="text-xs text-stone-600">{lane.hint}</p>
+                  <h2 id={`kitchen-${lane.status}`} className="text-lg font-extrabold">{tc(lane.titleKey)}</h2>
+                  <p className="text-xs text-stone-600">{tc(lane.hintKey)}</p>
                 </div>
                 <span data-testid={`kitchen-count-${lane.status}`} className="rounded-full bg-white px-2.5 py-1 text-sm font-extrabold tabular-nums text-stone-700">{page?.total ?? 0}</span>
               </div>
@@ -458,7 +461,7 @@ export default function KitchenDisplayPage() {
                       <ul className="mt-3 space-y-1.5 border-y border-stone-100 py-3 text-sm text-stone-800">
                         {itemSummary(order).map((line) => <li key={line}>{line}</li>)}
                       </ul>
-                      {order.note && <p className="mt-3 rounded-lg bg-amber-100 px-3 py-2 text-sm font-bold text-amber-950">Note: {order.note}</p>}
+                      {order.note && <p className="mt-3 rounded-lg bg-amber-100 px-3 py-2 text-sm font-bold text-amber-950">{tc('notePrefix', { note: order.note })}</p>}
                       <button
                         type="button"
                         onClick={() => void advance(order, lane)}
@@ -466,13 +469,17 @@ export default function KitchenDisplayPage() {
                         aria-busy={busyOrderId === order.id}
                         className="mt-4 min-h-12 w-full rounded-xl bg-stone-900 px-4 py-3 text-sm font-extrabold text-white hover:bg-stone-700 disabled:cursor-wait disabled:opacity-50"
                       >
-                        {busyOrderId === order.id ? 'Updating…' : lane.action.label}
+                        {busyOrderId === order.id ? tc('updatingEllipsis') : tc(lane.action.labelKey)}
                       </button>
                     </article>
                   ))}
                 </div>
               )}
-              {page && page.total > page.items.length && <p className="mt-3 rounded-lg bg-white/80 px-3 py-2 text-xs font-semibold text-amber-800">Showing the oldest 50 of {page.total}. Use Orders for the full queue.</p>}
+              {page && page.total > page.items.length && (
+                <p className="mt-3 rounded-lg bg-white/80 px-3 py-2 text-xs font-semibold text-amber-800">
+                  {tc('kitchenCapped', { total: String(page.total) })}
+                </p>
+              )}
             </section>
           );
         })}

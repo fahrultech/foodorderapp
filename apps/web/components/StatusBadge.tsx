@@ -1,3 +1,5 @@
+import { useTranslations } from 'next-intl';
+
 /** Full classes are written literally per status so Tailwind's scanner keeps them. */
 const BADGE_CLASS: Record<string, string> = {
   pending: 'bg-amber-100 text-amber-800',
@@ -8,7 +10,7 @@ const BADGE_CLASS: Record<string, string> = {
   cancelled: 'bg-rose-100 text-rose-700',
 };
 
-const LABEL: Record<string, string> = {
+const STATUS_CAP: Record<string, string> = {
   pending: 'Pending',
   confirmed: 'Confirmed',
   preparing: 'Preparing',
@@ -18,8 +20,9 @@ const LABEL: Record<string, string> = {
 };
 
 export default function StatusBadge({ status }: { status: string }) {
+  const t = useTranslations('Portal');
   const cls = BADGE_CLASS[status] ?? 'bg-stone-100 text-stone-700';
-  const label = LABEL[status] ?? status;
+  const label = STATUS_CAP[status] ? t(`status${STATUS_CAP[status]}`) : status;
   return (
     <span
       className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold ${cls}`}

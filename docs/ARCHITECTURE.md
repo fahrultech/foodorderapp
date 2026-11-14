@@ -175,6 +175,16 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   kitchen additionally shows one all-clear banner when every loaded lane
   totals zero; a Refresh that fails with data on screen keeps the last
   good board with the amber strip instead of blanking.
+- **Portal chrome speaks the message files** (session 92): every user-visible
+  label on `/dashboard`, `/dashboard/kitchen`, `/driver`, `/admin`, the shared
+  `PortalTabs` nav and the `StatusBadge` pill lives in the `Portal` message
+  namespace (EN/ID), never as a literal. The EN values are pinned BYTE-IDENTICAL
+  to the pre-session-92 literals because the e2e suite asserts them; changing
+  one means changing the specs. Files that already bound `t` to another
+  namespace (kitchen/driver use `PortalStates`) take a SECOND translator
+  (`tc = useTranslations('Portal')`) — never route Portal keys through the
+  wrong instance. When adding translations to an existing dict, audit for
+  values left identical to EN on purpose (loanwords) versus by accident.
 - **Order status machine** — transitions validated server-side
   (`pending→confirmed→preparing→delivering→completed`, cancellable through preparing).
   `POST /orders/:id/cancel` lets the *customer* use exactly that machine edge

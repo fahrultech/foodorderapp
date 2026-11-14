@@ -3,6 +3,73 @@
 Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
+## 2026-11-14 17:11 — Session 92 — Portal chrome localization EN/ID (Web, Phase 8)
+
+**Built:**
+
+- New `Portal` message namespace — 142 keys × EN/ID — carrying the chrome of
+  the four portal surfaces session 91 listed as leftovers: page titles and
+  subtitles, gate cards (guest/role/no-restaurant), status action labels,
+  transport pills incl. the dashboard tooltips, the `PortalTabs` section nav
+  and the shared `StatusBadge` labels.
+- `app/dashboard/page.tsx`: all chrome through `t('Portal')` — header,
+  Live pill labels + 4 tooltips, "updated {time}" clock, tabs (capitalized
+  status words) + tablist aria, NEW badge, group/receipt aria labels,
+  incl-delivery line, pagination ("Page {p} of {t} · {n} orders {status}"),
+  empty states, error banners, AND both sr-only announcement templates
+  (`{code} is a new order, currently {status}.` / `moved from …`) now flow
+  through messages while staying byte-identical EN (raw status words mapped
+  per locale). `OWNER_ACTIONS` switched `label` → `labelKey`.
+- `app/dashboard/kitchen/page.tsx` + `app/driver/page.tsx`: Portal chrome via
+  a SECOND translator `tc` (`t` stays on `PortalStates` — session 91 state
+  furniture untouched); `Lane` title/hint/action and the driver `NEXT_STATUS`
+  now key-based; driver `STATUS_LABEL` → key map (`'Ready for pickup'`,
+  `'Delivered'` stay distinct from the generic badge words).
+- `app/admin/page.tsx`: gates, eyebrow/title/sub, CountCard labels AND the
+  detail templates (numbers interpolated AS STRINGS — no ICU locale-grouping
+  surprises), section headings, all 15 table headers, Open/Closed, fallbacks.
+- `components/PortalTabs.tsx` (map alias `t`→`tab` freed the translator name)
+  + `components/StatusBadge.tsx` localized; badges on the (still English)
+  `/orders/my` history page now flip to Indonesian too — free storefront fix.
+- `docs/ARCHITECTURE.md`: new durable rule (portal chrome lives in the Portal
+  namespace; EN byte-pinned by the e2e suite; second translator per file).
+
+**Verified:**
+
+- `next build` green. API untouched — `nest build` + jest re-run prove the
+  delta 0 (91 suites / 1142 tests, same as sessions 90/91).
+- NEW `e2e/tests/portal-chrome-id.spec.ts` 4/4: ID chrome on all four
+  surfaces incl. the guest gate card (header collision proven: the localized
+  header also carries a 'Masuk' link, so the gate CTA is pinned by href) and
+  an intercepted synthetic driver order exercising card labels + the action
+  button WITHOUT touching seeded state. First run caught two real spec bugs
+  (restaurant default was Seoul Street, not Warung — same pinning doctrine as
+  live-feed; tabs are role=tab not button) and one PRODUCT bug: the ID dict
+  left `signIn` untranslated — found by auditing every Portal value identical
+  to EN: 10 hits, 9 deliberate loanwords, 1 miss.
+- EN regression: full e2e suite 57→61 green ×2 CONSECUTIVE on fresh seeds
+  (1.8 min each) — every existing EN chrome assertion (✓ Accept, ↻ Refresh,
+  'moved from pending to confirmed', Admin overview, Start delivery…) still
+  byte-identical, no spec text edited anywhere.
+- Sanitizer scan: zero `***` on added lines; the three U+2026 hits are the
+  legit '…' busy-marker + 'Updating…' prose (HEAD idiom moved to messages),
+  codepoint-verified on disk. messages EN/ID key-sets equal (top + Portal +
+  PortalStates), ICU braces balanced.
+
+**Left for next sessions:**
+
+- Portal chrome leftovers deliberately scoped out: document `<title>`
+  per portal page (client pages export no metadata), `TrafficPanel`
+  internals, the admin TrafficPanel-loading spinner aria (module-scope
+  dynamic() — needs the translator hoisted), `/dashboard/menu` +
+  `/dashboard/analytics` page chrome, and the still-English `/orders/my`
+  chrome outside the badge (the history page takes no translations at all).
+- `i18n` sweep for storefront leftovers next (history/filter chips,
+  checkout labels) — the storefront i18n item can be re-opened from the
+  Evergreen UX loop once portal chrome is fully retired.
+
+---
+
 
 ## 2026-11-14 15:24 — Session 91 — Kitchen display + driver inbox states audit (Web, Phase 8)
 

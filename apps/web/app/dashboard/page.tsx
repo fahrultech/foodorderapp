@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { useAuth } from '@/lib/auth';
 import { API_URL, ORDER_STATUSES, api, formatPrice } from '@/lib/api';
 import { authedCall } from '@/lib/authed-call';
@@ -69,23 +70,34 @@ const FILTER_TABS: Filter[] = ['all', ...ORDER_STATUSES];
  * the server is the authority: anything illegal gets a 400 anyway. `kind`
  * only picks the styling (forward progression vs destructive cancel).
  */
+
+/** Capitalized suffix of the Portal status keys, e.g. pending -> t('statusPending'). */
+const STATUS_CAP: Record<OrderStatus, string> = {
+  pending: 'Pending',
+  confirmed: 'Confirmed',
+  preparing: 'Preparing',
+  delivering: 'Delivering',
+  completed: 'Completed',
+  cancelled: 'Cancelled',
+};
+
 const OWNER_ACTIONS: Record<
   OrderStatus,
-  { to: OrderStatus; label: string; kind: 'primary' | 'danger' }[]
+  { to: OrderStatus; labelKey: string; kind: 'primary' | 'danger' }[]
 > = {
   pending: [
-    { to: 'confirmed', label: '✓ Accept', kind: 'primary' },
-    { to: 'cancelled', label: 'Cancel', kind: 'danger' },
+    { to: 'confirmed', labelKey: 'actionAccept', kind: 'primary' },
+    { to: 'cancelled', labelKey: 'actionCancel', kind: 'danger' },
   ],
   confirmed: [
-    { to: 'preparing', label: 'Start preparing', kind: 'primary' },
-    { to: 'cancelled', label: 'Cancel', kind: 'danger' },
+    { to: 'preparing', labelKey: 'actionStartPreparing', kind: 'primary' },
+    { to: 'cancelled', labelKey: 'actionCancel', kind: 'danger' },
   ],
   preparing: [
-    { to: 'delivering', label: 'Out for delivery', kind: 'primary' },
-    { to: 'cancelled', label: 'Cancel', kind: 'danger' },
+    { to: 'delivering', labelKey: 'actionOutForDelivery', kind: 'primary' },
+    { to: 'cancelled', labelKey: 'actionCancel', kind: 'danger' },
   ],
-  delivering: [{ to: 'completed', label: '✓ Mark completed', kind: 'primary' }],
+  delivering: [{ to: 'completed', labelKey: 'actionMarkCompleted', kind: 'primary' }],
   completed: [],
   cancelled: [],
 };
@@ -118,6 +130,7 @@ function lineSummary(order: Order): string {
 
 export default function DashboardPage() {
   const { status, user, getAccessToken, logout } = useAuth();
+  const t = useTranslations('Portal');
   const [restaurants, setRestaurants] = useState<Restaurant[] | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>('all');
@@ -171,7 +184,7 @@ export default function DashboardPage() {
         setSelectedId((cur) => cur ?? res.data[0]?.id ?? null);
         setError(null);
       } else if (res.kind === 'error') {
-        setError(`Could not load your restaurants: ${res.message}`);
+        setError(t('restaurantsLoadError', { message: res.message }));
         setRestaurants([]);
       }
     })();
@@ -253,8 +266,16 @@ export default function DashboardPage() {
           const notes: string[] = [];
           for (const o of res.data.items) {
             const old = before.get(o.id);
-            if (old === undefined) notes.push(`${o.code} is a new order, currently ${o.status}.`);
-            else if (old !== o.status) notes.push(`${o.code} moved from ${old} to ${o.status}.`);
+            if (old === undefined)
+              notes.push(t('announceNew', { code: o.code, status: t(`word${STATUS_CAP[o.status as OrderStatus]}`) }));
+            else if (old !== o.status)
+              notes.push(
+                t('announceMoved', {
+                  code: o.code,
+                  from: t(`word${STATUS_CAP[old as OrderStatus]}`),
+                  to: t(`word${STATUS_CAP[o.status as OrderStatus]}`),
+                }),
+              );
           }
           if (notes.length) setAnnouncement(notes.join(' '));
         }
@@ -512,7 +533,7 @@ export default function DashboardPage() {
    * silent poll that STARTED before it (and would resolve with the
    * pre-action snapshot) get dropped by `fetchInbox`.
    */
-  async function act(order: Order, action: { to: OrderStatus; label: string }) {
+  async function act(order: Order, action: { to: OrderStatus; labelKey: string }) {
     if (!selectedId || busyOrderId) return;
     setBusyOrderId(order.id);
     setActionError(null);
@@ -532,11 +553,17 @@ export default function DashboardPage() {
             [action.to]: d.counts[action.to] + 1,
           },
         });
-        setAnnouncement(`${order.code} moved from ${from} to ${action.to}.`);
+        setAnnouncement(
+          t('announceMoved', {
+            code: order.code,
+            from: t(`word${STATUS_CAP[from]}`),
+            to: t(`word${STATUS_CAP[action.to]}`),
+          }),
+        );
       }
       lastActionAtRef.current = Date.now();
     } else if (res.kind === 'error') {
-      setActionError(`"${action.label}" failed: ${res.message}`);
+      setActionError(t('actionFailedQuoted', { label: t(action.labelKey), message: res.message }));
     }
     setBusyOrderId(null);
   }
@@ -571,15 +598,13 @@ export default function DashboardPage() {
     return (
       <div className="mx-auto max-w-lg rounded-2xl border border-dashed border-stone-300 bg-white p-10 text-center">
         <p className="text-2xl">🏪</p>
-        <h1 className="mt-2 text-xl font-bold">Sign in to open your restaurant portal</h1>
-        <p className="mt-1 text-sm text-stone-500">
-          The dashboard shows incoming orders for restaurants you own.
-        </p>
+        <h1 className="mt-2 text-xl font-bold">{t('dashboardGateTitle')}</h1>
+        <p className="mt-1 text-sm text-stone-500">{t('dashboardGateBody')}</p>
         <Link
           href="/login?next=/dashboard"
           className="mt-6 inline-block rounded-xl bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-700"
         >
-          Sign in
+          {t('signIn')}
         </Link>
       </div>
     );
@@ -589,16 +614,16 @@ export default function DashboardPage() {
     return (
       <div className="mx-auto max-w-lg rounded-2xl border border-dashed border-stone-300 bg-white p-10 text-center">
         <p className="text-2xl">🔑</p>
-        <h1 className="mt-2 text-xl font-bold">This portal is for restaurant owners</h1>
+        <h1 className="mt-2 text-xl font-bold">{t('ownerGateTitle')}</h1>
         <p className="mt-1 text-sm text-stone-500">
-          You are signed in as <span className="font-semibold">{user?.email}</span>, a customer
-          account. Owner accounts get an order inbox for their restaurants.
+          {t('ownerGatePre')} <span className="font-semibold">{user?.email}</span>
+          {t('ownerGatePost')}
         </p>
         <Link
           href="/orders/my"
           className="mt-6 inline-block rounded-xl bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-700"
         >
-          View my orders instead
+          {t('viewMyOrders')}
         </Link>
       </div>
     );
@@ -608,14 +633,12 @@ export default function DashboardPage() {
   if (restaurants && restaurants.length === 0) {
     return (
       <div className="mx-auto max-w-2xl">
-        <h1 className="text-2xl font-extrabold">Restaurant dashboard</h1>
+        <h1 className="text-2xl font-extrabold">{t('dashboardTitle')}</h1>
         <PortalTabs />
         <div className="mt-6 rounded-2xl border border-dashed border-stone-300 bg-white p-10 text-center">
           <p className="text-2xl">🍳</p>
-          <h2 className="mt-2 text-lg font-bold">You don’t own a restaurant yet</h2>
-          <p className="mt-1 text-sm text-stone-500">
-            Once a restaurant is linked to your account, its incoming orders will show up here.
-          </p>
+          <h2 className="mt-2 text-lg font-bold">{t('noRestaurantTitle')}</h2>
+          <p className="mt-1 text-sm text-stone-500">{t('dashboardNoRestaurantBody')}</p>
         </div>
       </div>
     );
@@ -627,10 +650,9 @@ export default function DashboardPage() {
     <div className="mx-auto max-w-3xl">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-extrabold">Restaurant dashboard</h1>
+          <h1 className="text-2xl font-extrabold">{t('dashboardTitle')}</h1>
           <p className="mt-1 text-sm text-stone-500">
-            Incoming orders for {selected?.name ?? 'your restaurant'} · act on each order as it
-            moves through the kitchen
+            {t('dashboardSub', { restaurant: selected?.name ?? t('fallbackRestaurantName') })}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -642,11 +664,11 @@ export default function DashboardPage() {
             title={
               live
                 ? wsUp
-                  ? 'Live updates on — the inbox follows the WebSocket feed (SSE/polling on standby). Click to pause.'
+                  ? t('pillTitleWs')
                   : sseUp
-                    ? 'Live updates on — the WebSocket feed is down, so the SSE stream is the push transport. Click to pause.'
-                    : 'Live updates on — no push transport is connected, so the inbox re-polls every 10s. Click to pause.'
-                : 'Live updates paused — click to resume the WebSocket feed (SSE and 10s polling as fallbacks).'
+                    ? t('pillTitleSse')
+                    : t('pillTitlePoll')
+                : t('pillTitlePaused')
             }
             className={`flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-xs font-bold transition-colors ${
               mode === 'paused'
@@ -667,23 +689,23 @@ export default function DashboardPage() {
               }`}
             />
             {mode === 'paused'
-              ? 'Paused'
+              ? t('pillPaused')
               : mode === 'retrying'
-                ? 'Live · retrying'
+                ? t('pillRetrying')
                 : mode === 'push'
-                  ? 'Live · push'
-                  : 'Live'}
+                  ? t('pillPush')
+                  : t('pillLive')}
           </button>
           {lastSyncAt != null && (
-            <span className="text-xs text-stone-500" title="Last successful inbox sync">
-              updated {formatClock(lastSyncAt)}
+            <span className="text-xs text-stone-500" title={t('updatedTitle')}>
+              {t('updatedAt', { time: formatClock(lastSyncAt) })}
             </span>
           )}
           <button
             onClick={() => setReloadKey((k) => k + 1)}
             className="rounded-xl border border-stone-300 bg-white px-4 py-2 text-sm font-semibold text-stone-700 hover:bg-stone-100"
           >
-            ↻ Refresh
+            {t('refresh')}
           </button>
         </div>
       </div>
@@ -695,7 +717,7 @@ export default function DashboardPage() {
         aria-live="polite"
         className="sr-only"
         data-testid="dashboard-live-region"
-        aria-label="Inbox update announcements"
+        aria-label={t('liveRegionLabel')}
       >
         {announcement}
       </p>
@@ -706,7 +728,7 @@ export default function DashboardPage() {
       {/* Restaurant switcher — only when the owner has more than one */}
       {restaurants && restaurants.length > 1 && (
         <label className="mt-4 flex items-center gap-2 text-sm font-semibold text-stone-700">
-          Restaurant
+          {t('restaurantLabel')}
           <select
             value={selectedId ?? ''}
             onChange={(e) => switchRestaurant(e.target.value)}
@@ -724,7 +746,7 @@ export default function DashboardPage() {
       {/* Status inbox tabs with per-status counts (counts always cover ALL statuses).
           APG tab pattern: roving tabindex (ONE tab in the tab order), arrows
           move+select, the panel below is wired via aria-controls. */}
-      <div className="mt-5 flex flex-wrap gap-2" role="tablist" aria-label="Filter orders by status">
+      <div className="mt-5 flex flex-wrap gap-2" role="tablist" aria-label={t('filterTabsAria')}>
         {FILTER_TABS.map((s, i) => {
           const count =
             data == null ? null : s === 'all' ? inboxTotal : data.counts[s as OrderStatus];
@@ -772,7 +794,7 @@ export default function DashboardPage() {
                   : 'border border-stone-300 bg-white text-stone-600 hover:bg-stone-100'
               }`}
             >
-              {s === 'all' ? 'All' : s.charAt(0).toUpperCase() + s.slice(1)}
+              {s === 'all' ? t('tabAll') : t(`status${STATUS_CAP[s as OrderStatus]}`)}
               {count != null && (
                 <span
                   className={`rounded-full px-1.5 text-xs tabular-nums ${
@@ -797,7 +819,7 @@ export default function DashboardPage() {
             onClick={() => setReloadKey((k) => k + 1)}
             className="shrink-0 rounded-lg border border-rose-200 bg-white px-3 py-1 text-xs font-bold text-rose-700 hover:bg-rose-50"
           >
-            Try again
+            {t('tryAgain')}
           </button>
         </p>
       )}
@@ -816,8 +838,7 @@ export default function DashboardPage() {
           pill too — this line adds the reason once. */}
       {syncIssue && data && (
         <p className="mt-4 text-xs font-semibold text-amber-700" role="status">
-          Live update failed ({syncIssue}) — showing the last successful sync; the next push
-          event or tick will retry.
+          {t('dashboardSyncIssue', { message: syncIssue })}
         </p>
       )}
 
@@ -839,12 +860,12 @@ export default function DashboardPage() {
         <div className="mt-6 rounded-2xl border border-dashed border-stone-300 bg-white p-10 text-center">
           <p className="text-2xl">📭</p>
           <h2 className="mt-2 text-lg font-bold">
-            {filter === 'all' ? 'No orders yet' : `No ${filter} orders`}
+            {filter === 'all'
+              ? t('emptyAllTitle')
+              : t('emptyStatusTitle', { status: t(`word${STATUS_CAP[filter as OrderStatus]}`) })}
           </h2>
           <p className="mt-1 text-sm text-stone-500">
-            {filter === 'all'
-              ? 'Customer orders for this restaurant will appear here as they arrive.'
-              : 'Try another status tab or check all orders.'}
+            {filter === 'all' ? t('emptyAllBody') : t('emptyStatusBody')}
           </p>
         </div>
       ) : data ? (
@@ -854,7 +875,7 @@ export default function DashboardPage() {
               <div
                 key={order.id}
                 role="group"
-                aria-label={`Order ${order.code}, ${order.status}`}
+                aria-label={t('groupAria', { code: order.code, status: t(`word${STATUS_CAP[order.status as OrderStatus]}`) })}
                 className="rounded-2xl border border-stone-200 bg-white p-5"
                 data-testid={`inbox-card-${order.code}`}
               >
@@ -865,10 +886,10 @@ export default function DashboardPage() {
                     {newIds.has(order.id) && (
                       <span
                         role="status"
-                        aria-label="New order since last sync"
+                        aria-label={t('badgeNewAria')}
                         className="rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide text-sky-800"
                       >
-                        New
+                        {t('badgeNew')}
                       </span>
                     )}
                   </div>
@@ -890,7 +911,7 @@ export default function DashboardPage() {
                   <span className="text-sm font-extrabold">
                     {formatPrice(order.totalCents)}
                     <span className="ml-2 text-xs font-medium text-stone-500">
-                      incl. {formatPrice(order.deliveryFeeCents)} delivery
+                      {t('inclDelivery', { fee: formatPrice(order.deliveryFeeCents) })}
                     </span>
                   </span>
                   <div className="flex flex-wrap items-center gap-2">
@@ -906,15 +927,15 @@ export default function DashboardPage() {
                             : 'border border-rose-200 bg-white text-rose-700 hover:bg-rose-50'
                         }`}
                       >
-                        {busyOrderId === order.id ? '…' : a.label}
+                        {busyOrderId === order.id ? '…' : t(a.labelKey)}
                       </button>
                     ))}
                     <Link
                       href={`/orders/${order.id}${order.contactEmail ? `?email=${encodeURIComponent(order.contactEmail)}` : ''}`}
-                      aria-label={`View receipt for order ${order.code}`}
+                      aria-label={t('receiptAria', { code: order.code })}
                       className="rounded-lg bg-stone-900 px-3 py-1.5 text-xs font-bold text-white hover:bg-stone-700"
                     >
-                      Details
+                      {t('details')}
                     </Link>
                   </div>
                 </div>
@@ -925,8 +946,14 @@ export default function DashboardPage() {
           {/* Pagination */}
           <div className="mt-6 flex items-center justify-between">
             <p className="text-sm text-stone-500">
-              Page {data.page} of {totalPages} · {data.total} order{data.total === 1 ? '' : 's'}
-              {filter !== 'all' ? ` ${filter}` : ''}
+              {t('pagination', {
+                page: String(data.page),
+                totalPages: String(totalPages),
+                count: String(data.total),
+                unit: data.total === 1 ? t('unitOrder') : t('unitOrders'),
+                status:
+                  filter !== 'all' ? ` ${t(`word${STATUS_CAP[filter as OrderStatus]}`)}` : '',
+              })}
             </p>
             <div className="flex gap-2">
               <button
@@ -934,14 +961,14 @@ export default function DashboardPage() {
                 disabled={data.page <= 1}
                 className="rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-sm font-semibold text-stone-700 hover:bg-stone-100 disabled:opacity-40"
               >
-                ← Prev
+                {t('prevPage')}
               </button>
               <button
                 onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                 disabled={data.page >= totalPages}
                 className="rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-sm font-semibold text-stone-700 hover:bg-stone-100 disabled:opacity-40"
               >
-                Next →
+                {t('nextPage')}
               </button>
             </div>
           </div>
