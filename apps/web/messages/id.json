@@ -23,7 +23,8 @@
     "delete": "Hapus",
     "loading": "Memuat\u2026",
     "optional": "(opsional)",
-    "phonePlaceholder": "+62 812 3456 7890"
+    "phonePlaceholder": "+62 812 3456 7890",
+    "retry": "Coba lagi"
   },
   "Header": {
     "restaurants": "Restoran",
@@ -640,5 +641,51 @@
     "errPhoneInvalid": "Nomor telepon tampak tidak valid \u2014 angka, +, spasi, strip.",
     "errStreetRequired": "Alamat jalan wajib diisi.",
     "errStreetTooLong": "Alamat terlalu panjang (maks. 500 karakter)."
+  },
+  "Favorites": {
+    "pageTitle": "Hidangan tersimpan \u2014 FoodOrder",
+    "title": "Hidangan tersimpan",
+    "loadError": "Gagal memuat hidangan tersimpan Anda.",
+    "gateTitle": "Masuk untuk menyimpan hidangan.",
+    "gateBody": "Ketuk ikon hati pada menu apa pun dan hidangan akan menunggu Anda di sini.",
+    "loadingAria": "Memuat hidangan tersimpan",
+    "emptyWithName": "Belum ada yang tersimpan, {name}.",
+    "emptyNoName": "Belum ada yang tersimpan.",
+    "emptyBody": "Jelajahi restoran dan ketuk \u2661 pada hidangan yang ingin Anda pesan lagi.",
+    "browseCta": "Jelajahi restoran",
+    "savedOn": "\u00b7 disimpan {date}",
+    "unavailable": "\u00b7 sedang tidak tersedia",
+    "favAddAria": "Simpan ke favorit",
+    "favRemoveAria": "Hapus dari favorit",
+    "favGuestTitle": "Masuk untuk menyimpan hidangan"
+  },
+  "Account": {
+    "pageTitle": "Akun & privasi \u2014 FoodOrder",
+    "title": "Akun & privasi",
+    "gateTitle": "Masuk untuk mengelola data Anda.",
+    "gateBody": "Ekspor semua data yang kami simpan tentang Anda, atau hapus akun Anda sepenuhnya.",
+    "signedInAs": "Masuk sebagai",
+    "exportTitle": "Unduh data Anda",
+    "exportBody": "Satu file JSON berisi semua yang dimiliki akun ini: profil, alamat tersimpan, favorit, pesanan, pembayaran, ulasan, restoran milik Anda, pekerjaan kurir, sesi aktif, dan perangkat notifikasi. Kata sandi dan rahasia token tidak pernah disertakan.",
+    "exportCta": "Unduh data saya",
+    "exporting": "Menyiapkan ekspor\u2026",
+    "exportDone": "Ekspor siap \u2014 periksa unduhan Anda untuk {file}.",
+    "browserBlocked": "Browser Anda memblokir unduhan. Izinkan unduhan lalu coba lagi.",
+    "deleteTitle": "Hapus akun Anda",
+    "deleteBody": "Tindakan ini tidak dapat dibatalkan dan langsung mengeluarkan Anda dari semua perangkat. Alamat tersimpan, favorit, dan sesi Anda dihapus; catatan pesanan yang wajib disimpan restoran tetap tercatat dengan nama dan kontak Anda diganti menjadi \u201cPengguna terhapus\u201d. Jika Anda memiliki restoran dengan pesanan aktif atau mengantar pengiriman yang masih berjalan, selesaikan lebih dulu \u2014 server akan menolak penghapusan sampai Anda menyelesaikannya.",
+    "passwordLabel": "Kata sandi saat ini",
+    "confirmPrefix": "Ketik",
+    "confirmSuffix": "untuk mengonfirmasi",
+    "errConfirmPhrase": "Ketik {phrase} persis untuk mengonfirmasi.",
+    "errPasswordRequired": "Masukkan kata sandi Anda saat ini.",
+    "deleteCta": "Hapus akun saya",
+    "deleting": "Menghapus\u2026",
+    "apiUnreachable": "Tidak dapat menghubungi API.",
+    "deletedTitle": "Akun terhapus",
+    "deletedBody": "Akun dan data pribadi Anda sudah hilang, dan Anda telah keluar di semua perangkat. Riwayat pesanan yang masih dibutuhkan restoran dan kurir untuk catatan mereka tetap disimpan tetapi dianonimkan \u2014 tidak lagi mencantumkan nama atau kontak Anda.",
+    "deletedOrders": "{count, plural, other {# pesanan}} dianonimkan",
+    "detachedSuffix": ", {count} restoran dilepas",
+    "releasedSuffix": ", {count} penugasan pengiriman dilepaskan",
+    "backCta": "Kembali ke restoran"
   }
 }

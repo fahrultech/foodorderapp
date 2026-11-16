@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { useLocale, useTranslations } from 'next-intl';
 import { useAuth } from '@/lib/auth';
 import { useFavorites } from '@/lib/favorites';
 import { formatPrice } from '@/lib/api';
@@ -27,13 +28,17 @@ function toMenuItem(f: FavoriteDish): MenuItem {
 export default function FavoritesPage() {
   const { status, user } = useAuth();
   const { items, loaded, error, refresh } = useFavorites();
+  const t = useTranslations('Favorites');
+  const c = useTranslations('Common');
+  const th = useTranslations('Header');
+  const locale = useLocale();
 
   const pending = status === 'loading' || (status === 'signedIn' && !loaded);
 
   return (
     <section>
       <h1 className="text-2xl font-bold">
-        Saved dishes <span aria-hidden>♥</span>
+        {t('title')} <span aria-hidden>♥</span>
       </h1>
 
       {/* A failed load is NOT an empty list: tell the user why instead of
@@ -44,34 +49,34 @@ export default function FavoritesPage() {
           data-testid="favorites-error"
           className="mt-8 rounded-2xl border border-rose-200 bg-rose-50 p-6 text-center"
         >
-          <p className="text-lg font-semibold text-rose-800">Couldn’t load your saved dishes.</p>
+          <p className="text-lg font-semibold text-rose-800">{t('loadError')}</p>
           <p className="mt-1 text-sm text-rose-700">{error}</p>
           <button
             onClick={() => void refresh()}
             className="mt-4 rounded-xl bg-rose-700 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-800"
           >
-            Try again
+            {c('retry')}
           </button>
         </div>
       )}
 
       {status === 'guest' && (
         <div className="mt-8 rounded-2xl border border-dashed border-stone-300 bg-stone-50 p-10 text-center">
-          <p className="text-lg font-semibold text-stone-700">Sign in to save dishes.</p>
+          <p className="text-lg font-semibold text-stone-700">{t('gateTitle')}</p>
           <p className="mt-1 text-sm text-stone-500">
-            Tap the heart on any menu item and it will wait for you here.
+            {t('gateBody')}
           </p>
           <Link
             href="/login?next=%2Ffavorites"
             className="mt-4 inline-block rounded-xl bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700"
           >
-            Sign in
+            {th('signIn')}
           </Link>
         </div>
       )}
 
       {pending && (
-        <ul className="mt-8 space-y-3" aria-busy="true" aria-label="Loading saved dishes">
+        <ul className="mt-8 space-y-3" aria-busy="true" aria-label={t('loadingAria')}>
           {[0, 1, 2].map((i) => (
             <li key={i} className="h-24 rounded-2xl bg-stone-100" aria-hidden />
           ))}
@@ -81,16 +86,16 @@ export default function FavoritesPage() {
       {status === 'signedIn' && !pending && !error && items.length === 0 && (
         <div className="mt-8 rounded-2xl border border-dashed border-stone-300 bg-stone-50 p-10 text-center">
           <p className="text-lg font-semibold text-stone-700">
-            Nothing saved{user ? `, ${user.name}` : ''} — yet.
+            {user ? t('emptyWithName', { name: user.name }) : t('emptyNoName')}
           </p>
           <p className="mt-1 text-sm text-stone-500">
-            Browse the restaurants and tap ♡ on dishes you want to order again.
+            {t('emptyBody')}
           </p>
           <Link
             href="/"
             className="mt-4 inline-block rounded-xl bg-stone-900 px-4 py-2 text-sm font-semibold text-white hover:bg-stone-700"
           >
-            Browse restaurants
+            {t('browseCta')}
           </Link>
         </div>
       )}
@@ -113,8 +118,8 @@ export default function FavoritesPage() {
                   </Link>
                   <span className="text-stone-400">
                     {' '}
-                    · saved {new Date(f.favoritedAt).toLocaleDateString()}
-                    {f.isAvailable ? '' : ' · currently unavailable'}
+                    {t('savedOn', { date: new Date(f.favoritedAt).toLocaleDateString(locale) })}
+                    {f.isAvailable ? '' : ` ${t('unavailable')}`}
                   </span>
                 </p>
               </div>

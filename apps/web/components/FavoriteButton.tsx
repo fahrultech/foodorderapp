@@ -2,6 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { useAuth } from '@/lib/auth';
 import { useFavorites } from '@/lib/favorites';
 
@@ -16,6 +17,7 @@ export default function FavoriteButton({ menuItemId }: { menuItemId: string }) {
   const { status } = useAuth();
   const { isFavorite, toggle } = useFavorites();
   const router = useRouter();
+  const t = useTranslations('Favorites');
   const [pending, setPending] = useState(false);
   const faved = isFavorite(menuItemId);
 
@@ -37,8 +39,8 @@ export default function FavoriteButton({ menuItemId }: { menuItemId: string }) {
     <button
       onClick={onClick}
       aria-pressed={faved}
-      aria-label={faved ? 'Remove from favorites' : 'Save to favorites'}
-      title={status === 'signedIn' ? undefined : 'Sign in to save dishes'}
+      aria-label={faved ? t('favRemoveAria') : t('favAddAria')}
+      title={status === 'signedIn' ? undefined : t('favGuestTitle')}
       className={
         `rounded-full p-2 text-xl leading-none transition hover:scale-110 ` +
         (faved ? 'text-brand-600' : 'text-stone-300 hover:text-brand-500')

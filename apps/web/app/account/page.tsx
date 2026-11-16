@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { useAuth } from '@/lib/auth';
 import { authedCall } from '@/lib/authed-call';
 import { ApiError, api, type AccountDeleteResult } from '@/lib/api';
@@ -25,6 +26,8 @@ const CONFIRM_PHRASE = 'DELETE';
 
 export default function AccountPage() {
   const { status, user, getAccessToken, logout } = useAuth();
+  const t = useTranslations('Account');
+  const th = useTranslations('Header');
   const [exporting, setExporting] = useState(false);
   const [exportedFile, setExportedFile] = useState<string | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
@@ -60,7 +63,7 @@ export default function AccountPage() {
       setTimeout(() => URL.revokeObjectURL(url), 60_000);
       setExportedFile(fileName);
     } catch {
-      setExportError('Your browser blocked the download. Allow downloads and try again.');
+      setExportError(t('browserBlocked'));
     } finally {
       setExporting(false);
     }
@@ -72,11 +75,11 @@ export default function AccountPage() {
     // Client pre-checks mirror the server's guards for instant feedback;
     // the server stays the authority (it answers 400/401 for anything else).
     if (!password) {
-      setDeleteError('Enter your current password.');
+      setDeleteError(t('errPasswordRequired'));
       return;
     }
     if (confirmation !== CONFIRM_PHRASE) {
-      setDeleteError(`Type ${CONFIRM_PHRASE} exactly to confirm.`);
+      setDeleteError(t('errConfirmPhrase', { phrase: CONFIRM_PHRASE }));
       return;
     }
     const token = await getAccessToken();
@@ -86,7 +89,7 @@ export default function AccountPage() {
     try {
       result = await api.deleteMe(token, { password, confirmation: CONFIRM_PHRASE });
     } catch (err) {
-      setDeleteError(err instanceof ApiError ? err.message : 'Could not reach the API.');
+      setDeleteError(err instanceof ApiError ? err.message : t('apiUnreachable'));
       setDeleting(false);
       return;
     }
@@ -105,22 +108,25 @@ export default function AccountPage() {
   if (deleted) {
     return (
       <section data-testid="account-deleted">
-        <h1 className="text-2xl font-bold">Account deleted</h1>
+        <h1 className="text-2xl font-bold">{t('deletedTitle')}</h1>
         <p className="mt-3 text-stone-600">
-          Your account and its personal data are gone, and you have been signed out on every
-          device. Order history that restaurants and couriers still need for their records was
-          kept but anonymized — it no longer names or contacts you.
+          {t('deletedBody')}
         </p>
         <p className="mt-2 text-sm text-stone-500">
-          {deleted.anonymizedOrders} retained order{deleted.anonymizedOrders === 1 ? '' : 's'}{' '}
-          anonymized{deleted.detachedRestaurants > 0 ? `, ${deleted.detachedRestaurants} restaurant(s) detached` : ''}
-          {deleted.unassignedOrders > 0 ? `, ${deleted.unassignedOrders} delivery assignment(s) released` : ''}.
+          {t('deletedOrders', { count: deleted.anonymizedOrders })}
+          {deleted.detachedRestaurants > 0
+            ? t('detachedSuffix', { count: String(deleted.detachedRestaurants) })
+            : ''}
+          {deleted.unassignedOrders > 0
+            ? t('releasedSuffix', { count: String(deleted.unassignedOrders) })
+            : ''}
+          .
         </p>
         <Link
           href="/"
           className="mt-6 inline-block rounded-xl bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700"
         >
-          Back to restaurants
+          {t('backCta')}
         </Link>
       </section>
     );
@@ -129,17 +135,17 @@ export default function AccountPage() {
   if (status === 'guest') {
     return (
       <section>
-        <h1 className="text-2xl font-bold">Account & privacy</h1>
+        <h1 className="text-2xl font-bold">{t('title')}</h1>
         <div className="mt-8 rounded-2xl border border-dashed border-stone-300 bg-stone-50 p-10 text-center">
-          <p className="text-lg font-semibold text-stone-700">Sign in to manage your data.</p>
+          <p className="text-lg font-semibold text-stone-700">{t('gateTitle')}</p>
           <p className="mt-1 text-sm text-stone-500">
-            Export everything we hold about you, or delete your account outright.
+            {t('gateBody')}
           </p>
           <Link
             href="/login?next=%2Faccount"
             className="mt-4 inline-block rounded-xl bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700"
           >
-            Sign in
+            {th('signIn')}
           </Link>
         </div>
       </section>
@@ -148,21 +154,19 @@ export default function AccountPage() {
 
   return (
     <section className="max-w-2xl">
-      <h1 className="text-2xl font-bold">Account &amp; privacy</h1>
+      <h1 className="text-2xl font-bold">{t('title')}</h1>
       {user && (
         <p className="mt-1 text-sm text-stone-500" title={user.email}>
-          Signed in as <span className="font-semibold text-stone-700">{user.name}</span> (
+          {t('signedInAs')} <span className="font-semibold text-stone-700">{user.name}</span> (
           {user.email})
         </p>
       )}
 
       {/* --- data export --- */}
       <div className="mt-8 rounded-2xl border border-stone-200 bg-white p-6" data-testid="account-export-card">
-        <h2 className="text-lg font-bold text-stone-800">Download your data</h2>
+        <h2 className="text-lg font-bold text-stone-800">{t('exportTitle')}</h2>
         <p className="mt-1 text-sm text-stone-600">
-          A single JSON file with everything this account holds: profile, saved addresses,
-          favorites, orders, payments, reviews, restaurants you own, delivery work, active
-          sessions and notification devices. Passwords and token secrets are never included.
+          {t('exportBody')}
         </p>
         <button
           type="button"
@@ -172,11 +176,11 @@ export default function AccountPage() {
           data-testid="account-export-button"
           className="mt-4 rounded-xl bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700 disabled:cursor-wait disabled:opacity-60"
         >
-          {exporting ? 'Preparing export…' : 'Download my data'}
+          {exporting ? t('exporting') : t('exportCta')}
         </button>
         {exportedFile && (
           <p role="status" data-testid="account-export-done" className="mt-3 text-sm font-medium text-emerald-700">
-            Export ready — check your downloads for {exportedFile}.
+            {t('exportDone', { file: exportedFile })}
           </p>
         )}
         {exportError && (
@@ -188,18 +192,14 @@ export default function AccountPage() {
 
       {/* --- danger zone --- */}
       <div className="mt-8 rounded-2xl border border-red-200 bg-red-50/40 p-6" data-testid="account-delete-card">
-        <h2 className="text-lg font-bold text-red-800">Delete your account</h2>
+        <h2 className="text-lg font-bold text-red-800">{t('deleteTitle')}</h2>
         <p className="mt-1 text-sm text-stone-600">
-          This is irreversible and signs you out everywhere immediately. Your saved addresses,
-          favorites and sessions are erased; order records restaurants must keep stay on file
-          with your name and contact details replaced by &ldquo;Deleted user&rdquo;. If you own a
-          restaurant with active orders or drive open deliveries, resolve them first — the server
-          will refuse the deletion until you do.
+          {t('deleteBody')}
         </p>
         <form onSubmit={(e) => void onDelete(e)} className="mt-4 space-y-4" data-testid="account-delete-form">
           <div>
             <label htmlFor="delete-password" className="block text-sm font-semibold text-stone-700">
-              Current password
+              {t('passwordLabel')}
             </label>
             <input
               id="delete-password"
@@ -212,7 +212,7 @@ export default function AccountPage() {
           </div>
           <div>
             <label htmlFor="delete-confirmation" className="block text-sm font-semibold text-stone-700">
-              Type <span className="font-mono">DELETE</span> to confirm
+              {t('confirmPrefix')} <span className="font-mono">DELETE</span> {t('confirmSuffix')}
             </label>
             <input
               id="delete-confirmation"
@@ -231,7 +231,7 @@ export default function AccountPage() {
             data-testid="account-delete-button"
             className="rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:cursor-wait disabled:opacity-60"
           >
-            {deleting ? 'Deleting…' : 'Delete my account'}
+            {deleting ? t('deleting') : t('deleteCta')}
           </button>
         </form>
         {deleteError && (

@@ -23,7 +23,8 @@
     "delete": "Delete",
     "loading": "Loading\u2026",
     "optional": "(optional)",
-    "phonePlaceholder": "+62 812 3456 7890"
+    "phonePlaceholder": "+62 812 3456 7890",
+    "retry": "Try again"
   },
   "Header": {
     "restaurants": "Restaurants",
@@ -640,5 +641,51 @@
     "errPhoneInvalid": "Phone looks invalid \u2014 digits, +, spaces, dashes.",
     "errStreetRequired": "Street address is required.",
     "errStreetTooLong": "Address is too long (max 500 characters)."
+  },
+  "Favorites": {
+    "pageTitle": "Saved dishes \u2014 FoodOrder",
+    "title": "Saved dishes",
+    "loadError": "Couldn\u2019t load your saved dishes.",
+    "gateTitle": "Sign in to save dishes.",
+    "gateBody": "Tap the heart on any menu item and it will wait for you here.",
+    "loadingAria": "Loading saved dishes",
+    "emptyWithName": "Nothing saved, {name} \u2014 yet.",
+    "emptyNoName": "Nothing saved \u2014 yet.",
+    "emptyBody": "Browse the restaurants and tap \u2661 on dishes you want to order again.",
+    "browseCta": "Browse restaurants",
+    "savedOn": "\u00b7 saved {date}",
+    "unavailable": "\u00b7 currently unavailable",
+    "favAddAria": "Save to favorites",
+    "favRemoveAria": "Remove from favorites",
+    "favGuestTitle": "Sign in to save dishes"
+  },
+  "Account": {
+    "pageTitle": "Account & privacy \u2014 FoodOrder",
+    "title": "Account & privacy",
+    "gateTitle": "Sign in to manage your data.",
+    "gateBody": "Export everything we hold about you, or delete your account outright.",
+    "signedInAs": "Signed in as",
+    "exportTitle": "Download your data",
+    "exportBody": "A single JSON file with everything this account holds: profile, saved addresses, favorites, orders, payments, reviews, restaurants you own, delivery work, active sessions and notification devices. Passwords and token secrets are never included.",
+    "exportCta": "Download my data",
+    "exporting": "Preparing export\u2026",
+    "exportDone": "Export ready \u2014 check your downloads for {file}.",
+    "browserBlocked": "Your browser blocked the download. Allow downloads and try again.",
+    "deleteTitle": "Delete your account",
+    "deleteBody": "This is irreversible and signs you out everywhere immediately. Your saved addresses, favorites and sessions are erased; order records restaurants must keep stay on file with your name and contact details replaced by \u201cDeleted user\u201d. If you own a restaurant with active orders or drive open deliveries, resolve them first \u2014 the server will refuse the deletion until you do.",
+    "passwordLabel": "Current password",
+    "confirmPrefix": "Type",
+    "confirmSuffix": "to confirm",
+    "errConfirmPhrase": "Type {phrase} exactly to confirm.",
+    "errPasswordRequired": "Enter your current password.",
+    "deleteCta": "Delete my account",
+    "deleting": "Deleting\u2026",
+    "apiUnreachable": "Could not reach the API.",
+    "deletedTitle": "Account deleted",
+    "deletedBody": "Your account and its personal data are gone, and you have been signed out on every device. Order history that restaurants and couriers still need for their records was kept but anonymized \u2014 it no longer names or contacts you.",
+    "deletedOrders": "{count, plural, =1 {# retained order} other {# retained orders}} anonymized",
+    "detachedSuffix": ", {count} restaurant(s) detached",
+    "releasedSuffix": ", {count} delivery assignment(s) released",
+    "backCta": "Back to restaurants"
   }
 }
