@@ -212,12 +212,21 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   are `generateMetadata` (localized `Portal.title*` value) and rendering
   `children` with zero DOM. Adding such a layout must never add a
   `loading.tsx` boundary (the session-77 soft-404/DOM-duplication rule holds).
-- **Login-then-navigate e2e flows must wait for the redirect to settle**
-  (session 93): the role-gated header is already visible on `/login`, so
-  clicking a nav link right after sign-in can race the post-login
-  `router.replace(next)` — the click starts, the redirect commits and lands
-  on home (A/B-quantified 1/5 cold on both trees; the suite guards it with
-  `expect(page).not.toHaveURL(/\/login/)` before clicking).
+- **Auth redirects are settle-gated by the PRODUCT** (session 97, superseding
+  the session-93 suite-side workaround): a role-gated header link clicked
+  during the post-login `router.replace(next)` flight used to commit first
+  and then get dragged back to home by the later-landing redirect
+  (A/B-quantified 1/5 cold). Auth forms now ENGAGE `lib/nav-gate.ts` from
+  the first moment of submit until their redirect commits; while gated the
+  shared `<nav>` carries `inert` + `pointer-events: none`, so no click can
+  begin inside the flight window — a held click waits (Playwright's
+  "receives events" check included) and lands cleanly afterwards.
+  `data-navgated` is the e2e pin; failed sign-ins release immediately, the
+  normal release is the form's unmount (== redirect committed), and a
+  safety timer covers the pathological never-commits case
+  (`?next=/login`). The older suite-side `not.toHaveURL(/\/login/)` guards
+  remain harmless belt-and-braces; `e2e/tests/login-redirect-race.spec.ts`
+  pins the new invariant.
 - **Order status machine** — transitions validated server-side
   (`pending→confirmed→preparing→delivering→completed`, cancellable through preparing).
   `POST /orders/:id/cancel` lets the *customer* use exactly that machine edge

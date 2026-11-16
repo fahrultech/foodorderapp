@@ -3,6 +3,75 @@
 Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
+## 2026-11-16 17:22 — Session 97 — Auth-redirect settle-gate: the login-redirect vs nav-click race fixed in the product (Web, Phase 8)
+
+**Built:**
+
+- Product fix for the last open Phase 8 race item (session 93
+  A/B-quantified ~1/5 cold; the suite had only a test-side `not.toHaveURL`
+  workaround). New `lib/nav-gate.ts`: a DI-free client store that holds the
+  shared `<header nav>` INERT from the first moment of a login/register
+  submit until that form's post-auth redirect COMMITS (normal release = the
+  form's unmount; failed submits release in the catch; an 8s safety timer
+  covers a pathological never-commits redirect like a crafted
+  `?next=/login`). No clickable link can begin inside the flight window
+  anymore — the exact state that used to let a click commit first and then
+  get dragged back home by the later-landing `router.replace(next)`.
+- `Header.tsx` consumes it via `useSyncExternalStore` (server snapshot
+  false — hydration-safe, first paint never gated). While gated the nav
+  carries `inert` (keyboard/AT) + `pointer-events: none` (the half browsers
+  AND Playwright's "receives events" check wait on) + the `data-navgated`
+  pin attribute.
+- Login (both the already-signed-in skip effect and submit) and register
+  (skip effect, post-validation submit path) engage synchronously BEFORE
+  dispatching `router.replace(...)` and re-engage immediately before the
+  dispatch in case a slow auth round-trip tripped the safety timer; the
+  catch paths hand the nav back.
+- 4 new e2e tests `login-redirect-race.spec.ts`: the deterministic
+  swallowed-click repro (home RSC fetch held 800 ms after arming on the
+  auth REQUEST — arming on the response loses the race against the page's
+  own continuation; documented in-file), the inert-window pins
+  (`data-navgated=1` + `inert` from submit start until landing), a failed
+  sign-in releasing immediately plus a genuinely interactive nav after,
+  the already-signed-in `/login` skip redirect, and the same guarantee on
+  the registration flow (throwaway timestamped account — no seed-state
+  consumption).
+
+**Verified:**
+
+- `next build` green. A/B protocol: a throwaway outcome-only probe ran on
+  the UNMODIFIED HEAD build FIRST and PASSED — the honest finding is that
+  a route-held redirect whose fetch lands after the click's commit is
+  correctly DISCARDED by the router; the race only bit inside the narrow
+  fetch-done→commit-done render window, which network interception cannot
+  widen (session 93's cold 1/5 remains the empirical defect evidence —
+  recorded, not re-fabricated). The fix removes that window BY
+  CONSTRUCTION: the gate covers submit-start → commit inclusive, so no
+  click can start inside it; the regression spec pins the mechanism.
+- The 4 new specs 5× consecutive stable (4/4 ×5); the aborted-prefetch
+  experiment taught the harness lesson pinned in the spec: aborting the
+  pre-auth home prefetch makes Next fall back to a FULL-DOCUMENT reload
+  instead of an SPA flight, destroying the very window under test —
+  pre-auth RSC requests must be passed through.
+- Full e2e suite 80→84 GREEN ×2 consecutive on fresh re-seeds (2.2m / 2.1m).
+- API untouched — `nest build` + jest re-run prove delta 0 (91 suites /
+  1142 tests, same as sessions 90–96).
+- Sanitizer scan: 0 `***` / 0 U+2026 on every added line of all six touched
+  files (codepoint readback, not display); `git diff --check` clean.
+- ARCHITECTURE: the session-93 "e2e flows must wait for the redirect" rule
+  REWRITTEN as the product-side settle-gate rule (the old suite-side
+  guards stay as harmless belt-and-braces).
+
+**Left for next sessions:**
+
+- Roadmap's next unchecked item stands: per-restaurant traffic for owners
+  (🔒 needs an explicit registry dimension; never expose the global
+  snapshot on an OWNER rung).
+- If a deterministic pre-fix failure repro is ever needed again, note the
+  canary-discards finding above — route holds cannot widen the
+  fetch-done→commit render window.
+
+---
 ## 2026-11-16 15:20 — Session 96 — Storefront i18n sweep #4: favorites + account surfaces (Web, Phase 8)
 
 **Built:**
