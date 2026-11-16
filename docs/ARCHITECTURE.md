@@ -132,7 +132,9 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   the whole order funnel (cart page, cart-switch dialog, checkout, receipt +
   timeline/live-feed/payment/verify/rate islands, offline shell — session 94),
   the auth + saved-address surfaces (login, register, addresses book and the
-  checkout/receipt document titles — session 95)
+  checkout/receipt document titles — session 95), the favorites page + the
+  shared FavoriteButton heart labels and the GDPR account surface with their
+  own document titles (session 96),
   and the four portal surfaces + their title-owning layouts (sessions 92–93).
   Every message ships in EN and ID with byte-parity; EN values are
   byte-pinned against the existing e2e suite (reuse-over-duplication via

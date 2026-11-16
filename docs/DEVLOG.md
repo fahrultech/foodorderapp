@@ -3,6 +3,80 @@
 Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
+## 2026-11-16 15:20 — Session 96 — Storefront i18n sweep #4: favorites + account surfaces (Web, Phase 8)
+
+**Built:**
+
+- 43 new message keys × EN/ID: new `Favorites` (15) and `Account` (27)
+  namespaces + `Common.retry` ("Try again"/"Coba lagi"); both guest-gate
+  CTAs reuse `Header.signIn`. `/favorites` fully localized: heading, the
+  load-failure card, guest gate, skeleton aria "Loading saved dishes",
+  BOTH empty-card variants (ICU `emptyWithName`/`emptyNoName` reproduce
+  the old JSX ternary byte-identically), the row meta "· saved {date}"
+  (date now renders through `toLocaleDateString(locale)` — session 94
+  doctrine) and the "· currently unavailable" flag. The SHARED
+  `FavoriteButton` heart came too (aria Save/Remove + guest title — the
+  same sweep #4 wording mirrored on the restaurant menu).
+- `/account` fully localized: guest gate, identity line ("Signed in as"
+  fragment; the mono-`DELETE` token stays the EXACT server phrase inside
+  the localized label "Ketik DELETE untuk mengonfirmasi"), the export
+  card (both button states, done-line ICU `{file}`, browser-blocked
+  fallback), the danger-zone card, and both client guards
+  (`errPasswordRequired`/`errConfirmPhrase` — EN renders "Type DELETE
+  exactly to confirm." byte-identically), plus the post-delete summary —
+  the hand-rolled `? 's' :` plural became `deletedOrders`
+  `{count, plural, =1/other}` + `{count}` suffix keys. Server envelope
+  messages (e.g. the password-check alert) stay English per the
+  session-95 API-side non-goal.
+- Document titles: two zero-DOM title-owning server layouts — `/favorites`
+  "Saved dishes — FoodOrder"/"Hidangan tersimpan — FoodOrder", `/account`
+  "Account & privacy — FoodOrder"/"Akun & privasi — FoodOrder"
+  (sessions 93/95 pattern).
+- ARCHITECTURE localization bullet now names the favorites/heart + GDPR
+  account surfaces.
+
+**Verified:**
+
+- Catalog doctrine asserted BEFORE and after writing: every EN value
+  proven byte-equal to the JSX it replaces (source slices extracted,
+  html-unescaped and whitespace-collapsed for the six multi-line prose
+  blocks; exact-literal presence for the rest; the DELETE-exactly
+  template and the hand-rolled plural checked against their source
+  shapes), EN/ID key parity + ICU token-set match per namespace,
+  ensure_ascii dumps re-read with codepoint spot-checks (U+2026/U+2019/
+  U+201C intact).
+- `next build` green. API untouched — `nest build` + jest re-run prove
+  delta 0 (91 suites / 1142 tests, same as sessions 90–95).
+- SSR curl smoke: EN and ID (`locale=id` cookie) `<title>`s render
+  server-side on both routes.
+- Sanitizer scan: 0 `***` / 0 stray U+2026 across all eight touched
+  files (codepoint readback, not display); `git diff --check` clean.
+- NEW 6 `storefront-i18n-account-id` tests (74→80): ID favorites
+  signed-out gate + CTA href pin; ID favorites signed-in row meta
+  ("· disimpan") + localized heart aria — assertion-only, the heart and
+  Add buttons are never clicked; ID account gate; ID account signed-in
+  chrome (headings, identity fragment, labels, the mono-DELETE label
+  regex); ID localized client guard firing BEFORE any request (empty
+  password submit → localized alert, account alive); EN title pins.
+  First run caught one harness lesson: `exact: true` getByText cannot
+  match a fragment INSIDE a bigger element — the identity line pins by
+  substring (session 81 whitespace family).
+- Full suite 80/80 green ×2 consecutive on fresh seeds (reseed between
+  runs); the EN suite was untouched — every English string is carried
+  byte-identically by the pinned catalog values.
+
+**Left for next sessions:**
+
+- Roadmap's next unchecked item stands: product fix for the
+  login-redirect vs nav-click race (settle-or-cancel discipline +
+  regression spec).
+- Server API error envelopes remain English (API-side Accept-Language
+  vs user-pref decision, session 95 note).
+- `formatPrice` renders plain `$X.YY` in every locale (pre-dates this
+  sweep, app-wide); an IDR/money-format decision belongs to the
+  Evergreen product loop, not a text sweep.
+
+---
 ## 2026-11-16 10:42 — Session 95 — Storefront i18n sweep #3: login, register, addresses book + lib fallbacks (Web, Phase 8)
 
 **Built:**
