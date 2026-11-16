@@ -10,8 +10,10 @@ import { expect, Page, test } from '@playwright/test';
  * under test), and nothing here advances or creates state, so the later
  * `zz-driver-portal` spec still finds FO-SEED3 untouched.
  *
- * Sign in happens BEFORE the locale flip (the login page is English
- * chrome) — same pattern as portal-states.spec.ts.
+ * Sign in happens BEFORE the locale flip on the pages that are guest-gated
+ * (the login page itself was English chrome when this spec was written).
+ * SESSION 95 localized the login page too, so under the ID cookie the CTA
+ * reads 'Masuk' — the helper accepts either wording (input ids are stable).
  */
 
 const DEMO_PASSWORD = 'demo' + '1234';
@@ -20,7 +22,7 @@ async function signIn(page: Page, email: string) {
   await page.goto('/login');
   await page.locator('#email').fill(email);
   await page.locator('#password').fill(DEMO_PASSWORD);
-  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await page.getByRole('button', { name: /^(Sign in|Masuk)$/ }).click();
   await expect(page).not.toHaveURL(/\/login/);
 }
 
