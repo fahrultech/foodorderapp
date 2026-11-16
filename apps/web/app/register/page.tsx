@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { useTranslations } from 'next-intl';
 import { useAuth } from '@/lib/auth';
 
 type FieldKey = 'name' | 'email' | 'password' | 'confirm' | 'phone' | 'address';
@@ -17,16 +18,18 @@ const FIELD_ORDER: FieldKey[] = ['name', 'email', 'password', 'confirm', 'phone'
  * aria-invalid), instead of one aggregated list a screen reader has to
  * mentally map back onto the inputs.
  */
-function validate(form: Record<FieldKey, string>): Partial<Record<FieldKey, string>> {
+function validate(
+  form: Record<FieldKey, string>,
+  m: Record<FieldKey, string>,
+): Partial<Record<FieldKey, string>> {
   const errors: Partial<Record<FieldKey, string>> = {};
   const name = form.name.trim();
-  if (name.length < 2 || name.length > 120) errors.name = 'Name must be 2–120 characters.';
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) errors.email = 'Enter a valid email address.';
-  if (form.password.length < 8 || form.password.length > 200)
-    errors.password = 'Password must be at least 8 characters.';
-  if (form.password !== form.confirm) errors.confirm = 'Passwords do not match.';
-  if (form.phone.trim().length > 30) errors.phone = 'Phone must be at most 30 characters.';
-  if (form.address.trim().length > 500) errors.address = 'Address must be at most 500 characters.';
+  if (name.length < 2 || name.length > 120) errors.name = m.name;
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) errors.email = m.email;
+  if (form.password.length < 8 || form.password.length > 200) errors.password = m.password;
+  if (form.password !== form.confirm) errors.confirm = m.confirm;
+  if (form.phone.trim().length > 30) errors.phone = m.phone;
+  if (form.address.trim().length > 500) errors.address = m.address;
   return errors;
 }
 
@@ -48,6 +51,10 @@ function FieldError({ k, msg }: { k: FieldKey; msg?: string }) {
 export default function RegisterPage() {
   const router = useRouter();
   const { register, status } = useAuth();
+  const t = useTranslations('Auth');
+  const h = useTranslations('Header');
+  const c = useTranslations('Common');
+  const ck = useTranslations('Checkout');
   const [form, setForm] = useState({
     name: '',
     email: '',
@@ -69,7 +76,14 @@ export default function RegisterPage() {
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    const problems = validate(form);
+    const problems = validate(form, {
+      name: t('errNameLen'),
+      email: t('errEmailInvalid'),
+      password: t('errPasswordMin'),
+      confirm: t('errPasswordMatch'),
+      phone: t('errPhoneMax'),
+      address: t('errAddressMax'),
+    });
     setFieldErrors(problems);
     setServerError(null);
     const firstInvalid = FIELD_ORDER.find((k) => problems[k]);
@@ -93,7 +107,7 @@ export default function RegisterPage() {
     } catch (err: any) {
       // Server-side truth (the client mirrors are best-effort): map the API
       // error envelope onto the top of the form as a role=alert.
-      setServerError(err?.message || 'Could not create the account');
+      setServerError(err?.message || t('registerError'));
       setSubmitting(false);
     }
   }
@@ -109,10 +123,8 @@ export default function RegisterPage() {
 
   return (
     <div className="mx-auto max-w-md">
-      <h1 className="text-2xl font-extrabold">Create your account</h1>
-      <p className="mt-1 text-sm text-stone-500">
-        Takes a few seconds — you will be signed in right away.
-      </p>
+      <h1 className="text-2xl font-extrabold">{t('registerTitle')}</h1>
+      <p className="mt-1 text-sm text-stone-500">{t('registerSubtitle')}</p>
       <form
         onSubmit={submit}
         noValidate
@@ -120,7 +132,7 @@ export default function RegisterPage() {
       >
         <div>
           <label htmlFor="name" className="mb-1 block text-sm font-medium">
-            Name
+            {c('name')}
           </label>
           <input
             id="name"
@@ -129,14 +141,14 @@ export default function RegisterPage() {
             className={field}
             value={form.name}
             onChange={(e) => setForm({ ...form, name: e.target.value })}
-            placeholder="Jane Doe"
+            placeholder={ck('namePlaceholder')}
             {...fieldProps('name')}
           />
           <FieldError k="name" msg={fieldErrors.name} />
         </div>
         <div>
           <label htmlFor="email" className="mb-1 block text-sm font-medium">
-            Email
+            {c('email')}
           </label>
           <input
             id="email"
@@ -154,7 +166,7 @@ export default function RegisterPage() {
         <div className="grid gap-4 sm:grid-cols-2">
           <div>
             <label htmlFor="password" className="mb-1 block text-sm font-medium">
-              Password
+              {c('password')}
             </label>
             <input
               id="password"
@@ -164,14 +176,14 @@ export default function RegisterPage() {
               className={field}
               value={form.password}
               onChange={(e) => setForm({ ...form, password: e.target.value })}
-              placeholder="min. 8 characters"
+              placeholder={t('passwordPlaceholder')}
               {...fieldProps('password')}
             />
             <FieldError k="password" msg={fieldErrors.password} />
           </div>
           <div>
             <label htmlFor="confirm" className="mb-1 block text-sm font-medium">
-              Confirm password
+              {t('confirmLabel')}
             </label>
             <input
               id="confirm"
@@ -181,7 +193,7 @@ export default function RegisterPage() {
               className={field}
               value={form.confirm}
               onChange={(e) => setForm({ ...form, confirm: e.target.value })}
-              placeholder="repeat it"
+              placeholder={t('confirmPlaceholder')}
               {...fieldProps('confirm')}
             />
             <FieldError k="confirm" msg={fieldErrors.confirm} />
@@ -189,7 +201,7 @@ export default function RegisterPage() {
         </div>
         <div>
           <label htmlFor="phone" className="mb-1 block text-sm font-medium">
-            Phone <span className="text-stone-400">(optional)</span>
+            {c('phone')} <span className="text-stone-400">{c('optional')}</span>
           </label>
           <input
             id="phone"
@@ -198,14 +210,14 @@ export default function RegisterPage() {
             className={field}
             value={form.phone}
             onChange={(e) => setForm({ ...form, phone: e.target.value })}
-            placeholder="+62 812 3456 7890"
+            placeholder={c('phonePlaceholder')}
             {...fieldProps('phone')}
           />
           <FieldError k="phone" msg={fieldErrors.phone} />
         </div>
         <div>
           <label htmlFor="address" className="mb-1 block text-sm font-medium">
-            Delivery address <span className="text-stone-400">(optional)</span>
+            {ck('addressLabel')} <span className="text-stone-400">{c('optional')}</span>
           </label>
           <textarea
             id="address"
@@ -214,7 +226,7 @@ export default function RegisterPage() {
             className={field}
             value={form.address}
             onChange={(e) => setForm({ ...form, address: e.target.value })}
-            placeholder="Street, number, city…"
+            placeholder={t('addressPlaceholder')}
             {...fieldProps('address')}
           />
           <FieldError k="address" msg={fieldErrors.address} />
@@ -228,12 +240,12 @@ export default function RegisterPage() {
           disabled={submitting}
           className="w-full rounded-xl bg-brand-600 px-6 py-3 text-sm font-semibold text-white hover:bg-brand-700 disabled:bg-stone-300"
         >
-          {submitting ? 'Creating account…' : 'Create account'}
+          {submitting ? t('creatingAccount') : t('createAccount')}
         </button>
         <p className="text-center text-sm text-stone-500">
-          Already registered?{' '}
+          {t('alreadyRegistered')}{' '}
           <Link href="/login" className="font-semibold text-brand-600 hover:underline">
-            Sign in
+            {h('signIn')}
           </Link>
         </p>
       </form>

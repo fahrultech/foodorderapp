@@ -3,6 +3,86 @@
 Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
+## 2026-11-16 10:42 — Session 95 — Storefront i18n sweep #3: login, register, addresses book + lib fallbacks (Web, Phase 8)
+
+**Built:**
+
+- 80 new message keys × EN/ID: new `Auth` (24) and `Addresses` (33)
+  namespaces + `Common` (+10 shared words: email/password/name/phone/
+  cancel/edit/delete/loading/optional/phonePlaceholder) + 3 document-title
+  keys (`Auth.titleSignIn`/`titleRegister`, `Addresses.pageTitle`) and
+  `Checkout.pageTitle`/`Order.pageTitle`. EN values byte-identical to the
+  JSX they replaced (the untouched EN suite is the proof); `Sign in` CTAs
+  reuse `Header.signIn`, `Jane Doe`/`Budi Santoso` and the street
+  placeholder reuse `Checkout`, `Default`/`Utama` reuses
+  `Checkout.defaultBadge` (reuse-over-duplication doctrine).
+- `/login` fully localized: heading, subtitle, both labels, both CTA
+  states, register link line, demo hint, Suspense fallback, and the
+  `Could not sign in` last-resort. `/register`: heading, subtitle, all six
+  labels (the `(optional)` spans stay separate text nodes so accessible
+  names like `Telepon (opsional)` reproduce), placeholders, the whole
+  inline-validation ladder (module-scope `validate()` now receives the
+  translated message set — hooks cannot run there), server-error fallback,
+  both CTA states, sign-in link. `/addresses`: heading, hint, add/edit/
+  delete/`Make default`/default-badge, both form variants incl.
+  `AddressFields`, guest gate, empty card, `Edit “{label}”` as an ICU
+  message, all seven validation strings, the three error fallbacks and the
+  `Loading addresses` aria name.
+- Document `<title>`s: four zero-DOM title-owning server layouts
+  (`/login`, `/register`, `/addresses`, `/checkout` — session 93 pattern;
+  the pages are client components) and `generateMetadata` directly on the
+  SSR receipt page. EN gains real titles (`Sign in — FoodOrder` …, the
+  Portal convention); ID renders `Masuk — FoodOrder` etc.
+- Locale-aware lib fallbacks (the item's open decision): new
+  `lib/locale-strings.ts` serves `authedCall`'s two last-resort strings
+  outside React, reading the locale from the SSR'd `<html lang>` (single
+  source of truth — the `locale` cookie is httpOnly, so a client read is
+  not an option). ID wording matches the Portal `histErrApi*` pair
+  already shipped; EN values stay byte-identical (the `favorites-error`
+  e2e pin proves it). `lib/api.ts`'s `API error ${status}` remains
+  technical English by decision (debug-class fallback, never primary UI).
+- `docs/ARCHITECTURE.md`: the storefront-localization rule now names the
+  auth/addresses surfaces + document titles and pins the `<html lang>`
+  lib-fallback contract.
+
+**Verified:**
+
+- `next build` green; API untouched — `nest build` + jest re-run prove
+  delta 0 (91 suites / 1142 tests, same as sessions 90–94; jest needed
+  `--maxWorkers=2` on this 2 GB host after a default-worker OOM, no
+  product impact).
+- EN/ID key parity + ICU token-set match asserted programmatically per
+  namespace before any write; messages written by a python
+  `ensure_ascii` dump (escapes generated host-side). The `Mum's`
+  apostrophe was corrected EN-first (file carries ASCII `'`), and the ID
+  `Konfirmasi kata sandi` casing bug (capital K) was caught by the new
+  spec's own run and fixed in the catalog.
+- NEW 5 `storefront-i18n-auth-id` tests (69→74): ID login chrome+title;
+  ID register chrome, placeholders and the four localized inline alerts
+  (read-only — client-blocked); ID addresses signed-out gate THEN
+  signed-in seeded book chrome (`Tambah alamat`, `Utama` badge, `Ubah`/
+  `Hapus`); ID checkout + bare-receipt titles; EN titles pin for all five
+  routes. First targeted run caught two spec-side bugs (catalog casing;
+  string `getByText` is a case-INSENSITIVE substring match — `Utama` hit
+  the hint and `Jadikan utama` too → `exact: true`).
+- One real suite-contract break, product-side honest: session 92's
+  `portal-chrome-id` assumed "the login page is English chrome" and signed
+  in under the ID cookie — now the CTA reads `Masuk`; its `signIn` helper
+  accepts /^(Sign in|Masuk)$/ (input ids stable; comment updated).
+- Full suite 74/74 green ×2 CONSECUTIVE on fresh seeds. (The earlier
+  mixed run's 2 failures were both the portal-chrome-id assumption above.)
+- Sanitizer scan: added lines + all new files 0 `***` / 0 stray U+2026;
+  `git diff --check` clean.
+
+**Left for next sessions:**
+
+- `/favorites` and `/account` chrome are still English-only (adjacent
+  surfaces found while sweeping; filed as the next roadmap item).
+- Server API error-envelope messages (login failures, validation) remain
+  English — a deliberate non-goal of the web sweeps, needs an API-side
+  decision (Accept-Language vs user pref).
+
+---
 ## 2026-11-14 20:19 — Session 94 — Storefront i18n sweep #2: cart, checkout, receipt (Web, Phase 8)
 
 **Built:**

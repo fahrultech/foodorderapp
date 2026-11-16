@@ -1,4 +1,5 @@
 import { ApiError, isApiDown, isUnauthorized } from './api';
+import { fallbackMessage } from './locale-strings';
 
 /**
  * Discriminated result of `authedCall`: callers branch on `ok` and, on
@@ -40,7 +41,7 @@ export async function authedCall<T>(
           return {
             ok: false,
             kind: 'error',
-            message: err2 instanceof ApiError ? err2.message : 'Cannot reach the API.',
+            message: err2 instanceof ApiError ? err2.message : fallbackMessage('apiDownShort'),
             down: isApiDown(err2),
           };
         }
@@ -53,7 +54,7 @@ export async function authedCall<T>(
     return {
       ok: false,
       kind: 'error',
-      message: err instanceof ApiError ? err.message : 'Cannot reach the API. Is the server running?',
+      message: err instanceof ApiError ? err.message : fallbackMessage('apiDown'),
       down: isApiDown(err),
     };
   }

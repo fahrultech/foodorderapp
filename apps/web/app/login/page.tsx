@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { useTranslations } from 'next-intl';
 import { useAuth } from '@/lib/auth';
 
 /**
@@ -17,6 +18,9 @@ function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { login, status } = useAuth();
+  const t = useTranslations('Auth');
+  const h = useTranslations('Header');
+  const c = useTranslations('Common');
   const [form, setForm] = useState({ email: '', password: '' });
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -36,7 +40,7 @@ function LoginForm() {
       await login(form.email, form.password);
       router.replace(next);
     } catch (err: any) {
-      setError(err?.message || 'Could not sign in');
+      setError(err?.message || t('signInError'));
       setSubmitting(false);
     }
   }
@@ -46,14 +50,12 @@ function LoginForm() {
 
   return (
     <div className="mx-auto max-w-md">
-      <h1 className="text-2xl font-extrabold">Sign in</h1>
-      <p className="mt-1 text-sm text-stone-500">
-        Order faster: your name and history stay with your account.
-      </p>
+      <h1 className="text-2xl font-extrabold">{h('signIn')}</h1>
+      <p className="mt-1 text-sm text-stone-500">{t('signInSubtitle')}</p>
       <form onSubmit={submit} className="mt-6 space-y-4 rounded-2xl border border-stone-200 bg-white p-6">
         <div>
           <label htmlFor="email" className="mb-1 block text-sm font-medium">
-            Email
+            {c('email')}
           </label>
           <input
             id="email"
@@ -68,7 +70,7 @@ function LoginForm() {
         </div>
         <div>
           <label htmlFor="password" className="mb-1 block text-sm font-medium">
-            Password
+            {c('password')}
           </label>
           <input
             id="password"
@@ -90,16 +92,16 @@ function LoginForm() {
           disabled={submitting}
           className="w-full rounded-xl bg-brand-600 px-6 py-3 text-sm font-semibold text-white hover:bg-brand-700 disabled:bg-stone-300"
         >
-          {submitting ? 'Signing in…' : 'Sign in'}
+          {submitting ? t('signingIn') : h('signIn')}
         </button>
         <p className="text-center text-sm text-stone-500">
-          No account yet?{' '}
+          {t('noAccount')}{' '}
           <Link href="/register" className="font-semibold text-brand-600 hover:underline">
-            Create one
+            {t('createOne')}
           </Link>
         </p>
         <p className="rounded-xl bg-stone-50 px-4 py-3 text-center text-xs text-stone-500">
-          Demo login: <span className="font-mono">demo@foodorder.app</span> /{' '}
+          {t('demoLogin')} <span className="font-mono">demo@foodorder.app</span> /{' '}
           <span className="font-mono">demo1234</span>
         </p>
       </form>
@@ -108,8 +110,9 @@ function LoginForm() {
 }
 
 export default function LoginPage() {
+  const c = useTranslations('Common');
   return (
-    <Suspense fallback={<div className="mx-auto max-w-md text-sm text-stone-500">Loading…</div>}>
+    <Suspense fallback={<div className="mx-auto max-w-md text-sm text-stone-500">{c('loading')}</div>}>
       <LoginForm />
     </Suspense>
   );

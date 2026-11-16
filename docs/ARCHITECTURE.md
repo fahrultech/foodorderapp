@@ -130,12 +130,18 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   SEO route while localizing metadata, shared header/footer, restaurant browse
   cards, restaurant detail/reviews, menu search states, add-to-cart labels,
   the whole order funnel (cart page, cart-switch dialog, checkout, receipt +
-  timeline/live-feed/payment/verify/rate islands, offline shell — session 94)
+  timeline/live-feed/payment/verify/rate islands, offline shell — session 94),
+  the auth + saved-address surfaces (login, register, addresses book and the
+  checkout/receipt document titles — session 95)
   and the four portal surfaces + their title-owning layouts (sessions 92–93).
   Every message ships in EN and ID with byte-parity; EN values are
   byte-pinned against the existing e2e suite (reuse-over-duplication via
   `Common`/`Header`/`Portal` shared keys; ICU counts that replaced raw
   interpolations pass `String(n)`).
+  Non-React `lib/` modules that must render a last-resort error themselves
+  (e.g. `authedCall`'s "Cannot reach the API") read it from
+  `lib/locale-strings.ts`, whose locale source is the SSR'd `<html lang>` —
+  one truth, no second locale state, no cookie readable only client-side.
   The root `NextIntlClientProvider` gives client islands the same request locale
   as server components, and `<html lang>` follows the active choice.
 - **Dark mode is server-selected and cookie-persisted** — the shared header

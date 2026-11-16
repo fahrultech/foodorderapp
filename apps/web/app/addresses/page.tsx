@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { useAuth } from '@/lib/auth';
 import { ApiError, api, type DeliveryAddress, type DeliveryAddressInput } from '@/lib/api';
 
@@ -15,19 +16,25 @@ const emptyForm: DeliveryAddressInput = {
   isDefault: false,
 };
 
-function validate(f: DeliveryAddressInput): string | null {
-  if (!f.label.trim()) return 'Give the address a short label (e.g. Home).';
-  if (f.label.trim().length > 40) return 'Label is too long (max 40 characters).';
-  if (!f.recipientName.trim()) return 'Recipient name is required.';
-  if (f.recipientName.trim().length > 120) return 'Recipient name is too long.';
-  if (!PHONE_RE.test(f.phone.trim())) return 'Phone looks invalid — digits, +, spaces, dashes.';
-  if (!f.address.trim()) return 'Street address is required.';
-  if (f.address.trim().length > 500) return 'Address is too long (max 500 characters).';
+/** Messages arrive from the `Addresses` namespace: module scope cannot call
+ *  hooks (session 93 doctrine) — the component passes the translated set in. */
+function validate(f: DeliveryAddressInput, m: Record<string, string>): string | null {
+  if (!f.label.trim()) return m.errLabelRequired;
+  if (f.label.trim().length > 40) return m.errLabelTooLong;
+  if (!f.recipientName.trim()) return m.errRecipientRequired;
+  if (f.recipientName.trim().length > 120) return m.errRecipientTooLong;
+  if (!PHONE_RE.test(f.phone.trim())) return m.errPhoneInvalid;
+  if (!f.address.trim()) return m.errStreetRequired;
+  if (f.address.trim().length > 500) return m.errStreetTooLong;
   return null;
 }
 
 export default function AddressesPage() {
   const { status, getAccessToken } = useAuth();
+  const t = useTranslations('Addresses');
+  const h = useTranslations('Header');
+  const c = useTranslations('Common');
+  const ck = useTranslations('Checkout');
   const [rows, setRows] = useState<DeliveryAddress[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -46,11 +53,11 @@ export default function AddressesPage() {
       setRows(res.items);
       setLoadError(null);
     } catch (err) {
-      setLoadError(err instanceof ApiError ? err.message : 'Could not load your addresses.');
+      setLoadError(err instanceof ApiError ? err.message : t('loadError'));
     } finally {
       setLoaded(true);
     }
-  }, [getAccessToken]);
+  }, [getAccessToken, t]);
 
   useEffect(() => {
     if (status === 'signedIn') void refresh();
@@ -76,7 +83,15 @@ export default function AddressesPage() {
 
   async function submitForm() {
     if (!editing) return;
-    const problem = validate(form);
+    const problem = validate(form, {
+      errLabelRequired: t('errLabelRequired'),
+      errLabelTooLong: t('errLabelTooLong'),
+      errRecipientRequired: t('errRecipientRequired'),
+      errRecipientTooLong: t('errRecipientTooLong'),
+      errPhoneInvalid: t('errPhoneInvalid'),
+      errStreetRequired: t('errStreetRequired'),
+      errStreetTooLong: t('errStreetTooLong'),
+    });
     if (problem) {
       setFormError(problem);
       return;
@@ -100,7 +115,7 @@ export default function AddressesPage() {
       setEditing(null);
       await refresh();
     } catch (err) {
-      setFormError(err instanceof ApiError ? err.message : 'Could not save the address.');
+      setFormError(err instanceof ApiError ? err.message : t('saveError'));
     } finally {
       setSaving(false);
     }
@@ -114,7 +129,7 @@ export default function AddressesPage() {
       await fn(tok);
       await refresh();
     } catch (err) {
-      setLoadError(err instanceof ApiError ? err.message : 'That action failed.');
+      setLoadError(err instanceof ApiError ? err.message : t('actionError'));
     } finally {
       setBusyId(null);
     }
@@ -125,38 +140,33 @@ export default function AddressesPage() {
   return (
     <section>
       <div className="flex items-center justify-between gap-4">
-        <h1 className="text-2xl font-bold">Delivery addresses</h1>
+        <h1 className="text-2xl font-bold">{t('title')}</h1>
         {status === 'signedIn' && rows.length > 0 && editing === null && (
           <button
             onClick={openAdd}
             className="rounded-xl bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700"
           >
-            Add address
+            {t('addAddress')}
           </button>
         )}
       </div>
-      <p className="mt-1 text-sm text-stone-500">
-        Saved addresses speed up checkout — the one marked default is pre-selected, and the server
-        always delivers to its own stored copy, never a client-echoed text.
-      </p>
+      <p className="mt-1 text-sm text-stone-500">{t('hint')}</p>
 
       {status === 'guest' && (
         <div className="mt-8 rounded-2xl border border-dashed border-stone-300 bg-stone-50 p-10 text-center">
-          <p className="text-lg font-semibold text-stone-700">Sign in to save addresses.</p>
-          <p className="mt-1 text-sm text-stone-500">
-            Keep home, office and every other drop-off point one tap away at checkout.
-          </p>
+          <p className="text-lg font-semibold text-stone-700">{t('gateTitle')}</p>
+          <p className="mt-1 text-sm text-stone-500">{t('gateBody')}</p>
           <Link
             href="/login?next=%2Faddresses"
             className="mt-4 inline-block rounded-xl bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700"
           >
-            Sign in
+            {h('signIn')}
           </Link>
         </div>
       )}
 
       {pending && (
-        <ul className="mt-8 space-y-3" aria-busy="true" aria-label="Loading addresses">
+        <ul className="mt-8 space-y-3" aria-busy="true" aria-label={t('loadingAria')}>
           {[0, 1, 2].map((i) => (
             <li key={i} className="h-28 rounded-2xl bg-stone-100" aria-hidden />
           ))}
@@ -171,15 +181,13 @@ export default function AddressesPage() {
 
       {status === 'signedIn' && !pending && rows.length === 0 && editing !== 'new' && (
         <div className="mt-8 rounded-2xl border border-dashed border-stone-300 bg-stone-50 p-10 text-center">
-          <p className="text-lg font-semibold text-stone-700">No saved addresses yet.</p>
-          <p className="mt-1 text-sm text-stone-500">
-            Add one now and checkout becomes a two-tap affair.
-          </p>
+          <p className="text-lg font-semibold text-stone-700">{t('emptyTitle')}</p>
+          <p className="mt-1 text-sm text-stone-500">{t('emptyBody')}</p>
           <button
             onClick={openAdd}
             className="mt-4 rounded-xl bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700"
           >
-            Add your first address
+            {t('addFirst')}
           </button>
         </div>
       )}
@@ -189,7 +197,7 @@ export default function AddressesPage() {
           {rows.map((row) =>
             editing === row.id ? (
               <li key={row.id} className="rounded-2xl border border-brand-200 bg-white p-5">
-                <h2 className="font-bold">Edit “{row.label}”</h2>
+                <h2 className="font-bold">{t('editHeading', { label: row.label })}</h2>
                 <AddressFields form={form} setForm={setForm} isEdit />
                 {formError && (
                   <p role="alert" className="mt-2 text-sm font-medium text-red-600">{formError}</p>
@@ -200,13 +208,13 @@ export default function AddressesPage() {
                     disabled={saving}
                     className="rounded-xl bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700 disabled:bg-stone-300"
                   >
-                    {saving ? 'Saving…' : 'Save changes'}
+                    {saving ? t('saving') : t('saveChanges')}
                   </button>
                   <button
                     onClick={() => setEditing(null)}
                     className="rounded-xl border border-stone-300 px-4 py-2 text-sm font-semibold text-stone-600 hover:bg-stone-50"
                   >
-                    Cancel
+                    {c('cancel')}
                   </button>
                 </div>
               </li>
@@ -220,7 +228,7 @@ export default function AddressesPage() {
                     {row.label}
                     {row.isDefault && (
                       <span className="ml-2 rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-bold text-emerald-700">
-                        Default
+                        {ck('defaultBadge')}
                       </span>
                     )}
                   </h2>
@@ -234,7 +242,7 @@ export default function AddressesPage() {
                     onClick={() => openEdit(row)}
                     className="rounded-lg px-3 py-1.5 text-sm font-medium text-stone-600 hover:bg-stone-100"
                   >
-                    Edit
+                    {c('edit')}
                   </button>
                   {!row.isDefault && (
                     <button
@@ -242,7 +250,7 @@ export default function AddressesPage() {
                       disabled={busyId === row.id}
                       className="rounded-lg px-3 py-1.5 text-sm font-medium text-brand-600 hover:bg-brand-50 disabled:text-stone-400"
                     >
-                      Make default
+                      {t('makeDefault')}
                     </button>
                   )}
                   <button
@@ -250,7 +258,7 @@ export default function AddressesPage() {
                     disabled={busyId === row.id}
                     className="rounded-lg px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50 disabled:text-stone-400"
                   >
-                    Delete
+                    {c('delete')}
                   </button>
                 </div>
               </li>
@@ -261,7 +269,7 @@ export default function AddressesPage() {
 
       {status === 'signedIn' && editing === 'new' && (
         <div className="mt-6 rounded-2xl border border-brand-200 bg-white p-5">
-          <h2 className="font-bold">New address</h2>
+          <h2 className="font-bold">{t('newHeading')}</h2>
           <AddressFields form={form} setForm={setForm} isEdit={false} />
           {formError && (
             <p role="alert" className="mt-2 text-sm font-medium text-red-600">{formError}</p>
@@ -272,13 +280,13 @@ export default function AddressesPage() {
               disabled={saving}
               className="rounded-xl bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700 disabled:bg-stone-300"
             >
-              {saving ? 'Saving…' : 'Save address'}
+              {saving ? t('saving') : t('saveAddress')}
             </button>
             <button
               onClick={() => setEditing(null)}
               className="rounded-xl border border-stone-300 px-4 py-2 text-sm font-semibold text-stone-600 hover:bg-stone-50"
             >
-              Cancel
+              {c('cancel')}
             </button>
           </div>
         </div>
@@ -302,6 +310,9 @@ function AddressFields({
   setForm: (f: DeliveryAddressInput) => void;
   isEdit: boolean;
 }) {
+  const t = useTranslations('Addresses');
+  const c = useTranslations('Common');
+  const ck = useTranslations('Checkout');
   const field =
     'w-full rounded-xl border border-stone-300 bg-white px-4 py-2.5 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100';
   return (
@@ -309,7 +320,7 @@ function AddressFields({
       <div className="grid gap-3 sm:grid-cols-2">
         <div>
           <label htmlFor="address-label" className="mb-1 block text-sm font-medium">
-            Label
+            {t('labelField')}
           </label>
           <input
             id="address-label"
@@ -318,12 +329,12 @@ function AddressFields({
             value={form.label}
             maxLength={40}
             onChange={(e) => setForm({ ...form, label: e.target.value })}
-            placeholder="Home, Office, Mum's place…"
+            placeholder={t('labelPlaceholder')}
           />
         </div>
         <div>
           <label htmlFor="address-recipient" className="mb-1 block text-sm font-medium">
-            Recipient name
+            {t('recipientLabel')}
           </label>
           <input
             id="address-recipient"
@@ -331,13 +342,13 @@ function AddressFields({
             value={form.recipientName}
             maxLength={120}
             onChange={(e) => setForm({ ...form, recipientName: e.target.value })}
-            placeholder="Who receives the food"
+            placeholder={t('recipientPlaceholder')}
           />
         </div>
       </div>
       <div>
         <label htmlFor="address-phone" className="mb-1 block text-sm font-medium">
-          Phone for this address
+          {t('phoneFieldLabel')}
         </label>
         <input
           id="address-phone"
@@ -345,12 +356,12 @@ function AddressFields({
           value={form.phone}
           maxLength={32}
           onChange={(e) => setForm({ ...form, phone: e.target.value })}
-          placeholder="+62 812 3456 7890"
+          placeholder={c('phonePlaceholder')}
         />
       </div>
       <div>
         <label htmlFor="address-street" className="mb-1 block text-sm font-medium">
-          Street address
+          {t('streetLabel')}
         </label>
         <textarea
           id="address-street"
@@ -359,7 +370,7 @@ function AddressFields({
           value={form.address}
           maxLength={500}
           onChange={(e) => setForm({ ...form, address: e.target.value })}
-          placeholder="Street, number, city, landmarks…"
+          placeholder={ck('addressPlaceholder')}
         />
       </div>
       {!isEdit && (
@@ -370,7 +381,7 @@ function AddressFields({
             onChange={(e) => setForm({ ...form, isDefault: e.target.checked })}
             className="h-4 w-4 rounded border-stone-300"
           />
-          Set as my default address
+          {t('setDefaultCheck')}
         </label>
       )}
     </div>

@@ -1,3 +1,4 @@
+import type { Metadata } from 'next';
 import Link from 'next/link';
 import { api, formatPrice, optionRowLabels } from '@/lib/api';
 import OrderTimeline from '@/components/OrderTimeline';
@@ -8,6 +9,16 @@ import OrderVerify from '@/components/OrderVerify';
 import { getTranslations } from 'next-intl/server';
 
 export const dynamic = 'force-dynamic';
+
+/**
+ * Session 95 (storefront i18n sweep #3): localized document <title> for the
+ * receipt route. Unlike the client surfaces this page can export metadata
+ * directly — no pass-through layout needed.
+ */
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getTranslations('Order');
+  return { title: t('pageTitle') };
+}
 
 export default async function OrderPage({
   params,
