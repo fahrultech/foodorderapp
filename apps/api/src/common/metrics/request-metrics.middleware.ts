@@ -1,5 +1,5 @@
 import type { NextFunction, Request, Response } from 'express';
-import { RequestMetricsRegistry, routeKeyOf, shouldTrackUrl, statusClassOf, HISTOGRAM_BOUNDS_MS, type StatusClass } from './request-metrics';
+import { RequestMetricsRegistry, restaurantScopeOf, routeKeyOf, shouldTrackUrl, statusClassOf, HISTOGRAM_BOUNDS_MS, type StatusClass } from './request-metrics';
 
 /** Compact per-request summary folded into the pino access line. */
 export interface MetricsLogSummary {
@@ -40,7 +40,10 @@ export function createRequestMetricsMiddleware(registry: RequestMetricsRegistry)
       const durationMs = Number(process.hrtime.bigint() - startedAt) / 1e6;
       // req.route is resolved by now (routing finished long before 'finish'),
       // so tracked routes key on the TEMPLATE, never the concrete path.
-      registry.record(routeKeyOf(req), res.statusCode, durationMs);
+      // restaurantScopeOf uses the SAME finish-time resolution: matched
+      // restaurant templates additionally land in that restaurant's bucket
+      // (concrete uuid, lowercased) — session 98's explicit dimension.
+      registry.record(routeKeyOf(req), res.statusCode, durationMs, restaurantScopeOf(req));
       (res as Response & { metrics?: MetricsLogSummary }).metrics = {
         bucket: bucketLabel(durationMs),
         status_class: statusClassOf(res.statusCode),

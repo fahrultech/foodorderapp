@@ -353,11 +353,16 @@ export class RestaurantsService {
     return this.attachHours(rows);
   }
 
-  /** Owner-or-admin update: an actor may only touch restaurants they own (admins bypass). */
-  async updateOwned(
+  /**
+   * Shared ownership ladder for OWNED-restaurant reads and writes:
+   * 404 for malformed/unknown ids (no existence oracle), 403 for a foreign
+   * OWNER, ADMIN bypass. `updateOwned` and the session-98 metrics route
+   * answer through this SAME code path so the semantics can never diverge.
+   * Returns the FULL entity (updateOwned patches+saves it).
+   */
+  async getOwned(
     id: string,
     actor: { sub: string; role: UserRole },
-    dto: UpdateRestaurantDto,
   ): Promise<Restaurant> {
     if (!isUuid(id)) throw new NotFoundException('Restaurant not found');
     const restaurant = await this.repo.findOne({ where: { id } });
@@ -365,6 +370,16 @@ export class RestaurantsService {
     if (actor.role !== UserRole.ADMIN && restaurant.ownerId !== actor.sub) {
       throw new ForbiddenException('You do not own this restaurant');
     }
+    return restaurant;
+  }
+
+  /** Owner-or-admin update: an actor may only touch restaurants they own (admins bypass). */
+  async updateOwned(
+    id: string,
+    actor: { sub: string; role: UserRole },
+    dto: UpdateRestaurantDto,
+  ): Promise<Restaurant> {
+    const restaurant = await this.getOwned(id, actor);
     const patch: Partial<Restaurant> = {};
     if (dto.name !== undefined) patch.name = dto.name;
     if (dto.description !== undefined) patch.description = dto.description as any;

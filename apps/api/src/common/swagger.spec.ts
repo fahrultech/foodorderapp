@@ -35,6 +35,7 @@ import { PromosService } from '../promos/promos.service';
 import { OrderPaymentsController, PaymentsController } from '../payments/payments.controller';
 import { PaymentsService } from '../payments/payments.service';
 import { RestaurantsController } from '../restaurants/restaurants.controller';
+import { RestaurantMetricsController } from '../restaurants/restaurant-metrics.controller';
 import { RestaurantsService } from '../restaurants/restaurants.service';
 import { RestaurantReviewsController, ReviewsController } from '../reviews/reviews.controller';
 import { ReviewsService } from '../reviews/reviews.service';
@@ -75,6 +76,7 @@ const CONTROLLERS = [
   PromosController,
   PromosAdminController,
   RestaurantsController,
+  RestaurantMetricsController,
   RestaurantReviewsController,
   ReviewsController,
   UsersController,
@@ -181,6 +183,7 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['/restaurants/{id}', 'get'],
       ['/restaurants/{id}', 'patch'],
       ['/restaurants/{id}/hours', 'patch'],
+      ['/restaurants/{id}/metrics', 'get'],
       ['/restaurants/{restaurantId}/menu', 'get'],
       ['/restaurants/{restaurantId}/menu', 'post'],
       ['/menu/items/{id}', 'patch'],
@@ -281,6 +284,7 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['/admin/promos/{id}', 'patch'],
       ['/admin/promos/{id}/usages', 'get'],
       ['/restaurants/{id}/hours', 'patch'],
+      ['/restaurants/{id}/metrics', 'get'],
       ['/menu/items/{itemId}/options/groups', 'post'],
       ['/menu/items/{itemId}/options/groups/{groupId}', 'patch'],
       ['/menu/items/{itemId}/options/groups/{groupId}', 'delete'],
@@ -389,6 +393,7 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['/restaurants/{id}', 'get', 200, 'ref:RestaurantWithMenuResponse'],
       ['/restaurants/{id}', 'patch', 200, 'ref:RestaurantResponse'],
       ['/restaurants/{id}/hours', 'patch', 200, 'ref:RestaurantHoursViewResponse'],
+      ['/restaurants/{id}/metrics', 'get', 200, 'ref:RestaurantMetricsResponse'],
       ['/restaurants/{restaurantId}/menu', 'get', 200, 'array:MenuItemResponse'],
       ['/restaurants/{restaurantId}/menu', 'post', 201, 'ref:MenuItemResponse'],
       ['/menu/items/{id}', 'patch', 200, 'ref:MenuItemResponse'],
@@ -439,7 +444,7 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['/admin/promos/{id}/usages', 'get', 200, 'ref:PromoUsageListResponse'],
       ['/search', 'get', 200, 'ref:SearchResultsResponse'],
     ];
-    expect(SUCCESS.length).toBe(74);
+    expect(SUCCESS.length).toBe(75);
     for (const [path, method, code, kind] of SUCCESS) {
       const res = doc.paths[P(path)]?.[method]?.responses?.[String(code)];
       if (!res) throw new Error(`${method} ${path}: no ${code} response documented`);
@@ -533,6 +538,7 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['/admin/promos', 'post', [400, 401, 403, 409]],
       ['/admin/promos/{id}', 'patch', [400, 401, 403, 404, 409]],
       ['/admin/promos/{id}/usages', 'get', [400, 401, 403, 404]],
+      ['/restaurants/{id}/metrics', 'get', [400, 401, 403, 404]],
       ['/search', 'get', [400]],
       ['/menu/items/{itemId}/options/groups', 'post', [400, 401, 403, 404]],
       ['/menu/items/{itemId}/options/groups/{groupId}', 'patch', [400, 401, 403, 404]],

@@ -13,6 +13,19 @@
  * Cumulative-since-boot totals by design: the periodic pino fold and the
  * ADMIN route both expose the same snapshot, and alerting computes deltas
  * between consecutive log lines. v1 deliberately has no ring buffers.
+ *
+ * Restaurant dimension (session 98, Phase 8 "per-restaurant traffic for
+ * owners"): samples whose MATCHED route template is restaurant-scoped
+ * (`restaurantScopeOf`) additionally land in a per-restaurant sub-registry
+ * of the SAME route-key space. Creation is success-gated (a 2xx/3xx is what
+ * proves an id addresses a REAL restaurant — probe floods of random-but-
+ * valid uuids 404 and never mint buckets; 4xx/5xx may only top up an
+ * existing bucket, so owners also see errors ON their surfaces), the id set
+ * is capped like the route set, and the metrics-read route itself is
+ * EXEMPT so an owner polling their own traffic never inflates it.
+ * A per-restaurant snapshot can NEVER contain unattributed or foreign
+ * samples — that separation is the OWNER-rung safety contract (session 85
+ * decision: the global snapshot stays ADMIN-only).
  */
 
 export const HISTOGRAM_BOUNDS_MS = [5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000] as const;
@@ -20,6 +33,14 @@ export const HISTOGRAM_BOUNDS_MS = [5, 10, 25, 50, 100, 250, 500, 1000, 2500, 50
 /** Hard cap on distinct route keys; keys beyond it fold into OVERFLOW_KEY. */
 export const MAX_ROUTE_KEYS = 250;
 export const OVERFLOW_KEY = 'other';
+
+/**
+ * Hard cap on distinct restaurant buckets. New ids BEYOND the cap are not
+ * attributed (unlike route keys there is no honest fold: merging restaurant
+ * A's traffic into bucket "other" would hand it to an owner who never
+ * served it, while the GLOBAL registry still tallies everything).
+ */
+export const MAX_RESTAURANT_KEYS = 250;
 
 /** Unmatched paths longer than this are truncated (junk flood guard). */
 const MAX_PATH_LEN = 96;
@@ -71,6 +92,40 @@ export function routeKeyOf(req: {
   return `${method} ${path}`;
 }
 
+/**
+ * Explicit restaurant dimension (session 98): which concrete restaurant a
+ * matched request concerns. Deliberately keyed on the MATCHED TEMPLATE,
+ * never the url shape — only restaurant-scoped controllers get attributed:
+ * the parameter directly after `/restaurants/` is a restaurant id by
+ * CONSTRUCTION on those routes (`GET/PATCH /api/restaurants/:id`,
+ * `:id/hours`, `:id/orders*`, `:id/reviews`, `:restaurantId/menu`). Routes
+ * elsewhere that also carry `:id` (`/menu/items/:id`, `/orders/:id`) are
+ * NOT restaurants — a url-only heuristic would misattribute them.
+ *
+ * The metrics read itself (`/api/restaurants/:id/metrics`) is EXEMPT: a
+ * dashboard polling its own traffic must never inflate it.
+ *
+ * Returns the lowercased uuid, or null when the request is unattributable
+ * (unmatched, non-restaurant template, metrics route, or a non-uuid-shaped
+ * segment — ParseUUIDPipe would 400 those anyway; this is defence in depth).
+ */
+const RESTAURANT_TEMPLATE_RE = /^\/api\/restaurants\/:(?:id|restaurantId)(?:\/|$)/;
+const RESTAURANT_METRICS_TEMPLATE_RE = /^\/api\/restaurants\/:(?:id|restaurantId)\/metrics\/?$/;
+const UUID_SHAPE_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function restaurantScopeOf(req: {
+  url?: string;
+  baseUrl?: string;
+  route?: { path?: string };
+}): string | null {
+  if (!req.route) return null; // unmatched junk must NEVER mint a bucket
+  const template = `${req.baseUrl ?? ''}${req.route.path ?? ''}`;
+  if (RESTAURANT_METRICS_TEMPLATE_RE.test(template)) return null; // observer exemption
+  if (!RESTAURANT_TEMPLATE_RE.test(template)) return null;
+  const seg = (req.url ?? '').split('?')[0].split('/')[3];
+  return seg && UUID_SHAPE_RE.test(seg) ? seg.toLowerCase() : null;
+}
+
 export interface HistogramBucket {
   /** Inclusive upper bound in ms; null = +Inf (everything above the last bound). */
   leMs: number | null;
@@ -100,6 +155,38 @@ export interface MetricsSnapshot {
     byStatus: Record<StatusClass, number>;
     routeKeys: number;
     overflowed: boolean;
+    /** Distinct success-created restaurant buckets (session 98 dimension). */
+    restaurantKeys: number;
+    /** True when the restaurant bucket cap tripped and samples were NOT attributed. */
+    restaurantOverflowed: boolean;
+    avgMs: number | null;
+    p50Ms: number | null;
+    p95Ms: number | null;
+    p99Ms: number | null;
+    maxMs: number | null;
+  };
+  routes: MetricsRouteRow[];
+}
+
+/**
+ * Per-restaurant traffic view (session 98) — the SAME row/histogram shape
+ * as the global snapshot but restricted to samples attributed to ONE
+ * restaurant. It can never carry foreign or unattributed traffic, and it
+ * never carries the global totals (OWNER-rung safety contract, session 85
+ * decision). Cumulative since boot, exactly like the global snapshot.
+ */
+export interface RestaurantTrafficSnapshot {
+  restaurantId: string;
+  scope: 'restaurant';
+  window: 'since_api_boot';
+  generatedAt: string;
+  uptimeSec: number;
+  boundsMs: number[];
+  totals: {
+    requests: number;
+    byStatus: Record<StatusClass, number>;
+    routeKeys: number;
+    overflowed: boolean;
     avgMs: number | null;
     p50Ms: number | null;
     p95Ms: number | null;
@@ -120,6 +207,12 @@ interface RouteAgg {
 }
 
 const round1 = (n: number): number => Math.round(n * 10) / 10;
+
+interface RestaurantBucket {
+  routes: Map<string, RouteAgg>;
+  /** Route-key cap tripped WITHIN this bucket. */
+  overflowed: boolean;
+}
 
 function freshAgg(): RouteAgg {
   return {
@@ -182,10 +275,15 @@ function rowOf(route: string, agg: RouteAgg): MetricsRouteRow {
 
 export class RequestMetricsRegistry {
   private readonly routes = new Map<string, RouteAgg>();
+  private readonly restaurantBuckets = new Map<string, RestaurantBucket>();
   private startedAt = Date.now();
   private overflowed = false;
+  private restaurantCapTripped = false;
 
-  constructor(private readonly maxKeys: number = MAX_ROUTE_KEYS) {}
+  constructor(
+    private readonly maxKeys: number = MAX_ROUTE_KEYS,
+    private readonly maxRestaurantKeys: number = MAX_RESTAURANT_KEYS,
+  ) {}
 
   /**
    * Epoch ms of registry creation (re-stamped by reset()). The persistence
@@ -196,7 +294,7 @@ export class RequestMetricsRegistry {
     return this.startedAt;
   }
 
-  record(key: string, status: number, durationMs: number): void {
+  record(key: string, status: number, durationMs: number, restaurantId?: string | null): void {
     let agg = this.routes.get(key);
     if (!agg) {
       const folding = this.routes.size >= this.maxKeys && key !== OVERFLOW_KEY;
@@ -206,17 +304,54 @@ export class RequestMetricsRegistry {
       this.routes.set(mapKey, agg);
     }
     addSample(agg, status, durationMs);
+
+    if (restaurantId) this.recordRestaurant(restaurantId, key, status, durationMs);
   }
 
-  snapshot(now: Date = new Date()): MetricsSnapshot {
-    const rows = [...this.routes.entries()]
+  /**
+   * Restaurant-dimension fold of an already-globally-recorded sample.
+   * SUCCESS-GATED CREATION: a bucket is minted only by a 2xx/3xx — the
+   * proof that the id addresses a real, serving restaurant. 4xx/5xx probe
+   * floods of random-but-valid uuids therefore never grow the key space,
+   * while real errors ON an already-provisioned surface still top up its
+   * bucket (owners see failures, not just pageviews). Past the cap new
+   * buckets are REFUSED (the sample stays global-only) — folding into a
+   * shared "other" bucket would hand one owner another's traffic, the one
+   * thing this dimension must never do.
+   */
+  private recordRestaurant(restaurantId: string, key: string, status: number, durationMs: number): void {
+    let bucket = this.restaurantBuckets.get(restaurantId);
+    if (!bucket) {
+      const cls = statusClassOf(status);
+      if (cls === '4xx' || cls === '5xx') return;
+      if (this.restaurantBuckets.size >= this.maxRestaurantKeys) {
+        this.restaurantCapTripped = true;
+        return;
+      }
+      bucket = { routes: new Map<string, RouteAgg>(), overflowed: false };
+      this.restaurantBuckets.set(restaurantId, bucket);
+    }
+    let agg = bucket.routes.get(key);
+    if (!agg) {
+      const folding = bucket.routes.size >= this.maxKeys && key !== OVERFLOW_KEY;
+      const mapKey = folding ? OVERFLOW_KEY : key;
+      if (folding) bucket.overflowed = true;
+      agg = bucket.routes.get(mapKey) ?? freshAgg();
+      bucket.routes.set(mapKey, agg);
+    }
+    addSample(agg, status, durationMs);
+  }
+
+  /** Rows + element-wise merged histogram for any route-keyed map. */
+  private aggregate(map: Map<string, RouteAgg>): { rows: MetricsRouteRow[]; merged: RouteAgg } {
+    const rows = [...map.entries()]
       .map(([route, agg]) => rowOf(route, agg))
       .sort((a, b) => (b.requests - a.requests) || a.route.localeCompare(b.route));
 
     // Cumulative histogram counts are additive across routes, so the
-    // global row merges with a plain element-wise sum.
+    // merged row is a plain element-wise sum.
     const merged = freshAgg();
-    for (const agg of this.routes.values()) {
+    for (const agg of map.values()) {
       merged.count += agg.count;
       for (const cls of ['2xx', '3xx', '4xx', '5xx'] as const) merged.byStatus[cls] += agg.byStatus[cls];
       merged.sumMs += agg.sumMs;
@@ -224,21 +359,59 @@ export class RequestMetricsRegistry {
       if (agg.maxMs > merged.maxMs) merged.maxMs = agg.maxMs;
       for (let i = 0; i < merged.bucketCounts.length; i++) merged.bucketCounts[i] += agg.bucketCounts[i];
     }
+    return { rows, merged };
+  }
 
+  private totalsOf(merged: RouteAgg) {
+    return {
+      requests: merged.count,
+      byStatus: { ...merged.byStatus },
+      avgMs: merged.count === 0 ? null : round1(merged.sumMs / merged.count),
+      p50Ms: percentile(merged, 0.5),
+      p95Ms: percentile(merged, 0.95),
+      p99Ms: percentile(merged, 0.99),
+      maxMs: merged.count === 0 ? null : round1(merged.maxMs),
+    };
+  }
+
+  snapshot(now: Date = new Date()): MetricsSnapshot {
+    const { rows, merged } = this.aggregate(this.routes);
     return {
       generatedAt: now.toISOString(),
       uptimeSec: Math.max(0, Math.round((now.getTime() - this.startedAt) / 1000)),
       boundsMs: [...HISTOGRAM_BOUNDS_MS],
       totals: {
-        requests: merged.count,
-        byStatus: { ...merged.byStatus },
+        ...this.totalsOf(merged),
         routeKeys: this.routes.has(OVERFLOW_KEY) ? this.routes.size - 1 : this.routes.size,
         overflowed: this.overflowed,
-        avgMs: merged.count === 0 ? null : round1(merged.sumMs / merged.count),
-        p50Ms: percentile(merged, 0.5),
-        p95Ms: percentile(merged, 0.95),
-        p99Ms: percentile(merged, 0.99),
-        maxMs: merged.count === 0 ? null : round1(merged.maxMs),
+        restaurantKeys: this.restaurantBuckets.size,
+        restaurantOverflowed: this.restaurantCapTripped,
+      },
+      routes: rows,
+    };
+  }
+
+  /**
+   * The per-restaurant view the OWNER route serves. NEVER derived from the
+   * global snapshot — built exclusively from this restaurant's own bucket,
+   * so an empty bucket is an honest zero (no traffic since boot), never a
+   * foreign sample leaking through a subtraction.
+   */
+  restaurantSnapshot(restaurantId: string, now: Date = new Date()): RestaurantTrafficSnapshot {
+    const rid = restaurantId.toLowerCase();
+    const bucket = this.restaurantBuckets.get(rid);
+    const { rows, merged } = this.aggregate(bucket?.routes ?? new Map<string, RouteAgg>());
+    return {
+      restaurantId: rid,
+      scope: 'restaurant',
+      window: 'since_api_boot',
+      generatedAt: now.toISOString(),
+      uptimeSec: Math.max(0, Math.round((now.getTime() - this.startedAt) / 1000)),
+      boundsMs: [...HISTOGRAM_BOUNDS_MS],
+      totals: {
+        ...this.totalsOf(merged),
+        routeKeys: bucket ? (bucket.routes.has(OVERFLOW_KEY) ? bucket.routes.size - 1 : bucket.routes.size) : 0,
+        overflowed: bucket?.overflowed ?? false,
       },
       routes: rows,
     };
@@ -247,7 +420,9 @@ export class RequestMetricsRegistry {
   /** Test-only: return to a pristine state. */
   reset(): void {
     this.routes.clear();
+    this.restaurantBuckets.clear();
     this.startedAt = Date.now();
     this.overflowed = false;
+    this.restaurantCapTripped = false;
   }
 }

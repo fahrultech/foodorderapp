@@ -66,6 +66,15 @@ export class RequestMetricsService implements OnModuleDestroy {
     return this.registry.snapshot();
   }
 
+  /**
+   * Restaurant-scoped traffic view (session 98) behind
+   * GET /restaurants/:id/metrics — reads ONLY that restaurant's bucket,
+   * so it structurally cannot leak the global snapshot on an OWNER rung.
+   */
+  restaurantTraffic(restaurantId: string) {
+    return this.registry.restaurantSnapshot(restaurantId);
+  }
+
   /** Full alert report over the LIVE snapshot — the GET /admin/alerts route. */
   alerts(): AlertReport {
     return evaluateAlerts(this.registry.snapshot(), this.alertThresholds);

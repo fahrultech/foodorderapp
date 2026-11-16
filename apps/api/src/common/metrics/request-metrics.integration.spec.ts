@@ -1,6 +1,6 @@
 import * as http from 'http';
 import { Writable } from 'node:stream';
-import { Controller, Get, INestApplication, Module, NotFoundException } from '@nestjs/common';
+import { Controller, Get, INestApplication, Module, NotFoundException, Param } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Test } from '@nestjs/testing';
 import type { Logger as PinoInstance } from 'pino';
@@ -56,7 +56,36 @@ class HealthController {
   }
 }
 
-@Module({ controllers: [ProbeController, HealthController] })
+/**
+ * Session 98: restaurant-scoped routes under the REAL controller-prefix
+ * shape (`@Controller('restaurants/:id')`), so attribution is proven over
+ * genuine Express finish-time resolution — NOT against hand-built reqs.
+ * `gone` 404s to prove probes cannot mint buckets.
+ */
+@Controller('restaurants/:id')
+class RestaurantProbeController {
+  @Get()
+  one(@Param('id') id: string): { id: string } {
+    return { id };
+  }
+
+  @Get('menu')
+  menu(): { menu: true } {
+    return { menu: true };
+  }
+
+  @Get('gone')
+  gone(): never {
+    throw new NotFoundException('not there');
+  }
+
+  @Get('metrics')
+  metrics(): { totals: { requests: number } } {
+    return { totals: { requests: 0 } };
+  }
+}
+
+@Module({ controllers: [ProbeController, RestaurantProbeController, HealthController] })
 class ProbeModule {}
 
 function request(app: INestApplication, method: string, path: string): Promise<number> {
@@ -257,6 +286,47 @@ describe('request metrics — live middleware chain', () => {
     expect(eb.observed!).toBeGreaterThan(0.5);
     expect(eb.observed!).toBeLessThan(10);
     expect(eb.detail).toContain('budget');
+  });
+
+  it('restaurant dimension: finish-time attribution on a REAL controller prefix', async () => {
+    const RIDB = '00112233-4455-4667-8899-aabbccddeeff';
+    const RIDA = '5f0a1b2c-3d4e-4f50-9a8b-7c6d5e4f3a2b';
+
+    // 404 BEFORE any success: probes of unknown restaurants mint NO bucket...
+    expect(await request(app, 'GET', `/api/restaurants/${RIDB}/gone`)).toBe(404);
+    await drain();
+    expect(registry.restaurantSnapshot(RIDB).totals.requests).toBe(0);
+    // ...while the GLOBAL registry still tallies everything.
+    expect(routeRow('GET /api/restaurants/:id/gone')?.byStatus['4xx']).toBe(1);
+
+    // 2xx mints the bucket; later errors top it up; case normalizes.
+    expect(await request(app, 'GET', `/api/restaurants/${RIDB}`)).toBe(200);
+    expect(await request(app, 'GET', `/api/restaurants/${RIDB}/gone`)).toBe(404);
+    expect(await request(app, 'GET', `/api/restaurants/${RIDB.toUpperCase()}/menu`)).toBe(200);
+    await drain();
+
+    const b = registry.restaurantSnapshot(RIDB);
+    expect(b.totals.requests).toBe(3);
+    expect(b.totals.byStatus).toEqual({ '2xx': 2, '3xx': 0, '4xx': 1, '5xx': 0 });
+    expect(b.routes.map((r) => r.route)).toEqual([
+      'GET /api/restaurants/:id',
+      'GET /api/restaurants/:id/gone',
+      'GET /api/restaurants/:id/menu',
+    ]);
+    // A foreign restaurant never sees these samples:
+    expect(registry.restaurantSnapshot(RIDA).totals.requests).toBe(0);
+
+    // The metrics read is EXEMPT: globally tracked, never attributed.
+    expect(await request(app, 'GET', `/api/restaurants/${RIDB}/metrics`)).toBe(200);
+    await drain();
+    expect(routeRow('GET /api/restaurants/:id/metrics')?.requests).toBe(1);
+    expect(registry.restaurantSnapshot(RIDB).totals.requests).toBe(3); // UNCHANGED
+
+    // Unmatched junk shaped like a restaurant path mints nothing either:
+    expect(await request(app, 'GET', `/api/restaurants/${RIDB}/nothing-here`)).toBe(404);
+    await drain();
+    expect(registry.snapshot().totals.restaurantKeys).toBe(1);
+    expect(routeRow('GET /api/restaurants/:id/metrics')?.requests).toBe(1); // still exempt
   });
 
   it('service ctor honours the interval knob: 0 = no timer, 5 = 5s', () => {

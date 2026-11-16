@@ -183,6 +183,26 @@ describe('RestaurantsService — owner CRUD', () => {
     });
   });
 
+  describe('getOwned — shared ownership ladder (session 98)', () => {
+    const owner = { sub: 'u1', role: UserRole.OWNER };
+    const admin = { sub: 'u9', role: UserRole.ADMIN };
+
+    it('returns the FULL entity for the owning actor (updateOwned patches it)', async () => {
+      const { service } = build([fakeRestaurant({ ownerId: 'u1' })]);
+      const res = await service.getOwned('11111111-1111-4111-8111-111111111111', owner);
+      expect(res.ownerId).toBe('u1');
+      expect(res.name).toBe('Test Slug');
+    });
+
+    it('malformed id → 404, unknown id → 404, foreign owner → 403, admin bypasses', async () => {
+      const { service } = build([fakeRestaurant({ ownerId: 'u1' })]);
+      await expect(service.getOwned('nope', owner)).rejects.toBeInstanceOf(NotFoundException);
+      await expect(service.getOwned('99999999-9999-4999-8999-999999999999', owner)).rejects.toBeInstanceOf(NotFoundException);
+      await expect(service.getOwned('11111111-1111-4111-8111-111111111111', { sub: 'x', role: UserRole.OWNER })).rejects.toBeInstanceOf(ForbiddenException);
+      await expect(service.getOwned('11111111-1111-4111-8111-111111111111', admin)).resolves.toBeTruthy();
+    });
+  });
+
   describe('updateOwned', () => {
     const owner = { sub: 'u1', role: UserRole.OWNER };
     const admin = { sub: 'u9', role: UserRole.ADMIN };
