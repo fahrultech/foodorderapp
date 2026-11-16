@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { useAuth } from '@/lib/auth';
+import { engageNavGate, releaseNavGate } from '@/lib/nav-gate';
 
 type FieldKey = 'name' | 'email' | 'password' | 'confirm' | 'phone' | 'address';
 
@@ -67,8 +68,16 @@ export default function RegisterPage() {
   const [serverError, setServerError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
+  // See app/login/page.tsx: unmount == the redirect committed; the gate's
+  // normal release. The submit engages from its first moment and re-engages
+  // before dispatching the redirect; the catch path hands the nav back.
+  useEffect(() => () => releaseNavGate(), []);
+
   useEffect(() => {
-    if (status === 'signedIn') router.replace('/');
+    if (status === 'signedIn') {
+      engageNavGate();
+      router.replace('/');
+    }
   }, [status, router]);
 
   const field =
@@ -95,6 +104,7 @@ export default function RegisterPage() {
       return;
     }
     setSubmitting(true);
+    engageNavGate();
     try {
       await register({
         name: form.name,
@@ -103,8 +113,13 @@ export default function RegisterPage() {
         phone: form.phone,
         address: form.address,
       });
+      // Re-engage synchronously with the redirect dispatch (a slow auth
+      // round-trip may have tripped the safety timer mid-flight).
+      engageNavGate();
       router.replace('/');
     } catch (err: any) {
+      // Failed registration keeps the user on /register — hand the nav back.
+      releaseNavGate();
       // Server-side truth (the client mirrors are best-effort): map the API
       // error envelope onto the top of the form as a role=alert.
       setServerError(err?.message || t('registerError'));

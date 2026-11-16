@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { useAuth } from '@/lib/auth';
+import { engageNavGate, releaseNavGate } from '@/lib/nav-gate';
 
 /**
  * Only same-origin relative paths are safe to redirect into — `//host` and
@@ -27,19 +28,36 @@ function LoginForm() {
 
   const next = safeNext(searchParams.get('next'));
 
-  // Already signed in? Skip the form.
+  // The gate's normal release IS this unmount: it only happens when a
+  // redirect from this form committed. (No-gate unmounts release a no-op.)
+  useEffect(() => () => releaseNavGate(), []);
+
+  // Already signed in? Skip the form. Engage before dispatching so the
+  // hydration-flip → commit window cannot host a swallowable click either.
   useEffect(() => {
-    if (status === 'signedIn') router.replace(next);
+    if (status === 'signedIn') {
+      engageNavGate();
+      router.replace(next);
+    }
   }, [status, router, next]);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setSubmitting(true);
     setError(null);
+    // Gate from the FIRST moment of the submit: guest-view nav links could
+    // otherwise start a navigation while the auth request is in flight and
+    // get dragged over by the redirect that follows it.
+    engageNavGate();
     try {
       await login(form.email, form.password);
+      // A slow auth round-trip may have tripped the safety timer mid-flight —
+      // re-engage synchronously with the redirect dispatch.
+      engageNavGate();
       router.replace(next);
     } catch (err: any) {
+      // Failed login keeps the user on /login — hand the nav back.
+      releaseNavGate();
       setError(err?.message || t('signInError'));
       setSubmitting(false);
     }

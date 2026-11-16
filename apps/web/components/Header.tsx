@@ -1,9 +1,11 @@
 'use client';
 
+import { useSyncExternalStore } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useCart } from '@/lib/cart';
 import { useAuth } from '@/lib/auth';
+import { isNavGated, subscribeNavGate } from '@/lib/nav-gate';
 import { usePushNotifications } from '@/lib/push-notifications';
 import PushNotificationButton from '@/components/PushNotificationButton';
 import LocaleSwitcher from '@/components/LocaleSwitcher';
@@ -26,6 +28,12 @@ export default function Header({
   const { disconnectBeforeLogout } = usePushNotifications();
   const pathname = usePathname();
   const router = useRouter();
+  // Post-auth-redirect settle gate (see lib/nav-gate.ts): while an auth
+  // form's redirect is in flight the whole nav is inert, so no click can
+  // start inside the drag window and get swallowed by the landing redirect.
+  // Server snapshot false -> hydration-safe; the gate only ever engages on
+  // client interaction.
+  const navGated = useSyncExternalStore(subscribeNavGate, isNavGated, () => false);
 
   async function signOut() {
     await disconnectBeforeLogout();
@@ -44,7 +52,15 @@ export default function Header({
         <Link href="/" className="flex shrink-0 items-center gap-2 text-xl font-bold text-brand-600">
           <span aria-hidden>🍜</span> FoodOrder
         </Link>
-        <nav className="flex flex-wrap items-center justify-end gap-x-2.5 gap-y-2 text-sm sm:gap-x-4">
+        <nav
+          className="flex flex-wrap items-center justify-end gap-x-2.5 gap-y-2 text-sm sm:gap-x-4"
+          data-navgated={navGated ? '1' : '0'}
+          inert={navGated}
+          // pointer-events:none (not just `inert`) is the half that makes
+          // Playwright's hit-target check WAIT instead of silently no-op'ing
+          // a click into a redirect in flight — the regression spec pins it.
+          style={navGated ? { pointerEvents: 'none' } : undefined}
+        >
           <Link
             href="/"
             className={pathname === '/' ? 'font-semibold text-brand-600' : 'text-stone-600 hover:text-stone-900'}
