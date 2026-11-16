@@ -553,7 +553,24 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   until the new process writes its first row (a restart can never inherit
   a false baseline), and store read failures degrade to
   `durability.error=true` with the route still 200 — a dead smoke detector
-  must never 5xx like a fire. On top of the snapshots sits the DI-free alert engine
+  must never 5xx like a fire. Session 98 added an explicit RESTAURANT
+  dimension: a sample additionally lands in a per-restaurant sub-registry
+  (same route-key space) ONLY when its MATCHED template is one of the
+  restaurant-scoped controllers (`/api/restaurants/:id/...` or the
+  `:restaurantId` menu variant — template-driven so a dish/order uuid can
+  never be misread as a restaurant) and the url segment is a uuid
+  (lowercased). Buckets are MINTED by 2xx/3xx only — random-uuid probes
+  404 and never grow the key space — while 4xx/5xx may top up an existing
+  bucket; past the 250-bucket cap new buckets are REFUSED, never folded
+  into a shared `other` (one owner must never be handed another's
+  traffic). The metrics read `GET /api/restaurants/:id/metrics` is EXEMPT
+  from attribution — polling never inflates its own numbers — and its
+  payload is built exclusively from the requested bucket (no global
+  totals, no durability fields: the session-85 rule that the global
+  snapshot is ADMIN-only is structural, not policy). Restaurant buckets
+  are live-only: the session-89 durability layer persists the GLOBAL
+  snapshot only, so a restart zeroes the per-restaurant view (filed on
+  the roadmap). On top of the snapshots sits the DI-free alert engine
   `ops/alerts.ts` (session 86): three rules — `error_budget` (5xx rate vs
   the 99.5% availability SLO, gated by a minimum sample), `p95_latency`
   (histogram estimate vs ceiling) and `route_key_overflow` (cardinality-cap

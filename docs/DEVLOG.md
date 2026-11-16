@@ -3,6 +3,84 @@
 Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
+## 2026-11-16 19:32 — Session 98 — Per-restaurant traffic for owners: the explicit registry dimension + OWNER-rung scoped read (API, Phase 8)
+
+**Built:**
+
+- Last open Phase 8 item (session 85's decision: restaurant scoping needs an
+  EXPLICIT registry dimension and the global snapshot must never surface on
+  an OWNER rung). `RequestMetricsRegistry` gains a restaurant dimension:
+  every sample whose MATCHED route template is restaurant-scoped
+  (`/api/restaurants/:id/*` incl. the `:restaurantId` menu variant —
+  `restaurantScopeOf` keys on the TEMPLATE so `/menu/items/:id`'s dish-id
+  can never be misread as a restaurant) additionally lands in that
+  restaurant's own sub-registry of the same route-key space, uuid-gated and
+  lowercased.
+- Cardinality + probe policy: buckets are MINTED ONLY BY 2xx/3xx — random
+  valid-uuid probes 404 and never grow the key space — while later 4xx/5xx
+  still TOP UP an existing bucket (owners see errors on their surfaces, not
+  just pageviews). Past the 250-bucket cap new buckets are REFUSED rather
+  than folded (folding one owner's traffic into a shared "other" bucket
+  would be the one unforgivable leak); the global snapshot gains additive
+  `restaurantKeys`/`restaurantOverflowed` so operators see the dimension's
+  health, and unmatched junk can never mint anything.
+- Observer exemption: `GET /api/restaurants/:id/metrics` itself is excluded
+  from attribution, so a dashboard polling its own traffic never inflates
+  the numbers it reads.
+- New OWNER route `GET /api/restaurants/:id/metrics` (admins bypass) in a
+  dedicated `RestaurantMetricsController`: ownership via the SAME ladder as
+  `updateOwned` — `RestaurantsService.getOwned` was extracted and
+  `updateOwned` refactored onto it, so the 404-malformed/404-unknown/403-
+  foreign semantics can never diverge. The payload is built EXCLUSIVELY
+  from the restaurant's own bucket: `restaurantId/scope/window/uptimeSec/
+  boundsMs/totals/routes` — zero global fields, no durability/window
+  extras, honest zero snapshot for an owned-but-quiet restaurant. Typed
+  swagger contract `RestaurantMetricsResponse` (ops 74→75, registered in
+  all four swagger.spec pin lists).
+- v1 deliberately reads the LIVE registry only — per-restaurant traffic is
+  NOT persisted to `metrics_snapshots` (session 89's window math stays a
+  global concern) and no order/payment-scoped routes are attributed (no
+  path-visible restaurant id); both filed honestly below.
+
+**Verified:**
+
+- `nest build` green; jest 91/1142 → **93 suites / 1165 tests** (+2/+23:
+  new `restaurant-traffic.spec.ts` unit block — attribution variants,
+  exemption, success-mint vs error-topup, cap refusal, case normalization,
+  isolation, reset; new `restaurant-metrics-http.spec.ts` — real guard
+  chain over HTTP: 401 anonymous/bad token, 403 customer+driver BEFORE the
+  ladder is consulted, 400 malformed uuid, 404/403 service answers through
+  the envelope, exact OWNER key-set pin proving no global field can ride
+  along, honest empty snapshot; plus one finish-time attribution case
+  appended to `request-metrics.integration.spec.ts` driving a REAL
+  `@Controller('restaurants/:id')` probe through the production middleware
+  chain — template collapse, 404-probe mint refusal, top-up, uppercase
+  normalization, observer exemption, junk-no-mint, all pinned).
+- Live scratch-DB smoke **48/48** on a 27-migration from-empty DB
+  (`foodorder_rm98_smoke`, API on :4013): exact per-bucket arithmetic
+  (3 pageviews + 1 role-denied PATCH → requests 4, byStatus {2xx:3,4xx:1},
+  TWO template rows), metrics reads change NOTHING across repeated polls,
+  foreign-restaurant isolation (Seoul sees 1, never 4), zero-traffic owned
+  restaurant → honest 200 with 0 requests (not a 404, not stale data),
+  probe flood of 3 random uuids mints nothing (`restaurantKeys==2` after
+  create+probes+polling), the metrics op row itself tallies 8 requests
+  5×200/3×4xx globally, deny ladder 401/403/400/404 envelope codes,
+  zero writes to `orders`, restaurants delta exactly +1 (the throwaway),
+  0 driver errors in the API log.
+- API-only increment — web untouched, `next build` n/a. No migration, no
+  seed change, no env knobs added.
+
+**Left for next sessions:**
+
+- 🔒 Web: owner traffic panel consuming `GET /restaurants/:id/metrics`
+  (shape-based cross-check recipe per session 85; EN/ID).
+- Per-restaurant DURABILITY: restaurant buckets are live-only — a restart
+  silently zeroes them (same flaw session 89 fixed for the global view).
+- Attribution for order-centric routes (`POST /orders`, payments) — the
+  restaurant is service-known but not path-visible; needs an explicit
+  opt-in hook, NOT a url heuristic.
+
+---
 ## 2026-11-16 17:22 — Session 97 — Auth-redirect settle-gate: the login-redirect vs nav-click race fixed in the product (Web, Phase 8)
 
 **Built:**
