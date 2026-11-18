@@ -691,6 +691,11 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   Restaurant pages render the recomputed badge (`★ 4.3 · 3 reviews`) plus a
   server-fetched "Recent reviews" section; `Stars.tsx` is display-only and
   SSR-safe. Review edit/delete exist on the API but have no UI yet.
+  **Owner composer** (session 102): `/dashboard/reviews` (owner/ADMIN gate)
+  lists the selected restaurant's reviews via the PUBLIC feed — the owner
+  page reads exactly what the storefront renders — and `ReviewReplyComposer`
+  wraps the PATCH/DELETE reply pair per row. The read needs no bearer; only
+  the write does, and the `getOwned` ladder stays the real gate.
 - **Promo codes (`/api/promos` + order-create hook)** — `promo_codes` rows are
   platform-managed: ADMIN-only CRUD at `/api/admin/promos` (list with live
   `usageCount`, create, PATCH where an omitted field keeps its value and an

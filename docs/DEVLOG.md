@@ -3,6 +3,89 @@
 Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
+## 2026-11-18 16:27 — Session 102 — Owner reply COMPOSER UI: /dashboard/reviews (Web, Phase 9)
+
+**Built:**
+
+- Phase 9's session-101 sub-item, web-only increment: owners no longer need
+  to script `PATCH /reviews/:id/reply`. New surface
+  **`/dashboard/reviews`** (client page, dashboard/analytics gate idiom:
+  skeleton → sign-in card → owner-gate card → restaurant switcher) + a
+  zero-DOM `layout.tsx` owning the localized document title (session-93
+  rule; SSR titles live-checked EN `Customer reviews — FoodOrder` and ID
+  `Ulasan pelanggan — FoodOrder`). New **Reviews** tab in the shared
+  `PortalTabs`.
+- **`ReviewReplyComposer`** per review row: collapsed card shows the
+  existing thread (label + date + text); `Reply`/`Edit reply` opens a
+  2000-char textarea **pre-filled with the current thread**, Save is
+  disabled while blank-or-unchanged (an invisible no-op write is a lie the
+  UI never offers); a second save REPLACES (single-thread semantics made
+  visible); `Delete reply` only renders when a thread exists; Cancel
+  discards a dirty draft without any request; a failed save keeps the
+  editor AND the draft open (the public row is unchanged server-side).
+  Success/clear feedback: per-row `role=alert`/`role=status` line + a page
+  polite live region announcing `FO-X` outcomes (portal-a11y doctrine).
+- **The read rides the PUBLIC feed** (`GET /restaurants/:id/reviews`,
+  `limit=50` + honest Load-more): the owner page reads exactly the rows the
+  storefront renders — only the write pair carries the bearer. Session-91
+  state honesty: the "no reviews yet" card renders ONLY after a successful
+  feed load; failures split `PortalOffline` (down) vs `PortalLoadFailed`
+  (4xx) — and the ADMIN rung gets its own honest card (see Verified).
+- **API client**: `api.setReviewReply` / `api.clearReviewReply` (typed
+  `{ review: ReviewRow }` responses; no API source touched at all).
+- **i18n**: 30 new `Portal` keys × EN/ID (surgical single-line inserts,
+  files stay pure-ASCII ensure_ascii; ICU token-set parity + EN/ID key
+  parity asserted BEFORE writing; the ID==EN loanword audit found zero
+  unintended copies). The `rvRated` EN value is an ICU plural — `count` is
+  passed as a NUMBER (plural cases need it; `#` renders ungrouped at
+  these magnitudes).
+
+**Verified:**
+
+- Web: `next build` green — `/dashboard/reviews` 5 kB / 126 kB first load;
+  one real compile error caught and fixed on the first build (layout
+  imported `getTranslations` from `next-intl`, it lives on
+  `next-intl/server`).
+- Live curl ladder on :4000 (seeded dev DB): feed shape (total 2, rating
+  4.0/2, replied 1), PATCH sets `reply`+`repliedAt` together, DELETE clears
+  to null, whitespace-only PATCH 400s with the `BAD_REQUEST` envelope, feed
+  back to seed shape afterwards. ADMIN probe: `GET /restaurants/mine`
+  answers `[]` → the page's restaurants===0 branch shows the honest
+  no-restaurant card (never an empty-reviews claim over data the switcher
+  could not fetch) — pinned by a new 5th e2e test.
+- Targeted e2e `owner-reviews.spec.ts` 5/5: composer round trip
+  (save → `Reply saved.` + live-region announcement → **reload = server
+  truth** → delete → seed shape restored, stars provably unmoved),
+  replace/cancel semantics on the SEEDED thread (restored byte-exact via
+  API in `finally`), anonymous + customer gates, ADMIN card, ID chrome
+  byte-pins (`Ulasan pelanggan`, `Balasan Anda`, `Balas`, `Ubah
+  balasan`) — read-only.
+- FULL e2e suite **92 → 97 green ×2 CONSECUTIVE** on fresh seeds (final
+  tree; the earlier 96-run predates the ADMIN pin). API: jest/build delta 0
+  — `apps/api` untouched (0 changed files), suite counts stay 93/1187 from
+  session 101.
+- Harness lesson (second sighting of the session-95/101 class):
+  `getByLabel('Restoran')` is NOT strict on this page — the review
+  section's localized `aria-label` contains the same word
+  case-insensitively; the switcher is pinned by `label select`
+  (portal-chrome-id doctrine). First targeted run 3/4 with that ONE strict
+  violation — spec-side, zero product bugs.
+- Sanitizer scan: 869 added lines, zero U+2026/`***`/literal `\u`;
+  `git diff --check` clean; the single pre-existing U+2026 in
+  `apps/web/lib/api.ts` re-verified as HEAD prose (count 1 both sides).
+
+**Left for next sessions:**
+
+- Optional: notify a reviewer when the restaurant replies (carried from
+  session 101).
+- The composer page lists rows with no filter yet (unreplied-first
+  ordering or an `unreplied` chip would cut owner effort); the seeded
+  fixtures are too small to need pagination today.
+- Phase 9 keeps three open items: HTTP caching for public reads (Perf),
+  `/favorites` + `/addresses` loading pass (UX), flake-tooling graduation
+  (Test).
+
+---
 ## 2026-11-18 14:18 — Session 101 — Owner replies to reviews: one thread ON the review row (Product, Phase 9)
 
 **Built:**
