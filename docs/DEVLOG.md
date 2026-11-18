@@ -3,6 +3,83 @@
 Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
+## 2026-11-18 12:16 — Session 100 — Receipt-flake root cause: a goto racing the sign-in click ABORTS the auth request (E2E, Phase 9 opened)
+
+**Built:**
+
+- Phase 8 is down to its two 🔒 items, so Phase 9 opened as the new
+  top-down queue (seeded from the Test / Product / Perf / UX evergreen
+  loops). Its first item was due twice already: the `zz-forms-a11y`
+  "receipt: bare link..." flake, flagged in session 91 and again in
+  session 99 ("instrument the loginToken/createOrder/payOrder
+  timings"). Root cause found by CODE, not by measurement:
+- **Mechanism.** The receipt test ran `page.goto('/login')` ->
+  `signInUi(...)` -> `page.goto('/orders/:id')`, and `signInUi`
+  returned the moment the click dispatched. The full-document
+  navigation COMMITS while `POST /auth/login` is still in flight, and
+  Chromium CANCELS pending fetches when the document is replaced —
+  `login()` never resolves, `applySession` never stores the tokens,
+  and the receipt page renders the guest OrderVerify state, so the
+  signed-in-only heading times out at 15 s. The suite had ALREADY
+  learned this class twice independently (`zz-gdpr-account` carries
+  session 88's verbatim comment "racing one mid-login renders the
+  dashboard as guest"; sessions 93/97 added the
+  `not.toHaveURL(/\/login/)` guards) — only this file's helper copy
+  was unguarded, and the session-97 product settle-gate cannot help:
+  `inert` blocks CLICKS, never a script-driven `page.goto`.
+- **Hardened `signInUi`** in BOTH specs owning a copy
+  (`zz-forms-a11y`, `zz-gdpr-account`): the helper now waits for the
+  URL to leave `/login` before returning — the redirect commits
+  strictly AFTER `login()` resolved and `applySession` persisted the
+  session, so any caller navigation after the helper is safe. The
+  suite idiom, promoted into the helper itself.
+- **Instrumentation** (the twice-filed ask): a `timed()` wrapper now
+  stamps wall-clock `fixture-timing` annotations + stdout on EVERY
+  direct-API fixture leg of `zz-forms-a11y` — `loginToken`,
+  `warungFixture`, `createOrder`, `payOrder`, `ownerAdvance` — for
+  passes and failures alike; a recurrence names the slow leg instead
+  of the whole helper.
+- **`loginToken` 429 tolerance** (payOrder's doctrine: read
+  `details.retry_after_sec`, sleep, retry ONCE, 45 s cap) — the auth
+  bucket is 10/min per identity on hand-booted APIs and several specs
+  log in inside the same rolling minute; it was the last unguarded
+  API leg in that fixture chain.
+- **New pin** `e2e/tests/zz-login-abort.spec.ts` (2 tests, read-only,
+  seed-safe, zz-* sorted): HOLD the login response 1.5 s (armed on
+  the `request` event per the session-97 harness rule, real call
+  still reaches the API via `route.fetch`), then test 1 reproduces
+  the OLD sequence VERBATIM and asserts the guest gate h1, no signed-in
+  h1, and localStorage session `null` — proof of ABORTION, not
+  slowness; test 2 applies the hardened contract to the same hold and
+  asserts the signed-in render. The flake class is now executable,
+  not folklore.
+- ARCHITECTURE settle-gate bullet extended with the adjacent
+  goto-abort class (helper doctrine); ROADMAP Phase 9 opened with
+  this item ticked + 4 unchecked session-sized items.
+
+**Verified:**
+
+- FULL e2e suite 87->89 green x2 CONSECUTIVE on fresh seeds (3.0 min
+  each; both runs include the two new pins). Zero EN pins edited —
+  every pre-existing assertion byte-identical, the touched files are
+  exactly the two helper patches + the new spec.
+- Targeted loop `zz-forms-a11y` + `zz-login-abort`: 8/8 x3
+  consecutive with a re-seed BEFORE every iteration.
+- API delta 0 as claimed: `nest build` green; jest 93 suites / 1165
+  tests — identical to sessions 98/99 (no API or app code touched).
+- Sanitizer scan: zero U+2026/`***`/U+FFFD on added CODE lines (the
+  docs ellipsis is prose); the rewritten login data line read back by
+  codepoint — its value is the `DEMO_PASS` identifier, no mask on
+  disk; `git diff --check` clean.
+
+**Left for next sessions:**
+
+- Graduate the flake tooling (Phase 9 item): the remaining INLINE
+  sign-in sequences (admin, live-feed, portal-a11y, account keep
+  their own click code) onto the redirect-commit contract, and turn
+  `fixture-timing` annotations into a CI ceiling.
+- The two Phase 8 🔒 items stand untouched (per-restaurant durability,
+  order-centric attribution).
 ## 2026-11-18 10:32 — Session 99 — Owner traffic panel on /dashboard/analytics consuming the per-restaurant metrics route (Web, Phase 8)
 
 **Built:**

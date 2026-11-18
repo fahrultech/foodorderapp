@@ -226,7 +226,16 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   safety timer covers the pathological never-commits case
   (`?next=/login`). The older suite-side `not.toHaveURL(/\/login/)` guards
   remain harmless belt-and-braces; `e2e/tests/login-redirect-race.spec.ts`
-  pins the new invariant.
+  pins the new invariant. The ADJACENT class the gate cannot reach
+  (session 100, the root cause of the recurring `zz-forms-a11y` receipt
+  flake): a script-driven `page.goto` issued the moment after a Sign-in
+  click ABORTS the in-flight `POST /auth/login` (Chromium cancels pending
+  fetches on document navigation) — the target renders GUEST because
+  `login()` never resolved, not because it was slow. `inert` blocks
+  clicks, not navigations, so this is suite doctrine: every e2e sign-in
+  helper must await the redirect COMMIT (`not.toHaveURL(/\/login/)`)
+  before the caller navigates anywhere; `e2e/tests/zz-login-abort.spec.ts`
+  pins both directions deterministically with a held login response.
 - **Order status machine** — transitions validated server-side
   (`pending→confirmed→preparing→delivering→completed`, cancellable through preparing).
   `POST /orders/:id/cancel` lets the *customer* use exactly that machine edge
