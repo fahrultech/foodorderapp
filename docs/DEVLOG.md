@@ -3,6 +3,83 @@
 Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
+## 2026-11-18 14:18 — Session 101 — Owner replies to reviews: one thread ON the review row (Product, Phase 9)
+
+**Built:**
+
+- Phase 9's product item, end to end. **Migration 28th**
+  `AddReviewReplies1794900600000`: `reviews.reply` varchar(2000) NULL +
+  `reviews.repliedAt` timestamptz NULL + `CHK_reviews_reply_pairing`
+  (a reply without its timestamp is rejected at the DB — the smoke fired
+  the violation on purpose). Single-thread design recorded honestly: the
+  second PATCH REPLACES the text (no history rows, no child table until
+  conversational depth exists).
+- **API**: `PATCH /reviews/:id/reply` + `DELETE /reviews/:id/reply` on the
+  ReviewsController rung (bearer). Access is session 98's `getOwned`
+  ladder ON THE REVIEW'S RESTAURANT: owner or ADMIN — authorship does NOT
+  grant reply rights (the review's own author as a plain customer 403s),
+  unknown/malformed ids 404 at the ladder (400 at the route via UuidParam).
+  Deliberate 403-vs-404 split documented: reviews are already PUBLIC data,
+  so "not yours" leaks nothing and a stale dashboard deserves the honest
+  code. `ReplyReviewDto` fully class-validator-decorated; whitespace-only
+  text 400s at the SERVICE (an invisible response card is a lie); blank
+  body 400s at the pipe. A reply NEVER recomputes stars — and
+  `ReviewReplyResponse` carries NO `restaurant` aggregate at all, so the
+  contract itself cannot suggest the rating moved. Idempotent clear:
+  clearing an unreplied row writes NOTHING (no updatedAt churn — the smoke
+  pinned the timestamp). Public feed + `/reviews/my` embed `reply`/
+  `repliedAt` through the shared `toReviewRow`; the GDPR export allowlist
+  deliberately does NOT carry owner reply text (not the customer's
+  personal data) — export-keys pin proves it.
+- **Swagger contract**: 2 ops registered (live + spec 75 -> 77, SUCCESS
+  pin bumped), bearer + error lists + schema pins (`reply` nullable string,
+  `repliedAt` nullable date-time, reply response restaurant-free).
+  `uuid-route-params` table extended so the new routes join the malformed-
+  id gate.
+- **Web**: restaurant page renders the response card nested under the
+  review (`data-testid=review-reply`: localized label + reply date +
+  text); new `Restaurant.ownerReply` key EN/ID. Seed ships ONE
+  deterministic owner reply (3-star sate complaint, repliedAt pinned to
+  2026-11-02T09:30Z so specs can pin the date) — a fresh DB shows the
+  thread with zero API calls.
+- ARCHITECTURE reviews bullet extended with the whole reply rule.
+
+**Verified:**
+
+- API: `nest build` green; jest 93 suites / 1165 -> 1187 (+22: 14 service
+  ladder/set/replace/clear/pairing/feed tests incl. the admin-bypass
+  no-restaurant-read pin, 6 ReplyReviewDto pipe cases, 2 re-pinned exact
+  row shapes).
+- Live scratch-DB smoke (28-migration chain from EMPTY, API on :4010):
+  41/41. Highlights: seed pairing exact, trim-on-write DB truth, replace
+  semantics, rating EXACTLY 4/2 identical before and after all reply
+  traffic, full ladder on a fixture-reassigned second owner (author 403
+  FORBIDDEN envelope, foreign owner 403, owning owner 200, ADMIN 200,
+  every rejected leg wrote nothing), 6 validation branches, no-op clear
+  byte-identical updatedAt, CHECK rejects manual drift, docs live-ops ==
+  spec pin 77 with bearer on both reply ops, 401 unauthenticated. Zero
+  error lines in the API log.
+- Live :4000 curl ladder set -> feed -> clear -> feed, seed shape restored.
+- Web: `next build` green. New `e2e/tests/review-replies.spec.ts` 3 tests
+  (nested render + set/clear round trip with the seeded thread counted
+  exactly, access-ladder wire asserts proving zero writes afterwards, ID
+  label byte-pin 'Balasan dari restoran'); targeted 3/3, FULL suite
+  89 -> 92 green x2 CONSECUTIVE on fresh seeds. The first targeted run's
+  single failure was spec-side strict mode (two reply cards share the
+  label) — fixed with a testid count pin + `.first()`, no product change.
+- Sanitizer scan: zero U+2026/`***` on added lines (the one U+2026 in
+  apps/web/lib/api.ts is a pre-existing HEAD prose ellipsis, count 1 on
+  both sides); messages edited surgically (single-line inserts — an early
+  json-dump attempt reformatting the whole file was reverted before
+  commit); `git diff --check` clean.
+
+**Left for next sessions:**
+
+- Owner reply COMPOSER UI: today an owner needs the API to write the
+  reply — the dashboard has no reviews surface at all. Filed as a sub-item.
+- Optional: notify a reviewer when the restaurant replies (the
+  notifications fan-out is the natural home).
+
 ## 2026-11-18 12:16 — Session 100 — Receipt-flake root cause: a goto racing the sign-in click ABORTS the auth request (E2E, Phase 9 opened)
 
 **Built:**

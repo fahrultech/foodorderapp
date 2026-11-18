@@ -674,6 +674,16 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   reviews remain) plus `ratingCount` — the seed value a restaurant ships with
   is what it shows *until* its first review lands. Public list
   `GET /restaurants/:id/reviews` (page envelope + rating summary).
+  **Owner replies**: ONE public reply thread lives ON the review row
+  (`reviews.reply` + `repliedAt`, CHECK-paired, varchar 2000) — no child
+  table until conversational depth exists. `PATCH /reviews/:id/reply`
+  sets/replaces (second write REPLACES — no history) and
+  `DELETE /reviews/:id/reply` clears (idempotent, no write when already
+  empty); access is the `getOwned` ladder on the review's restaurant
+  (owner or ADMIN — authorship does NOT grant it, the review AUTHOR as a
+  plain customer gets 403; unknown/malformed 404). A reply NEVER recomputes
+  the rating (reply contracts carry no `restaurant` aggregate at all), and
+  owner reply text is NOT part of the customer GDPR export allowlist.
 - **Web review UI**: `RateOrderCard` on `/orders/[id]` (completed orders only)
   — sign-in prompt for guests (?next= back-pointer), existing-review panel
   (matched via `GET /reviews/my`), star picker + capped comment, and a 409
