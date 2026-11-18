@@ -1,12 +1,16 @@
 import assert from 'node:assert/strict';
 import {
   MAX_LINE_QTY,
+  REPLAYS_PER_ITERATION,
   authProfile,
   browsePath,
+  cacheBrowsePath,
+  isStrongEtag,
   loadProfile,
   orderPayload,
   planCart,
   restaurantIds,
+  revalidateProfile,
   thresholds,
 } from './load-test.lib.mjs';
 
@@ -104,4 +108,53 @@ assert.deepEqual(authLoad.checkout.stages, [
 ]);
 assert.throws(() => authProfile('unknown'), /profile/i);
 
-console.log('load-test contract: ok (browse + auth)');
+// --- conditional-GET replay scenario (session 104) ---------------------------
+
+assert.equal(REPLAYS_PER_ITERATION, 2);
+
+// The replay paths MUST stay the exact three URL shapes session 103
+// whitelisted in cacheTargetOf; meta/cuisines can never 304.
+assert.equal(cacheBrowsePath(0, 'abc'), '/restaurants?sort=rating&limit=20');
+assert.equal(cacheBrowsePath(1, 'abc'), '/restaurants/abc');
+assert.equal(cacheBrowsePath(2, 'abc'), '/restaurants?search=rice&limit=20');
+assert.equal(cacheBrowsePath(3, 'abc'), '/restaurants?sort=rating&limit=20');
+for (let i = 0; i < 12; i += 1) {
+  const p = cacheBrowsePath(i, 'abc');
+  assert.ok(!p.includes('/meta/'), `replay path ${p} is not cache-whitelisted`);
+}
+// session-103 cacheTargetOf truth: '/restaurants/<id>' is only a cache target
+// when the id is a uuid — the replay profile must never hand it anything else.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const contractIds = [
+  'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+  'ffffffff-1111-2222-3333-444444444444',
+];
+for (let i = 0; i < 12; i += 1) {
+  const p = cacheBrowsePath(i, contractIds[i % 2]);
+  const seg = p.startsWith('/restaurants/') ? p.slice('/restaurants/'.length) : null;
+  assert.ok(seg === null || UUID_RE.test(seg), `replay detail path ${p} is not uuid-gated`);
+}
+
+// isStrongEtag mirrors etagFor: quoted, no W/ prefix (session 103 emits
+// '"<sha256-32hex>"'; Express's weak auto-etag must NOT pass).
+assert.equal(isStrongEtag('"0123456789abcdef0123456789abcdef"'), true);
+assert.equal(isStrongEtag('W/"0123456789abcdef0123456789abcdef"'), false);
+assert.equal(isStrongEtag('"a"'), true, 'quoted and non-empty is a strong tag');
+assert.equal(isStrongEtag('unquoted'), false);
+assert.equal(isStrongEtag(undefined), false);
+assert.equal(isStrongEtag('""'), false);
+
+const condSmoke = revalidateProfile('smoke');
+assert.equal(condSmoke.revalidate.executor, 'constant-vus');
+assert.equal(condSmoke.revalidate.vus, 1);
+assert.equal(condSmoke.revalidate.duration, '15s');
+const condLoad = revalidateProfile('load');
+assert.equal(condLoad.revalidate.executor, 'ramping-vus');
+assert.deepEqual(
+  condLoad.revalidate.stages,
+  loadProfile('load').browse.stages,
+  'revalidate load must keep the browse VU shape for comparable latency columns',
+);
+assert.throws(() => revalidateProfile('unknown'), /profile/i);
+
+console.log('load-test contract: ok (browse + auth + conditional)');

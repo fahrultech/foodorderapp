@@ -162,3 +162,84 @@ export function orderPayload(restaurantId, lines, identity) {
     deliveryAddress: identity.address,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Conditional-GET replay scenario (session 104, PERFORMANCE.md rec 6). The
+// public browse profile never sends If-None-Match — k6 does not implement an
+// HTTP cache — so the session-103 ETag layer only saves server-side SQL there.
+// This scenario measures the 304 path head-on: one unconditional GET captures
+// the ETag, then replays it, and every replay MUST be a 304 (read-only
+// fixture, so the bytes never change).
+// ---------------------------------------------------------------------------
+
+/**
+ * Pure: pick a replayable browse path. These MUST stay exactly the three
+ * URL shapes session 103 whitelisted in `cacheTargetOf` (restaurant list,
+ * uuid detail, list-with-search). `/restaurants/meta/cuisines` is a SUB-PATH
+ * the whitelist deliberately excludes — it can never answer 304, so slipping
+ * it in here would make the honest 304 checks below fail at runtime, not
+ * silently measure the wrong thing. The contract test pins that invariant.
+ */
+export function cacheBrowsePath(iteration, restaurantId) {
+  const paths = [
+    '/restaurants?sort=rating&limit=20',
+    `/restaurants/${restaurantId}`,
+    '/restaurants?search=rice&limit=20',
+  ];
+  return paths[iteration % paths.length];
+}
+
+/** Number of If-None-Match replays issued after each capture request. */
+export const REPLAYS_PER_ITERATION = 2;
+
+/**
+ * Pure: a STRONG ETag is a quoted entity-tag without the `W/` prefix —
+ * exactly what session 103's `etagFor` emits (`"<sha256-32hex>"`). A weak
+ * tag would mean Express's auto-etag leaked past our layer (cold `*` case),
+ * which is not what this profile is measuring.
+ */
+export function isStrongEtag(value) {
+  return (
+    typeof value === 'string' &&
+    value.startsWith('"') &&
+    value.endsWith('"') &&
+    value.length > 2 &&
+    !value.startsWith('W/')
+  );
+}
+
+const REVALIDATE_PROFILES = Object.freeze({
+  smoke: Object.freeze({
+    revalidate: Object.freeze({
+      executor: 'constant-vus',
+      vus: 1,
+      duration: '15s',
+      gracefulStop: '5s',
+    }),
+  }),
+  load: Object.freeze({
+    revalidate: Object.freeze({
+      executor: 'ramping-vus',
+      startVUs: 0,
+      // Same VU shape as the public browse load profile so the latency
+      // columns compare directly; each iteration carries
+      // 1 + REPLAYS_PER_ITERATION requests.
+      stages: Object.freeze([
+        Object.freeze({ duration: '30s', target: 10 }),
+        Object.freeze({ duration: '1m', target: 25 }),
+        Object.freeze({ duration: '1m', target: 25 }),
+        Object.freeze({ duration: '30s', target: 0 }),
+      ]),
+      gracefulRampDown: '10s',
+      gracefulStop: '10s',
+    }),
+  }),
+});
+
+export function revalidateProfile(name) {
+  const profile = REVALIDATE_PROFILES[name];
+  if (!profile) {
+    throw new Error(`Unknown revalidate load-test profile: ${name}. Expected smoke or load.`);
+  }
+  return profile;
+}
