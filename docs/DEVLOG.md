@@ -3,6 +3,90 @@
 Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
+## 2026-11-18 10:32 — Session 99 — Owner traffic panel on /dashboard/analytics consuming the per-restaurant metrics route (Web, Phase 8)
+
+**Built:**
+
+- Session 98's first roadmap sub-item: the web surface for
+  `GET /api/restaurants/:id/metrics`. Chose to make the EXISTING
+  `TrafficPanel` the shared component rather than fork a second panel: its
+  props are generalized to a structural `TrafficView` =
+  `Pick<MetricsSnapshot, 'generatedAt' | 'uptimeSec' | 'totals' | 'routes'>`
+  plus an optional scoped `heading` — the restaurant payload satisfies it
+  field-for-field, and because the component can ONLY read those four keys,
+  a global field can never ride onto the OWNER rung through it even by
+  accident (the session-85 ADMIN-only rule holds at the type level now, not
+  just in the API).
+- `lib/api.ts`: `RestaurantMetricsSnapshot` contract type (documents the
+  scope/window honesty markers and the zero-global-fields rule) +
+  `api.getRestaurantMetrics(token, id)` on the owner-portal rung.
+- `/dashboard/analytics`: a SECOND, INDEPENDENT fetch beside analytics —
+  a metrics failure never blanks the revenue cards and an analytics failure
+  never hides the traffic section (the admin-page degradation rule).
+  `dynamic(() => import('@/components/TrafficPanel'), { ssr: false })`
+  rendered strictly under the `traffic != null` data-presence gate, so the
+  panel chunk is fetched behind the metrics round-trip (session 90's
+  gate-doubles-as-code-split rule); localized `traffic-panel-loading`
+  skeleton while in flight; amber `role=alert` strip
+  (`traffic-load-error`) on failure — a failed load degrades LOUD, it never
+  pretends "no traffic" (session 91 rule; the honest zero rows now only
+  ever come from a SUCCESSFUL fetch). Section only renders once a
+  restaurant is selected (the switcher's `selectedId` drives the fetch, so
+  an owner with zero restaurants sees no phantom panel).
+- i18n: ONE new key `Portal.ownerTrafficHeading` EN "Traffic for
+  {restaurant}" / ID "Trafik untuk {restaurant}"; everything else reuses
+  the sessions 80/85/93 traffic chrome keys already byte-pinned EN/ID.
+- ARCHITECTURE metrics bullet extended with the web-consumer rule
+  (structural TrafficView Pick, render-gate code split, loud degradation).
+
+**Verified:**
+
+- `next build` green; `/dashboard/analytics` First Load 126 kB — the panel
+  is NOT in it (deferred chunk; the degradation e2e proves the gate: with
+  metrics aborted, `traffic-route-table` renders 0 elements).
+- API untouched — `nest build` + jest re-run prove the delta 0
+  (93 suites / 1165 tests, same as session 98).
+- New `e2e/tests/owner-traffic.spec.ts` (3 tests, all read-only /
+  route-intercepting — seed-safe): (1) signs in as owner, MINTS the bucket
+  deterministically with one attributed owner-inbox 2xx (a cold boot would
+  otherwise legitimately show zeros), captures the page's OWN metrics
+  response via waitForResponse and pins the EXACT OWNER key-set
+  (scope='restaurant', window='since_api_boot', the 8-field key list — no
+  global/durability field can ride along), cross-checks cards/heading/
+  cumulative label/minted route row against that payload, and sweeps every
+  route key for uuid leaks AND for `/metrics` rows (the observer exemption
+  holds end-to-end); (2) aborts the metrics route -> analytics cards stay,
+  the amber alert strip appears, the panel table is absent; (3) ID locale
+  byte strings ('Permintaan', 'Trafik untuk …', 'Kumulatif sejak API
+  boot'). Harness lesson pinned in the spec: a response captured ACROSS a
+  full navigation reload is not retrievable later
+  (Network.getResponseBody misses) — the wire↔DOM cross-check must ride
+  the in-page fetch, not a reload.
+- FULL e2e suite 84→87: run 1 green, run 2 failed EXACTLY ONE test — the
+  `zz-forms-a11y` "receipt: bare link…" flake already recorded as a
+  PRE-EXISTING candidate in session 91's DEVLOG (its direct-API fixture
+  path is untouched this session; the new spec creates no orders and
+  changes no state) — then runs 3+4 green 87/87 CONSECUTIVE on fresh
+  seeds. Not claimed as a regression; session 91's "instrument the
+  fixture timings if it recurs" note stands.
+- Sanitizer scan: zero U+2026/`***`/U+FFFD in any added CODE line (all six
+  app/e2e files clean); the only ellipses/stars introduced are deliberate
+  prose in this log entry. Both messages JSONs parse; EN/ID Portal key-sets
+  still equal (one new key each).
+
+**Left for next sessions:**
+
+- Per-restaurant durability (next roadmap sub-item): buckets are live-only,
+  a restart silently zeroes the owner view — persist the dimension and
+  serve windowed deltas, mirroring session 89's same-boot subtraction rules.
+- Order-centric attribution (roadmap sub-item): `POST /orders`, payments
+  and receipt reads concern a restaurant but carry no path param — needs an
+  explicit service-side opt-in hook, never a url heuristic.
+- The `zz-forms-a11y` receipt flake recurred once (first time since session
+  91 filed it) — instrumenting its loginToken/createOrder/payOrder timings
+  is now due, ideally before it starts eating clean-run evidence.
+
+---
 ## 2026-11-16 19:32 — Session 98 — Per-restaurant traffic for owners: the explicit registry dimension + OWNER-rung scoped read (API, Phase 8)
 
 **Built:**

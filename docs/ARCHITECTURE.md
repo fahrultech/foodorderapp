@@ -570,7 +570,13 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   snapshot is ADMIN-only is structural, not policy). Restaurant buckets
   are live-only: the session-89 durability layer persists the GLOBAL
   snapshot only, so a restart zeroes the per-restaurant view (filed on
-  the roadmap). On top of the snapshots sits the DI-free alert engine
+  the roadmap). The web owner panel (`/dashboard/analytics`, session 99)
+  consumes the route through the SHARED `TrafficPanel`, generalized to a
+  structural `TrafficView` Pick — the component only ever reads
+  totals/routes/generatedAt/uptimeSec, so a global field cannot ride onto
+  the OWNER rung through it even by accident, and the panel chunk stays
+  code-split behind the `traffic != null` render gate (session 90 rule).
+  On top of the snapshots sits the DI-free alert engine
   `ops/alerts.ts` (session 86): three rules — `error_budget` (5xx rate vs
   the 99.5% availability SLO, gated by a minimum sample), `p95_latency`
   (histogram estimate vs ceiling) and `route_key_overflow` (cardinality-cap
