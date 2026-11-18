@@ -943,6 +943,24 @@ export const api = {
     const suffix = qs.toString() ? `?${qs.toString()}` : '';
     return request<RestaurantReviewsPage>(`/restaurants/${restaurantId}/reviews${suffix}`);
   },
+  /**
+   * Owner/ADMIN sets or REPLACES the one public reply thread on a review
+   * (session 101 API; composer shipped session 102). Response carries the
+   * fresh row only — a reply never moves stars, so there is deliberately
+   * no rating aggregate in the payload. Blank text 400s at the service.
+   */
+  setReviewReply: (accessToken: string, reviewId: string, reply: string) =>
+    request<{ review: ReviewRow }>(`/reviews/${reviewId}/reply`, {
+      method: 'PATCH',
+      body: JSON.stringify({ reply }),
+      headers: bearer(accessToken),
+    }),
+  /** Owner/ADMIN clears the reply thread. Idempotent: 200 even when nothing was there. */
+  clearReviewReply: (accessToken: string, reviewId: string) =>
+    request<{ review: ReviewRow }>(`/reviews/${reviewId}/reply`, {
+      method: 'DELETE',
+      headers: bearer(accessToken),
+    }),
 
   // --- auth ---
   register: (input: RegisterInput) =>

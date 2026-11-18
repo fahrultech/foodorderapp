@@ -24,6 +24,11 @@ export default function PortalTabs() {
       labelKey: 'tabAnalytics',
       active: pathname.startsWith('/dashboard/analytics'),
     },
+    {
+      href: '/dashboard/reviews',
+      labelKey: 'tabReviews',
+      active: pathname.startsWith('/dashboard/reviews'),
+    },
   ];
   return (
     <nav className="mt-4 flex gap-2" aria-label={t('tabsNavLabel')}>
