@@ -176,6 +176,16 @@ export class EnvVars {
   @IsString()
   METRICS_SNAPSHOT_RETENTION_SEC?: string;
 
+  // ── Perf: public-read HTTP cache (optional, session 103) ─────────────────
+  // Seconds a public browse read (GET /api/restaurants,
+  // GET /api/restaurants/:id, GET /api/search — anonymous only) may be
+  // served from the in-process ETag cache without touching the DB
+  // (default 15; '0' disables the feature entirely). Garbage falls back
+  // to the default — a perf knob must never crash boot.
+  @IsOptional()
+  @IsString()
+  HTTP_CACHE_TTL_SEC?: string;
+
   // ── Ops alert thresholds (optional) ──────────────────────────────────────
   // Read ONCE at boot by RequestMetricsService, drive the SAME evaluator for
   // GET /admin/alerts and the `request_metrics` fold verdict (session 86).

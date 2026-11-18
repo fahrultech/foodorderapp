@@ -8,6 +8,7 @@ import { REQUEST_ID_HEADER, requestIdMiddleware } from './common/logging/request
 import { createRootLogger, PinoLoggerService } from './common/logging/pino-logger';
 import { createHttpLoggingMiddleware } from './common/logging/http-logging';
 import { RequestMetricsService } from './common/metrics/request-metrics.service';
+import { HttpCacheService } from './common/http-cache/http-cache.service';
 import { SwaggerModule } from '@nestjs/swagger';
 import {
   SWAGGER_UI_PATH,
@@ -26,13 +27,18 @@ async function bootstrap() {
   app.useGlobalPipes(createGlobalValidationPipe());
   app.useGlobalFilters(new ErrorFormatFilter());
   // Correlation first (it seeds req.id for pino-http and the response
-  // header), then metrics capture, then access logging. All order-sensitive:
-  // the metrics middleware must attach its 'finish' listener BEFORE
-  // pino-http's so it can decorate res.metrics for the same log line
-  // (Node fires same-event listeners in registration order) — keep as-is.
+  // header), then metrics capture, then access logging, then the public
+  // read cache. All order-sensitive: the metrics middleware must attach
+  // its 'finish' listener BEFORE pino-http's so it can decorate
+  // res.metrics for the same log line (Node fires same-event listeners in
+  // registration order), and the cache middleware must register LAST of
+  // the three so a served 304/200-from-store — which skips routing
+  // entirely — was still seen by BOTH finish listeners: every revalidated
+  // browse keeps its metrics sample and its access line (session 103).
   app.use(requestIdMiddleware);
   app.use(app.get(RequestMetricsService).middleware());
   app.use(createHttpLoggingMiddleware(rootLogger));
+  app.use(app.get(HttpCacheService).middleware());
   app.enableCors({ origin: true, credentials: true, exposedHeaders: [REQUEST_ID_HEADER] });
   // OpenAPI docs. Document is generated from controller/DTO metadata at boot.
   // SWAGGER_UI_PATH already carries the "api/" segment because @nestjs/swagger

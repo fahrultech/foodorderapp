@@ -34,7 +34,10 @@ export default defineConfig({
       // roles in one serial minute. Rate-limit behavior has its own API
       // integration specs; raise only this test server's auth bucket so adding
       // a role flow cannot make unrelated browser tests order-dependent.
-      command: 'RATE_LIMIT_AUTH_MAX=100 node dist/main.js',
+      // HTTP_CACHE_TTL_SEC=0 (session 103): write-then-assert flows and the
+      // seed-absolute specs must never read a cached copy of a public browse
+      // response; the caching contract lives in API specs + the live smoke.
+      command: 'RATE_LIMIT_AUTH_MAX=100 HTTP_CACHE_TTL_SEC=0 node dist/main.js',
       cwd: '../apps/api',
       url: 'http://localhost:4000/api/health',
       reuseExistingServer: true,

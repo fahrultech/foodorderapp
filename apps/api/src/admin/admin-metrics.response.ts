@@ -66,7 +66,7 @@ export class MetricsTotalsResponse {
   routeKeys: number;
   @ApiProperty({ type: 'boolean', description: 'True if the route-key cap ever tripped and folded new routes into "other".' })
   overflowed: boolean;
-  @ApiProperty({ type: 'integer', description: 'Restaurant buckets minted by 2xx/3xx traffic (session 98 dimension); each backs GET /restaurants/:id/metrics.' })
+  @ApiProperty({ type: 'integer', description: 'Restaurant buckets minted by 2xx traffic (session 98 dimension, mint rule tightened in session 103); each backs GET /restaurants/:id/metrics.' })
   restaurantKeys: number;
   @ApiProperty({ type: 'boolean', description: 'True if the restaurant-bucket cap tripped: newer restaurants are global-only until boot (owners see honest zeros, never folded foreign traffic).' })
   restaurantOverflowed: boolean;

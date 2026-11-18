@@ -79,17 +79,21 @@ describe('restaurantScopeOf — template-driven attribution', () => {
 });
 
 describe('RequestMetricsRegistry — restaurant dimension', () => {
-  it('buckets are minted by success (2xx/3xx), errors only top up existing buckets', () => {
+  it('buckets are minted by 2xx only; 3xx revalidations and errors only top up existing buckets', () => {
     const reg = new RequestMetricsRegistry();
     reg.record(KEY, 404, 5, 'unknown-id'); // error before any success -> NOT created
+    reg.record(KEY, 304, 2, 'cold-id'); // ETag revalidation cold (session 103) -> NOT created
     expect(reg.restaurantSnapshot('unknown-id').totals.requests).toBe(0);
+    expect(reg.restaurantSnapshot('cold-id').totals.requests).toBe(0);
 
-    reg.record(KEY, 200, 5, RID); // success creates
+    reg.record(KEY, 200, 5, RID); // 2xx creates
+    reg.record(KEY, 304, 2, RID); // revalidation now tops up
     reg.record(KEY, 500, 15, RID); // error now tops up
     reg.record(KEY, 404, 3, RID); // and another error
     const snap = reg.restaurantSnapshot(RID);
-    expect(snap.totals.requests).toBe(3);
-    expect(snap.totals.byStatus).toEqual({ '2xx': 1, '3xx': 0, '4xx': 1, '5xx': 1 });
+    expect(snap.totals.requests).toBe(4);
+    expect(snap.totals.byStatus).toEqual({ '2xx': 1, '3xx': 1, '4xx': 1, '5xx': 1 });
+    expect(reg.snapshot().totals.restaurantKeys).toBe(1);
   });
 
   it('snapshots isolate restaurants — foreign samples can never ride along', () => {

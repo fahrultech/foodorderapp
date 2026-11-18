@@ -63,7 +63,8 @@ export class RestaurantMetricsResponse {
     description:
       'Matched-template rows inside this restaurant only, sorted by request count desc, then route. ' +
       'Attribution: only routes whose MATCHED TEMPLATE is restaurant-scoped (/api/restaurants/:id/... ' +
-      'incl. menu/orders/reviews sub-routes) count; a bucket is minted by the first 2xx/3xx, errors ' +
+      'incl. menu/orders/reviews sub-routes) count; a bucket is minted by the first 2xx, 304 ' +
+      'revalidations and errors ' +
       'only top up existing buckets, and the metrics read itself is exempt so polling never inflates the view.',
   })
   routes: MetricsRouteRowResponse[];

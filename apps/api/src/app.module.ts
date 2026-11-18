@@ -19,6 +19,7 @@ import { AdminModule } from './admin/admin.module';
 import { SearchModule } from './search/search.module';
 import { FeatureFlagsModule } from './feature-flags/feature-flags.module';
 import { MetricsModule } from './common/metrics/metrics.module';
+import { HttpCacheModule } from './common/http-cache/http-cache.module';
 
 @Module({
   imports: [
@@ -54,6 +55,7 @@ import { MetricsModule } from './common/metrics/metrics.module';
     AdminModule,
     SearchModule,
     MetricsModule,
+    HttpCacheModule,
   ],
 })
 export class AppModule {}

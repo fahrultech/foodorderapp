@@ -48,7 +48,8 @@ export class RestaurantMetricsController {
       'OWNER required (admins bypass). Restaurant-scoped view of the request-metrics registry: ' +
       'matched-template rows, status-class tallies and duration histograms for requests ATTRIBUTED ' +
       'to this restaurant (routes under /api/restaurants/:id/... incl. the :restaurantId menu variant). ' +
-      'A bucket is minted by the first 2xx/3xx so uuid probes never create views; later 4xx/5xx on ' +
+      'A bucket is minted by the first 2xx so uuid probes never create views; 304 revalidations and ' +
+      'later 4xx/5xx on ' +
       'the same surface still count. Cumulative since this API process booted, NOT persisted. ' +
       'The global snapshot (all restaurants + unscoped traffic) is ADMIN-only and never appears here.',
   })

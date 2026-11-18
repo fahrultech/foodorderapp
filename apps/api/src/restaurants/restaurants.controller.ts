@@ -12,6 +12,7 @@ import { UuidParam } from '../common/uuid';
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
+  ApiHeader,
   ApiOkResponse,
   ApiOperation,
   ApiParam,
@@ -47,6 +48,12 @@ export class RestaurantsController {
   @ApiQuery({ name: 'page', required: false, schema: { type: 'integer', minimum: 1, default: 1 } })
   @ApiQuery({ name: 'limit', required: false, schema: { type: 'integer', minimum: 1, maximum: 50, default: 20 } })
   @ApiOperation({ summary: 'Browse restaurants (public storefront search)', description: 'Returns `{ items, total, page, limit }`. `search` is a case-insensitive substring over name and cuisine.' })
+  @ApiHeader({
+    name: 'If-None-Match',
+    required: false,
+    description:
+      'Conditional GET (session 103): anonymous responses carry a strong ETag + `Cache-Control: public, max-age=<TTL>`. A matching If-None-Match inside the TTL answers 304 with ZERO database work; requests carrying `authorization` are never served from or written to the cache.',
+  })
   @ApiOkResponse({ type: PaginatedRestaurantsResponse })
   list(
     @Query('search') search?: string,
@@ -115,6 +122,12 @@ export class RestaurantsController {
   @Get(':id')
   @ApiParam({ name: 'id', schema: { type: 'string', format: 'uuid' } })
   @ApiOperation({ summary: 'One restaurant incl. its menu items', description: 'Public. Malformed (non-UUID) ids answer 400; unknown ids answer 404.' })
+  @ApiHeader({
+    name: 'If-None-Match',
+    required: false,
+    description:
+      'Conditional GET (session 103): same anonymous-only ETag contract as the restaurant list. Matching revalidations inside the TTL answer 304 and only TOP UP the per-restaurant metrics bucket (minting stays 2xx-only).',
+  })
   @ApiOkResponse({ type: RestaurantWithMenuResponse })
   @ApiError(400, 'Malformed (non-UUID) restaurant id.')
   @ApiError(404, 'Unknown restaurant id.')

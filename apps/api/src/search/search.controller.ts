@@ -1,5 +1,5 @@
 import { Controller, Get, Query } from '@nestjs/common';
-import { ApiOkResponse, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
+import { ApiHeader, ApiOkResponse, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { ApiError, SearchResultsResponse } from '../common/swagger-response-models';
 import { SearchQueryDto } from './dto/search-query.dto';
 import { SearchService } from './search.service';
@@ -29,6 +29,12 @@ export class SearchController {
     required: false,
     schema: { type: 'integer', minimum: 1, maximum: 25, default: 10 },
     description: 'Per-side cap — applies to BOTH the restaurants and the dishes list.',
+  })
+  @ApiHeader({
+    name: 'If-None-Match',
+    required: false,
+    description:
+      'Conditional GET (session 103): anonymous responses carry a strong ETag + `Cache-Control: public, max-age=<TTL>`, keyed per full URL (query included). A matching If-None-Match inside the TTL answers 304 with ZERO database work.',
   })
   @ApiOkResponse({ type: SearchResultsResponse })
   @ApiError(400, 'Missing/blank/too-long `q`, or `limit` outside 1..25.')

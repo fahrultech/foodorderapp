@@ -17,12 +17,14 @@
  * Restaurant dimension (session 98, Phase 8 "per-restaurant traffic for
  * owners"): samples whose MATCHED route template is restaurant-scoped
  * (`restaurantScopeOf`) additionally land in a per-restaurant sub-registry
- * of the SAME route-key space. Creation is success-gated (a 2xx/3xx is what
- * proves an id addresses a REAL restaurant — probe floods of random-but-
- * valid uuids 404 and never mint buckets; 4xx/5xx may only top up an
- * existing bucket, so owners also see errors ON their surfaces), the id set
- * is capped like the route set, and the metrics-read route itself is
- * EXEMPT so an owner polling their own traffic never inflates it.
+ * of the SAME route-key space. Creation is success-gated — since session
+ * 103 a bucket is minted ONLY by a 2xx (a fresh 304 revalidation proves a
+ * browser cache, not this boot serving the page, so it may top up an
+ * existing bucket but never create one; probe floods of random-but-valid
+ * uuids 404 and never mint; 4xx/5xx may only top up an existing bucket,
+ * so owners also see errors ON their surfaces); the id set is capped like
+ * the route set, and the metrics-read route itself is EXEMPT so an owner
+ * polling their own traffic never inflates it.
  * A per-restaurant snapshot can NEVER contain unattributed or foreign
  * samples — that separation is the OWNER-rung safety contract (session 85
  * decision: the global snapshot stays ADMIN-only).
@@ -310,20 +312,25 @@ export class RequestMetricsRegistry {
 
   /**
    * Restaurant-dimension fold of an already-globally-recorded sample.
-   * SUCCESS-GATED CREATION: a bucket is minted only by a 2xx/3xx — the
-   * proof that the id addresses a real, serving restaurant. 4xx/5xx probe
-   * floods of random-but-valid uuids therefore never grow the key space,
-   * while real errors ON an already-provisioned surface still top up its
-   * bucket (owners see failures, not just pageviews). Past the cap new
-   * buckets are REFUSED (the sample stays global-only) — folding into a
-   * shared "other" bucket would hand one owner another's traffic, the one
-   * thing this dimension must never do.
+   * 2xx-ONLY CREATION (tightened in session 103 alongside the public-read
+   * ETag cache): a bucket is minted only by a fresh 200/201 — the proof
+   * that the id addresses a real, serving restaurant. A 304 revalidation
+   * may only TOP UP an existing bucket: it proves the page existed in
+   * someone's browser cache, not that this boot served it, so a cold
+   * observer (post-restart, past the cap) must never mint a bucket via a
+   * validator. 4xx/5xx probe floods of random-but-valid uuids therefore
+   * never grow the key space, while real errors AND ETag revalidations ON
+   * an already-provisioned surface still top up its bucket (owners see
+   * failures and repeat traffic, not just first pageviews). Past the cap
+   * new buckets are REFUSED (the sample stays global-only) — folding into
+   * a shared "other" bucket would hand one owner another's traffic, the
+   * one thing this dimension must never do.
    */
   private recordRestaurant(restaurantId: string, key: string, status: number, durationMs: number): void {
     let bucket = this.restaurantBuckets.get(restaurantId);
     if (!bucket) {
       const cls = statusClassOf(status);
-      if (cls === '4xx' || cls === '5xx') return;
+      if (cls !== '2xx') return;
       if (this.restaurantBuckets.size >= this.maxRestaurantKeys) {
         this.restaurantCapTripped = true;
         return;
