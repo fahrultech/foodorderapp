@@ -189,6 +189,22 @@ export default async function RestaurantPage({
                   </div>
                   <Stars rating={r.rating} className="text-sm" />
                   {r.comment && <p className="mt-1 text-sm text-stone-600">{r.comment}</p>}
+                  {r.reply && (
+                    <div
+                      data-testid="review-reply"
+                      className="mt-2 rounded-lg border border-stone-200 bg-stone-50 p-3"
+                    >
+                      <div className="flex items-baseline justify-between gap-3">
+                        <span className="text-xs font-bold text-stone-700">{t('ownerReply')}</span>
+                        {r.repliedAt && (
+                          <time className="text-[11px] text-stone-400" dateTime={r.repliedAt}>
+                            {r.repliedAt.slice(0, 10)}
+                          </time>
+                        )}
+                      </div>
+                      <p className="mt-1 text-sm text-stone-600">{r.reply}</p>
+                    </div>
+                  )}
                 </li>
               ))}
             </ul>

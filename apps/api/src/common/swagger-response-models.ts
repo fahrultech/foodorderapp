@@ -1197,6 +1197,22 @@ export class ReviewRowResponse {
   @ApiProperty({ type: 'string', nullable: true })
   comment: string | null;
 
+  @ApiProperty({
+    type: 'string',
+    nullable: true,
+    maxLength: 2000,
+    description: "Owner's public reply thread (one per review); null until the restaurant replies.",
+  })
+  reply: string | null;
+
+  @ApiProperty({
+    type: 'string',
+    format: 'date-time',
+    nullable: true,
+    description: 'When the reply was written; moves together with `reply` (both null = no thread).',
+  })
+  repliedAt: string | null;
+
   @ApiProperty({ type: 'string', format: 'date-time' })
   createdAt: string;
 
@@ -1219,6 +1235,16 @@ export class ReviewWriteResponse {
 
   @ApiProperty({ type: () => RestaurantRatingResponse, description: 'Restaurant rating recomputed after the write.' })
   restaurant: RestaurantRatingResponse;
+}
+
+/**
+ * PATCH/DELETE /reviews/{id}/reply: the updated row ONLY. A reply changes
+ * no stars, so there is deliberately no `restaurant` aggregate here — the
+ * contract cannot suggest that the rating was touched.
+ */
+export class ReviewReplyResponse {
+  @ApiProperty({ type: () => ReviewRowResponse })
+  review: ReviewRowResponse;
 }
 
 export class ReviewListResponse {

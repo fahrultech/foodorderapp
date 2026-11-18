@@ -1,6 +1,7 @@
 import { BadRequestException, ValidationPipe } from '@nestjs/common';
 import { CreateReviewDto } from './create-review.dto';
 import { UpdateReviewDto } from './update-review.dto';
+import { ReplyReviewDto } from './review-reply.dto';
 
 /** Same options the app boots with (src/main.ts) — tests real coercion + stripping. */
 const pipe = new ValidationPipe({ whitelist: true, transform: true, forbidUnknownValues: true });
@@ -8,6 +9,8 @@ const checkCreate = (value: any) =>
   pipe.transform(value, { metatype: CreateReviewDto, type: 'body' });
 const checkUpdate = (value: any) =>
   pipe.transform(value, { metatype: UpdateReviewDto, type: 'body' });
+const checkReply = (value: any) =>
+  pipe.transform(value, { metatype: ReplyReviewDto, type: 'body' });
 
 const UUID = '00000000-0000-4000-8000-000000000002';
 
@@ -84,5 +87,50 @@ describe('UpdateReviewDto — body validation via global ValidationPipe', () => 
     expect(out.orderId).toBeUndefined();
     expect(out.userId).toBeUndefined();
     expect(out.status).toBeUndefined();
+  });
+});
+
+describe('ReplyReviewDto — body validation via global ValidationPipe', () => {
+  it('accepts the plain reply text and instances the DTO', async () => {
+    const out: any = await checkReply({ reply: 'Thanks, see you again!' });
+    expect(out).toBeInstanceOf(ReplyReviewDto);
+    expect(out.reply).toBe('Thanks, see you again!');
+  });
+
+  it('requires reply — an empty body is a 400, never a silent clear', async () => {
+    await expect(checkReply({})).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('rejects non-string and null reply (clearing is DELETE\'s verb)', async () => {
+    for (const reply of [5, true, { a: 1 }, ['x'], null]) {
+      await expect(checkReply({ reply })).rejects.toBeInstanceOf(BadRequestException);
+    }
+  });
+
+  it('caps the reply at 2000 characters', async () => {
+    const out: any = await checkReply({ reply: 'x'.repeat(2000) });
+    expect(out.reply.length).toBe(2000);
+    await expect(checkReply({ reply: 'x'.repeat(2001) })).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+  });
+
+  it('lets whitespace-only text pass the DTO — the SERVICE owns the blank 400', async () => {
+    const out: any = await checkReply({ reply: '   ' });
+    expect(out.reply).toBe('   ');
+  });
+
+  it('strips unknown properties — id/orderId/rating are not reply-patchable', async () => {
+    const out: any = await checkReply({
+      reply: 'ok',
+      id: UUID,
+      orderId: UUID,
+      rating: 5,
+      userId: 'x',
+    });
+    expect(out.id).toBeUndefined();
+    expect(out.orderId).toBeUndefined();
+    expect(out.rating).toBeUndefined();
+    expect(out.userId).toBeUndefined();
   });
 });

@@ -71,6 +71,7 @@
     "allRestaurants": "\u2190 Semua restoran",
     "reviews": "{count} ulasan",
     "recentReviews": "Ulasan terbaru",
+    "ownerReply": "Balasan dari restoran",
     "noReviews": "Belum ada ulasan \u2014 skor {rating}\u2605 adalah nilai awal platform sampai pelanggan memberi penilaian.",
     "showingReviews": "Menampilkan {shown} dari {total} ulasan.",
     "openNow": "Buka sekarang",

@@ -654,9 +654,23 @@ async function main() {
   // rises 4.4 → 5.0 with 1. Written directly here (not via the API) but under
   // the API's own rules: owned completed orders, one review per order.
   const reviewRepo = dataSource.getRepository(Review);
-  const reviewSpecs: { code: string; rating: number; comment: string | null }[] = [
+  // `reply` models the OWNER's public response thread (one per review,
+  // `reply`+`repliedAt` move together — the same invariant the CHECK pins).
+  // Seeded on the 3-star sate complaint so a fresh database shows the
+  // nested response card on the Warung storefront without any API call.
+  const reviewSpecs: {
+    code: string;
+    rating: number;
+    comment: string | null;
+    reply?: string;
+  }[] = [
     { code: 'FO-SEED8', rating: 5, comment: 'Nasi goreng juara, sambal mantap!' },
-    { code: 'FO-SEED9', rating: 3, comment: 'Sate enak tapi datang agak dingin.' },
+    {
+      code: 'FO-SEED9',
+      rating: 3,
+      comment: 'Sate enak tapi datang agak dingin.',
+      reply: 'Terima kasih masukannya! Since that order we pack sate in insulated boxes — the next one will arrive hot.',
+    },
     { code: 'FO-SEED10', rating: 5, comment: 'Tteokbokki worth every minute.' },
   ];
   for (const spec of reviewSpecs) {
@@ -668,9 +682,13 @@ async function main() {
         userId: demoCustomer.id,
         rating: spec.rating,
         comment: spec.comment,
+        reply: spec.reply ?? null,
+        // Deterministic timestamp (NOT new Date()): the storefront renders
+        // the reply date, and seed output must stay byte-stable for specs.
+        repliedAt: spec.reply ? new Date('2026-11-02T09:30:00.000Z') : null,
       }),
     );
-    console.log(`  + review ${spec.rating}★ on ${spec.code}`);
+    console.log(`  + review ${spec.rating}★ on ${spec.code}${spec.reply ? ' (with owner reply)' : ''}`);
   }
   // Same aggregate ReviewsService.recomputeRating runs on every review write.
   await dataSource.query(

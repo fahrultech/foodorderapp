@@ -305,6 +305,9 @@ export interface ReviewRow {
   reviewerName: string;
   rating: number;
   comment: string | null;
+  /** Owner reply thread (public, one per review); null = not replied. */
+  reply: string | null;
+  repliedAt: string | null;
   createdAt: string;
   updatedAt: string;
 }

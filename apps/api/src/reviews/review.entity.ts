@@ -54,6 +54,18 @@ export class Review {
   @Column({ type: 'text', nullable: true })
   comment: string | null;
 
+  /**
+   * Owner's PUBLIC reply thread (one per review). Written and cleared only
+   * via `PATCH`/`DELETE /reviews/:id/reply` by the restaurant's owner (or
+   * ADMIN); `reply` and `repliedAt` move together (CHECK pairing). NULL = no
+   * reply yet. Never part of the customer's GDPR personal export.
+   */
+  @Column({ type: 'varchar', length: 2000, nullable: true })
+  reply: string | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  repliedAt: Date | null;
+
   @CreateDateColumn()
   createdAt: Date;
 

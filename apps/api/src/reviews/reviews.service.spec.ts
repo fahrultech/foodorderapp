@@ -1,18 +1,23 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   NotFoundException,
 } from '@nestjs/common';
 import { Review } from './review.entity';
 import { Order, OrderStatus } from '../orders/order.entity';
 import { Restaurant } from '../restaurants/restaurant.entity';
-import { User } from '../users/user.entity';
+import { User, UserRole } from '../users/user.entity';
 import { DEFAULT_RATING, ReviewsService } from './reviews.service';
 
 const U = '00000000-0000-4000-8000-000000000001'; // caller
 const O = '00000000-0000-4000-8000-000000000002'; // order
 const R = '00000000-0000-4000-8000-000000000003'; // restaurant
 const V = '00000000-0000-4000-8000-000000000004'; // review
+const OWN = '00000000-0000-4000-8000-000000000005'; // owner of restaurant R
+const ADM = '00000000-0000-4000-8000-000000000006'; // platform admin
+const owner = { sub: OWN, role: UserRole.OWNER };
+const admin = { sub: ADM, role: UserRole.ADMIN };
 
 function fakeOrder(overrides: Partial<Order> = {}): Order {
   return {
@@ -33,6 +38,8 @@ function fakeReview(overrides: Partial<Review> = {}): Review {
     userId: U,
     rating: 4,
     comment: 'Good',
+    reply: null,
+    repliedAt: null,
     createdAt: new Date('2026-10-01T00:00:00Z'),
     updatedAt: new Date('2026-10-01T00:00:00Z'),
     order: fakeOrder(),
@@ -77,7 +84,7 @@ function build(order: Order | null, opts: BuildOpts = {}) {
   const ordersRepo: any = { findOne: jest.fn(async () => order) };
   const restaurantsRepo: any = {
     findOne: jest.fn(async () =>
-      opts.restaurant === null ? null : opts.restaurant ?? ({ id: R, name: 'Warung', slug: 'warung', rating: 4.8, ratingCount: 0 } as Restaurant),
+      opts.restaurant === null ? null : opts.restaurant ?? ({ id: R, name: 'Warung', slug: 'warung', rating: 4.8, ratingCount: 0, ownerId: OWN } as Restaurant),
     ),
     update: jest.fn(async () => ({ affected: 1 })),
   };
@@ -165,6 +172,9 @@ describe('ReviewsService', () => {
         reviewerName: 'Tester',
         rating: 5,
         comment: 'Great',
+        // A brand-new review never carries a reply thread.
+        reply: null,
+        repliedAt: null,
         createdAt: expect.any(Date),
         updatedAt: expect.any(Date),
       });
@@ -225,6 +235,17 @@ describe('ReviewsService', () => {
       expect(args.skip).toBe((wantPage - 1) * wantLimit);
       expect(args.take).toBe(wantLimit);
       expect(Number.isSafeInteger(args.skip)).toBe(true);
+    });
+
+    it('embeds the reply thread on every public feed row', async () => {
+      const repliedAt = new Date('2026-11-03T00:00:00Z');
+      const h = build(null, {
+        rows: [fakeReview({ reply: 'Glad you liked it!', repliedAt })],
+        totalCount: 1,
+      });
+      const res = await h.service.listForRestaurant(R);
+      expect(res.items[0].reply).toBe('Glad you liked it!');
+      expect(res.items[0].repliedAt).toBe(repliedAt);
     });
 
     it('returns the page envelope with the restaurant rating summary and clamped paging', async () => {
@@ -328,6 +349,115 @@ describe('ReviewsService', () => {
       expect(h.query.mock.calls[0][1]).toEqual([R, DEFAULT_RATING]);
       expect(res.rating).toBe(DEFAULT_RATING);
       expect(res.ratingCount).toBe(0);
+    });
+  });
+
+  describe('setReply', () => {
+    it('404s on a malformed id before any read', async () => {
+      const h = build(null);
+      await expect(h.service.setReply(owner, 'nope', { reply: 'Hi' })).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+      expect(h.findOne).not.toHaveBeenCalled();
+    });
+
+    it('404s when the review does not exist', async () => {
+      const h = build(null, { review: null });
+      await expect(h.service.setReply(owner, V, { reply: 'Hi' })).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+    });
+
+    it('403s an owner of a DIFFERENT restaurant (404 would only pretend: the feed is public)', async () => {
+      const h = build(null, { review: fakeReview(), restaurant: { id: R, ownerId: U } as Restaurant });
+      await expect(h.service.setReply(owner, V, { reply: 'Hi' })).rejects.toBeInstanceOf(
+        ForbiddenException,
+      );
+      expect(h.save).not.toHaveBeenCalled();
+    });
+
+    it('403s when the restaurant has NO owner (platform-seeded rows are admin-only)', async () => {
+      const h = build(null, { review: fakeReview(), restaurant: { id: R, ownerId: null } as Restaurant });
+      await expect(h.service.setReply(owner, V, { reply: 'Hi' })).rejects.toBeInstanceOf(
+        ForbiddenException,
+      );
+    });
+
+    it('writes the trimmed reply + repliedAt and NEVER recomputes the rating', async () => {
+      const existing = fakeReview();
+      const h = build(null, { review: existing });
+      const res = await h.service.setReply(owner, V, { reply: '  Thanks for the kind words!  ' });
+      const saved = h.save.mock.calls[0][0] as Review;
+      expect(saved.reply).toBe('Thanks for the kind words!');
+      expect(saved.repliedAt).toBeInstanceOf(Date);
+      // Reply changes no stars: no aggregate query, no restaurant UPDATE.
+      expect(h.query).not.toHaveBeenCalled();
+      expect(h.restaurantsRepo.update).not.toHaveBeenCalled();
+      expect(res.review.reply).toBe('Thanks for the kind words!');
+      expect(res.review.repliedAt).toBeInstanceOf(Date);
+    });
+
+    it('REPLACES the single thread on a second reply (no history rows)', async () => {
+      const existing = fakeReview({ reply: 'First answer', repliedAt: new Date('2026-11-01T00:00:00Z') });
+      const h = build(null, { review: existing });
+      await h.service.setReply(owner, V, { reply: 'Updated answer' });
+      expect(h.save).toHaveBeenCalledTimes(1);
+      const saved = h.save.mock.calls[0][0] as Review;
+      expect(saved.reply).toBe('Updated answer');
+    });
+
+    it('400s whitespace-only text — an invisible response card is a lie', async () => {
+      const existing = fakeReview();
+      const h = build(null, { review: existing });
+      for (const bad of ['', '   ', '\n\t ']) {
+        await expect(h.service.setReply(owner, V, { reply: bad })).rejects.toBeInstanceOf(
+          BadRequestException,
+        );
+      }
+      expect(h.save).not.toHaveBeenCalled();
+    });
+
+    it('ADMIN bypasses restaurant ownership WITHOUT reading the restaurant', async () => {
+      const existing = fakeReview();
+      const h = build(null, { review: existing, restaurant: { id: R, ownerId: null } as Restaurant });
+      const res = await h.service.setReply(admin, V, { reply: 'Platform apology' });
+      expect(res.review.reply).toBe('Platform apology');
+      // The admin path short-circuits the ownership lookup entirely.
+      expect(h.restaurantsRepo.findOne).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('clearReply', () => {
+    it('nulls BOTH reply and repliedAt together (CHECK pairing)', async () => {
+      const existing = fakeReview({
+        reply: 'Thanks!',
+        repliedAt: new Date('2026-11-02T00:00:00Z'),
+      });
+      const h = build(null, { review: existing });
+      const res = await h.service.clearReply(owner, V);
+      const saved = h.save.mock.calls[0][0] as Review;
+      expect(saved.reply).toBeNull();
+      expect(saved.repliedAt).toBeNull();
+      expect(res.review.reply).toBeNull();
+      expect(res.review.repliedAt).toBeNull();
+    });
+
+    it('idempotent: clearing an unreplied review WRITES NOTHING and still answers the row', async () => {
+      const existing = fakeReview({ reply: null, repliedAt: null });
+      const h = build(null, { review: existing });
+      const res = await h.service.clearReply(owner, V);
+      expect(h.save).not.toHaveBeenCalled();
+      expect(res.review.reply).toBeNull();
+    });
+
+    it('same access ladder as setReply: 404 unknown, 403 foreign restaurant', async () => {
+      const h1 = build(null, { review: null });
+      await expect(h1.service.clearReply(owner, V)).rejects.toBeInstanceOf(NotFoundException);
+      const h2 = build(null, {
+        review: fakeReview(),
+        restaurant: { id: R, ownerId: U } as Restaurant,
+      });
+      await expect(h2.service.clearReply(owner, V)).rejects.toBeInstanceOf(ForbiddenException);
     });
   });
 });

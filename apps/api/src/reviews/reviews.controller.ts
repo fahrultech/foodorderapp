@@ -24,19 +24,24 @@ import {
   ReviewFeedResponse,
   ReviewListResponse,
   ReviewRemoveResponse,
+  ReviewReplyResponse,
   ReviewWriteResponse,
 } from '../common/swagger-response-models';
 import { ReviewsService } from './reviews.service';
 import { CreateReviewDto } from './dto/create-review.dto';
 import { UpdateReviewDto } from './dto/update-review.dto';
+import { ReplyReviewDto } from './dto/review-reply.dto';
 import { JwtAuthGuard } from '../common/jwt-auth.guard';
 import { CurrentUser } from '../common/current-user.decorator';
 
 /**
- * Customer-authored review routes — everything here is scoped to the JWT
- * subject (author id comes from the token, never from the request), same
- * construction as the favorites routes. The public restaurant feed lives on
- * `RestaurantReviewsController` next door.
+ * Review routes. The author-scoped customer surface (`POST`, `GET /my`,
+ * `PATCH/:id`, `DELETE/:id`) is all scoped to the JWT subject — the author
+ * id comes from the token, never from the request, same construction as the
+ * favorites routes. The OWNER reply pair (`PATCH`/`DELETE /:id/reply`)
+ * lives next door because the resource path is the same `/reviews/:id`
+ * family; access there is decided by the review's restaurant owner
+ * (ADMIN bypass), not by the JWT subject.
  */
 @Controller('reviews')
 @UseGuards(JwtAuthGuard)
@@ -93,6 +98,45 @@ export class ReviewsController {
 
   remove(@CurrentUser() user: any, @UuidParam('id') id: string) {
     return this.service.remove(user.sub, id);
+  }
+
+  /**
+   * Owner (or ADMIN) sets/replaces the ONE public reply thread on a review.
+   * Access is decided by the review's restaurant ownership, not by authorship.
+   */
+  @Patch(':id/reply')
+  @ApiParam({ name: 'id', schema: { type: 'string', format: 'uuid' } })
+  @ApiOperation({ summary: 'Reply to a review (restaurant owner)', description: 'One reply per review: a second PATCH REPLACES the text (single thread, no history). Reqs the caller to own the restaurant the review belongs to (ADMIN bypass). Whitespace-only reply is a 400. Rating is never recomputed here.' })
+  @ApiOkResponse({ type: ReviewReplyResponse })
+  @ApiError(400, 'Blank reply, malformed body, or the path id is not a UUID.')
+  @ApiError(401, 'Missing/invalid/expired access token.')
+  @ApiError(403, 'The review belongs to a restaurant the caller does not own.')
+  @ApiError(404, 'Unknown review id.')
+
+  reply(
+    @CurrentUser() user: any,
+    @UuidParam('id') id: string,
+    @Body() dto: ReplyReviewDto,
+  ) {
+    return this.service.setReply(
+      { sub: user.sub, role: user.role },
+      id,
+      dto,
+    );
+  }
+
+  /** Owner (or ADMIN) clears the reply thread. Idempotent: 200 even when nothing was there. */
+  @Delete(':id/reply')
+  @ApiParam({ name: 'id', schema: { type: 'string', format: 'uuid' } })
+  @ApiOperation({ summary: 'Delete a review reply (restaurant owner)', description: 'Clearing an already-unreplied review answers 200 with the current row and writes nothing. Foreign-restaurant reviews 403, unknown ids 404, malformed ids 400.' })
+  @ApiOkResponse({ type: ReviewReplyResponse })
+  @ApiError(400, 'Malformed (non-UUID) review id.')
+  @ApiError(401, 'Missing/invalid/expired access token.')
+  @ApiError(403, 'The review belongs to a restaurant the caller does not own.')
+  @ApiError(404, 'Unknown review id.')
+
+  deleteReply(@CurrentUser() user: any, @UuidParam('id') id: string) {
+    return this.service.clearReply({ sub: user.sub, role: user.role }, id);
   }
 }
 

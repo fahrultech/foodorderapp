@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -9,8 +10,10 @@ import { Repository } from 'typeorm';
 import { Review } from './review.entity';
 import { Order, OrderStatus } from '../orders/order.entity';
 import { Restaurant } from '../restaurants/restaurant.entity';
+import { UserRole } from '../users/user.entity';
 import { CreateReviewDto } from './dto/create-review.dto';
 import { UpdateReviewDto } from './dto/update-review.dto';
+import { ReplyReviewDto } from './dto/review-reply.dto';
 import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from '../orders/dto/list-my-orders.dto';
 import {
   blankToUndefined,
@@ -39,6 +42,9 @@ export interface ReviewRow {
   reviewerName: string;
   rating: number;
   comment: string | null;
+  /** Owner reply thread (public, one per review); null = not replied. */
+  reply: string | null;
+  repliedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -66,6 +72,8 @@ function toReviewRow(r: Review): ReviewRow {
     reviewerName: r.user?.name ?? 'Diner',
     rating: r.rating,
     comment: r.comment ?? null,
+    reply: r.reply ?? null,
+    repliedAt: r.repliedAt ?? null,
     createdAt: r.createdAt,
     updatedAt: r.updatedAt,
   };
@@ -240,6 +248,77 @@ export class ReviewsService {
     await this.reviews.delete({ id: review.id });
     const restaurant = await this.recomputeRating(review.restaurantId);
     return { removed: true, restaurant };
+  }
+
+  /**
+   * Access ladder for the OWNER reply routes. Unknown/malformed ids 404
+   * like every review route, but a KNOWN review at another restaurant is a
+   * 403 — deliberately not flattened into 404: reviews are already PUBLIC
+   * data (`GET /restaurants/:id/reviews` needs no auth), so confirming the
+   * row exists to a logged-in actor leaks nothing, and an owner working
+   * from a stale dashboard deserves the honest "not yours" over a phantom
+   * "not found". ADMIN bypasses ownership (session 98's `getOwned` doctrine).
+   */
+  private async requireReplyAccess(
+    actor: { sub: string; role: UserRole },
+    reviewId: string,
+  ): Promise<Review> {
+    if (!isUuid(reviewId)) throw new NotFoundException('Review not found');
+    const review = await this.reviews.findOne({ where: { id: reviewId } });
+    if (!review) throw new NotFoundException('Review not found');
+    if (actor.role !== UserRole.ADMIN) {
+      const restaurant = await this.restaurants.findOne({
+        where: { id: review.restaurantId },
+      });
+      if (!restaurant || restaurant.ownerId !== actor.sub) {
+        throw new ForbiddenException('You do not own this restaurant');
+      }
+    }
+    return review;
+  }
+
+  /**
+   * Owner (or ADMIN) posts/updates the ONE reply thread on a review.
+   * Re-setting replaces the text (single-thread model — no reply history).
+   * Whitespace-only text is a 400: an "official response" card with
+   * invisible content would render as a lie on the storefront. Rating is
+   * NOT recomputed — a reply changes no stars.
+   */
+  async setReply(
+    actor: { sub: string; role: UserRole },
+    reviewId: string,
+    dto: ReplyReviewDto,
+  ): Promise<{ review: ReviewRow }> {
+    const review = await this.requireReplyAccess(actor, reviewId);
+    const text = dto.reply.trim();
+    if (!text) {
+      throw new BadRequestException('Reply text cannot be blank');
+    }
+    review.reply = text;
+    review.repliedAt = new Date();
+    await this.reviews.save(review);
+    const row = await this.withRelations(review.id);
+    return { review: toReviewRow(row) };
+  }
+
+  /**
+   * Owner (or ADMIN) clears the reply thread. Idempotent BY DESIGN:
+   * clearing an already-unreplied review answers 200 with the current row
+   * and writes NOTHING (no `updatedAt` churn, no fake save) — retried
+   * deletes are normal client behavior and must not look like failures.
+   */
+  async clearReply(
+    actor: { sub: string; role: UserRole },
+    reviewId: string,
+  ): Promise<{ review: ReviewRow }> {
+    const review = await this.requireReplyAccess(actor, reviewId);
+    if (review.reply !== null || review.repliedAt !== null) {
+      review.reply = null;
+      review.repliedAt = null;
+      await this.reviews.save(review);
+    }
+    const row = await this.withRelations(review.id);
+    return { review: toReviewRow(row) };
   }
 
   /**

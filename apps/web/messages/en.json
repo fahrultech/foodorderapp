@@ -71,6 +71,7 @@
     "allRestaurants": "\u2190 All restaurants",
     "reviews": "{count, plural, =1 {# review} other {# reviews}}",
     "recentReviews": "Recent reviews",
+    "ownerReply": "Response from the restaurant",
     "noReviews": "No reviews yet \u2014 the {rating}\u2605 score is our platform baseline until diners rate their orders.",
     "showingReviews": "Showing {shown} of {total} reviews.",
     "openNow": "Open now",

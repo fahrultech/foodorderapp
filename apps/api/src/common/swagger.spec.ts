@@ -216,6 +216,8 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['/reviews/my', 'get'],
       ['/reviews/{id}', 'patch'],
       ['/reviews/{id}', 'delete'],
+      ['/reviews/{id}/reply', 'patch'],
+      ['/reviews/{id}/reply', 'delete'],
       ['/promos/validate', 'post'],
       ['/payments', 'post'],
       ['/payments/{id}/capture', 'post'],
@@ -267,6 +269,8 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['/driver/orders', 'get'],
       ['/driver/orders/{id}/status', 'patch'],
       ['/reviews', 'post'],
+      ['/reviews/{id}/reply', 'patch'],
+      ['/reviews/{id}/reply', 'delete'],
       ['/menu/items/{id}', 'delete'],
       ['/menu/items/{id}/image-upload', 'post'],
       ['/payments', 'post'],
@@ -426,6 +430,8 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['/reviews/my', 'get', 200, 'ref:ReviewListResponse'],
       ['/reviews/{id}', 'patch', 200, 'ref:ReviewWriteResponse'],
       ['/reviews/{id}', 'delete', 200, 'ref:ReviewRemoveResponse'],
+      ['/reviews/{id}/reply', 'patch', 200, 'ref:ReviewReplyResponse'],
+      ['/reviews/{id}/reply', 'delete', 200, 'ref:ReviewReplyResponse'],
       ['/promos/validate', 'post', 201, 'oneOf2'],
       ['/payments', 'post', 201, 'ref:PaymentResponse'],
       ['/payments/{id}/capture', 'post', 200, 'ref:PaymentResponse'],
@@ -444,7 +450,7 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['/admin/promos/{id}/usages', 'get', 200, 'ref:PromoUsageListResponse'],
       ['/search', 'get', 200, 'ref:SearchResultsResponse'],
     ];
-    expect(SUCCESS.length).toBe(75);
+    expect(SUCCESS.length).toBe(77);
     for (const [path, method, code, kind] of SUCCESS) {
       const res = doc.paths[P(path)]?.[method]?.responses?.[String(code)];
       if (!res) throw new Error(`${method} ${path}: no ${code} response documented`);
@@ -523,6 +529,8 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['/reviews/my', 'get', [401]],
       ['/reviews/{id}', 'patch', [400, 401, 404]],
       ['/reviews/{id}', 'delete', [400, 401]],
+      ['/reviews/{id}/reply', 'patch', [400, 401, 403, 404]],
+      ['/reviews/{id}/reply', 'delete', [400, 401, 403, 404]],
       ['/promos/validate', 'post', [400]],
       ['/payments', 'post', [400, 401, 404, 409, 429, 502]],
       ['/payments/{id}/capture', 'post', [400, 401, 404, 409, 429]],
@@ -724,6 +732,11 @@ describe('OpenAPI document (generated from the real controllers)', () => {
     });
     expect(required('AddressRemoveResponse')).not.toContain('promotedDefaultId');
 
+    // Owner replies surface the pairing + never pretend to move the rating.
+    expect(props('ReviewRowResponse').reply).toMatchObject({ type: 'string', nullable: true });
+    expect(props('ReviewRowResponse').repliedAt).toMatchObject({ type: 'string', format: 'date-time', nullable: true });
+    expect(refOf(props('ReviewReplyResponse').review)).toBe('#/components/schemas/ReviewRowResponse');
+    expect(props('ReviewReplyResponse').restaurant).toBeUndefined();
     // Review writes echo the recomputed aggregate; deletes make it optional.
     expect(refOf(props('ReviewWriteResponse').restaurant)).toBe('#/components/schemas/RestaurantRatingResponse');
     expect(refOf(props('ReviewRemoveResponse').restaurant)).toBe('#/components/schemas/RestaurantRatingResponse');
