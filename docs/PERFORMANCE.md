@@ -232,6 +232,46 @@ contain the async chunk hash **0 times** (not in first payload);
 `admin-traffic.spec.ts` 2/2 green — lazy mount still mirrors the payload
 DOM-for-DOM; full e2e suite green after the change.
 
+## Public-read HTTP cache — November 18, 2026 (session 103)
+
+`HTTP_CACHE_TTL_SEC` (default 15, `0` disables) puts a strong-sha256 ETag +
+`Cache-Control: public, max-age=N` + `Vary: Authorization` in front of the
+three anonymous public browse reads (`GET /api/restaurants`,
+`GET /api/restaurants/:id`, `GET /api/search`), served from an in-process
+URL-keyed store (500-entry cap, evict-oldest). The whole point is the DB:
+the live smoke bracketed every request in query-logger windows and counted
+statements per window:
+
+| Window | Outcome | Statements |
+|---|---|---|
+| first read (capture) | 200 | 2–8 (real reads; list path = 2) |
+| repeat read within TTL, no INM | 200 from store | **0** |
+| `If-None-Match` within TTL | **304** | **0** |
+| distinct `?limit=` variant first read | 200 | 4 |
+| per-restaurant detail revalidation | 304 | **0** |
+| after TTL expiry + INM, unchanged bytes | 304 | ≥1 — the read HAPPENS, the transfer is skipped |
+
+The expiry row is the honest boundary: without a cheap server-side version
+stamp, `max-age` only postpones the read, it does not cancel it after
+expiry. What IS cancelled is the byte transfer and (within the TTL) the
+read itself.
+
+Metrics interaction (the roadmap asked for it): served hits keep their
+samples because the cache middleware is registered after the metrics and
+access-log listeners hook `finish`; the per-restaurant mint rule was
+tightened from 2xx/3xx to **2xx only**, so a cold revalidation can never
+mint a bucket, it only tops up `byStatus.3xx` (live: keys stable across a
+304, `3xx` increments; the metrics-read exemption unchanged).
+
+Latency shape: cache-served requests skip the pool entirely — on the live
+dev boot a mixed capture/serve row averaged 5.8 ms across 4 samples with
+the FIRST pool read still inside it; re-measure the served-only shape via
+the k6 baseline (recommendation 6), which is where the throughput claim
+belongs.
+Staleness contract: `isOpenNow` on a cached copy can lag the clock by at
+most the TTL; e2e boots the API with `HTTP_CACHE_TTL_SEC=0` so the suite
+never reads a cached copy.
+
 ## Query-plan findings and tuning decisions (November 4 baseline, historical)
 
 `EXPLAIN (ANALYZE, BUFFERS)` on the same seed showed:
@@ -267,3 +307,8 @@ available:
    browse baseline.
    (DONE: session 82 — `ops/load-test-auth.js`, signup → browse → order → MOCK
    pay on an isolated instance + scratch DB, baseline above.)
+6. Re-run the public browse k6 profile now that the three read routes are
+   ETag-cached (session 103) — expect statements-per-request to collapse and
+   p95 to move; record it as a NEW baseline (never restated against the
+   November 4 numbers), optionally with an `If-None-Match` replay profile to
+   measure the 304 path directly.

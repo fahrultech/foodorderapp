@@ -568,8 +568,10 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   restaurant-scoped controllers (`/api/restaurants/:id/...` or the
   `:restaurantId` menu variant — template-driven so a dish/order uuid can
   never be misread as a restaurant) and the url segment is a uuid
-  (lowercased). Buckets are MINTED by 2xx/3xx only — random-uuid probes
-  404 and never grow the key space — while 4xx/5xx may top up an existing
+  (lowercased). Buckets are MINTED by 2xx only (session 103 tightened the
+  original 2xx/3xx rule: a 304 proves a browser cache, not this boot
+  serving the page) — random-uuid probes
+  404 and never grow the key space — while 3xx/4xx/5xx may top up an existing
   bucket; past the 250-bucket cap new buckets are REFUSED, never folded
   into a shared `other` (one owner must never be handed another's
   traffic). The metrics read `GET /api/restaurants/:id/metrics` is EXEMPT
@@ -598,6 +600,31 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   `ops/alert-scan.sh` → `src/scripts/alert-scan.ts` whose exit codes split
   `0 healthy · 1 alerting · 2 scan broken` so a broken smoke detector never
   pages like a fire. systemd examples: `ops/systemd/foodorder-alert-scan.*`.
+- **Public browse reads are ETag-cached** (session 103, Phase 9): a DI-free
+  `common/http-cache/` middleware registered LAST in the chain (after
+  metrics and pino-http both hook their `finish` listeners, so a served
+  hit keeps its metrics sample AND access line) answers
+  `GET /api/restaurants`, `GET /api/restaurants/:id` and `GET /api/search`
+  from an in-process store keyed on the FULL request URL — strong sha256
+  ETag over the exact bytes, `Cache-Control: public, max-age=N` and
+  `Vary: Authorization`. The whitelist is EXPLICIT (a strict path matcher,
+  sub-paths/non-uuid segments/bearer requests/HEAD/POST are fully
+  transparent); a fresh hit is served WITHOUT routing, so a matching
+  `If-None-Match` inside `HTTP_CACHE_TTL_SEC` (default 15, `0` off,
+  garbage→default) answers 304 with provably ZERO SQL (live-smoke
+  query-logger windows). Because routing was skipped, the middleware
+  stamps the whitelisted route PATH template onto `req.route` before
+  ending the response — finish-time attribution then composes the SAME
+  `METHOD /api/.../:id` key as a matched request would (session-98
+  template rule: explicit attribution from the whitelist, never a url
+  heuristic). After the TTL the handler re-runs: identical bytes still
+  answer 304 (no transfer) but the read genuinely happens — no cheap
+  server-side versioning exists and the docs do not pretend otherwise.
+  The store is capped (500 entries, evict-oldest). Known, accepted
+  staleness: `isOpenNow` on a cached read can lag the clock by ≤ TTL.
+  `e2e/playwright.config.ts` boots the API with `HTTP_CACHE_TTL_SEC=0` —
+  the suite's write-then-assert flows and seed-absolute counts must never
+  read a cached copy.
 - **Rate limiting (in-house guard, no dependency)** — sliding-window log per
   client IP over an in-memory store (`src/common/rate-limit/`). Opt-in per
   route via `@RateLimit('auth'|'orders')` + `RateLimitGuard` (guarded as the

@@ -3,6 +3,89 @@
 Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
+## 2026-11-18 18:55 — Session 103 — Public-read HTTP cache: ETag + short TTL on the browse reads (API, Phase 9)
+
+**Built:**
+
+- Phase 9's top item, API-only: new DI-free `common/http-cache/` — an
+  in-process, URL-keyed store (500-entry cap, evict-oldest) serving
+  `GET /api/restaurants`, `GET /api/restaurants/:id` (strict uuid match)
+  and `GET /api/search` **for anonymous requests only** with a strong
+  sha256 ETag over the exact response bytes, `Cache-Control: public,
+  max-age=N` and `Vary: Authorization`. `HTTP_CACHE_TTL_SEC` (default 15,
+  `0` off, garbage→default — the standing ops-knob doctrine; registered
+  in `env.validation.ts`).
+- The FRESH path is the performance claim: a fresh entry is served
+  WITHOUT routing — matching `If-None-Match` → 304, else the stored 200
+  — so zero SQL happens (the roadmap's "a revalidation must not fake a
+  fresh DB read", proven per window with the query logger). After expiry
+  the handler re-runs: unchanged bytes still answer 304 (transfer
+  skipped) but the read honestly happens — no cheap version stamp exists,
+  the docs say so.
+- Chain placement + attribution: the middleware registers LAST
+  (requestId → metrics → pino-http → cache) so served hits still hook
+  both `finish` listeners — every 304 keeps its metrics sample and
+  access line. Because a short-circuit never routed, the middleware
+  stamps the whitelisted route PATH template onto `req.route` before
+  ending the response — finish-time keys compose identically to matched
+  requests (explicit whitelist attribution, session-98 rule intact; a
+  `GET GET /api/...` double-prefix composition bug was caught by the
+  integration spec, the template is stored WITHOUT the method for exactly
+  this reason).
+- Metrics rule tightened as the roadmap demanded: restaurant buckets are
+  now minted by **2xx only** (was 2xx/3xx) — a cold observer can never
+  mint via a 304; 3xx tops up existing buckets only (registry comment,
+  three swagger descriptions, ARCHITECTURE.md updated).
+- E2E safety: `e2e/playwright.config.ts` boots the API with
+  `HTTP_CACHE_TTL_SEC=0` — the suite's write-then-assert flows and
+  seed-absolute counts must never read a cached copy. The OpenAPI ops
+  gained `@ApiHeader If-None-Match` documentation (contract lists and op
+  counts unchanged).
+- Product discovery pinned in specs: Express's own `res.send` freshness
+  turns a cold `If-None-Match: *` into a 304 (weak auto-ETag) BEFORE our
+  capture ever sees a 200 — the store only fills from unconditional 2xx
+  captures; the integration spec asserts exactly this ladder.
+
+**Verified:**
+
+- API: `nest build` green; jest 95 suites / 1206 tests (+2 suites/+19
+  vs session 102's 93/1187: `http-cache.spec` 11 +
+  `http-cache.integration.spec` 8 incl. the ttl=0 transparency boot).
+- Live smoke 51/51 GREEN **twice** on a 28-migration from-empty scratch
+  DB (TTL=30 boot + TTL=1 + TTL=0 boots): query-logger windows show
+  **0 statements** for cached-200 and fresh-304 revalidations on all
+  three paths vs 2–8 for every capture window; per-URL keying
+  (`?limit=10` is its own entry); bearer/sub-path(`/reviews`)/HEAD/
+  malformed-uuid(400) negative controls carry NO Cache-Control;
+  restaurant bucket minted by the 2xx (`restaurantKeys` +1), topped to
+  `3xx=1` by the served 304 with keys stable, metrics reads exempt;
+  TTL expiry revalidation still 304 but ≥1 statement (honest half);
+  zero error-level API lines, zero 5xx access lines across both logs.
+  Harness lessons (all four were harness bugs, zero product bugs):
+  curl leaves `-o` files UNTOUCHED for bodiless 304s (truncate first);
+  run-unique marker tags (an aborted run's OPEN window otherwise swallows
+  the next run's seed — the phantom "408 statements"); `hdr` grep-absence
+  kills a `set -euo pipefail` script through `$(...)` (wrap `|| true`);
+  `-X HEAD` makes curl expect a body — use `--head`.
+- Runtime :4000 dev boot: curl ladder green end-to-end (strong ETag,
+  304 on revalidation, detail/search cached, reviews sub-path
+  transparent) and the LIVE `GET /api/restaurants` metrics row reads
+  `4 requests / {2xx:3, 3xx:1}` under the real controller — the
+  fabricated-template attribution works against genuine routing.
+- E2E full suite 97/97 green **x2** consecutive on fresh seeds (API
+  boots now carry `HTTP_CACHE_TTL_SEC=0`; web untouched).
+
+**Left for next sessions:**
+
+- k6 public-browse re-baseline under the cache (PERFORMANCE.md
+  recommendation 6 — filed as a roadmap item).
+- Per-restaurant durability (Phase 8 🔒 item, unchanged): cached-304
+  top-ups are exactly the samples a restart still zeroes.
+- `isOpenNow` staleness (≤ TTL) is accepted; if the open-hours UX ever
+  needs second-precision, the answer is a schedule-derived client-side
+  computation, not a shorter TTL.
+
+---
 ## 2026-11-18 16:27 — Session 102 — Owner reply COMPOSER UI: /dashboard/reviews (Web, Phase 9)
 
 **Built:**
