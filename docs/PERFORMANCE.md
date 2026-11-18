@@ -1,6 +1,6 @@
 # API load testing and baselines
 
-Two k6 workloads live in `ops/`:
+Three k6 workloads live in `ops/`:
 
 - `ops/load-test.js` — the READ-ONLY public storefront baseline. It bootstraps
   restaurant ids, then cycles through:
@@ -18,6 +18,13 @@ never will — destructive traffic stays in its own scenario (below).
   receipt/history reads. Runs ONLY against an isolated instance + disposable
   database; the full recipe is in "Authenticated write baseline" below.
 
+- `ops/load-test-conditional.js` — the CONDITIONAL-GET replay scenario
+  (session 104): one unconditional capture per iteration (asserts the
+  session-103 cache headers) followed by two `If-None-Match` replays that
+  MUST be 304. Read-only; aborts loudly if the target answers without a
+  strong ETag + `Cache-Control: public` (e.g. `HTTP_CACHE_TTL_SEC=0`),
+  because that would measure nothing.
+
 Pure helpers (cart planning, payload shape, profiles) live in
 `ops/load-test.lib.mjs` and are pinned by `ops/load-test.contract.test.mjs`
 (`node --test ops/load-test.contract.test.mjs`).
@@ -29,6 +36,7 @@ With k6 installed:
 ```bash
 BASE_URL=http://127.0.0.1:4000/api PROFILE=smoke k6 run ops/load-test.js
 BASE_URL=http://127.0.0.1:4000/api PROFILE=load k6 run ops/load-test.js
+BASE_URL=http://127.0.0.1:4000/api PROFILE=smoke k6 run ops/load-test-conditional.js
 ```
 
 Or without a host installation:
@@ -272,6 +280,56 @@ Staleness contract: `isOpenNow` on a cached copy can lag the clock by at
 most the TTL; e2e boots the API with `HTTP_CACHE_TTL_SEC=0` so the suite
 never reads a cached copy.
 
+## Public browse re-baseline under the HTTP cache — November 18, 2026 (session 104)
+
+PERFORMANCE.md recommendation 6: re-run the public browse profile now that
+the three read routes are ETag-cached (session 103), as a NEW baseline —
+never restated against the November 4 numbers. Same host (2 vCPU EPYC,
+1.9 GiB RAM, Node 22.23.2, PostgreSQL 16.15, canonical 6-restaurant seed,
+k6 **v2.3.0**), same scratch rig: fresh 28-migration chain + seed into
+`foodorder_k6reb`, production build booted on :4100, k6 via `--network
+host`. The API arm differs per run: `HTTP_CACHE_TTL_SEC=0` (control) vs
+the shipped default `15`.
+
+Results (all thresholds green, 100.00% checks, 0.00% failed requests):
+
+| Profile | Arm | Iterations | Requests | Throughput | avg | p95 | p99 | Max |
+|---|---|---:|---:|---:|---:|---:|---:|---:|
+| browse `load` | TTL=0 control | 14,982 | 14,983 | 83.15 req/s | 2.67 ms | 5.07 ms | 9.16 ms | 60.21 ms |
+| browse `load` | **TTL=15 cached** | 15,111 | 15,112 | 83.86 req/s | 1.02 ms | **2.52 ms** | 4.7 ms | 37.63 ms |
+| conditional `load` | TTL=15 replay | 15,048 | 45,145 | **250.74 req/s** | 0.55 ms | **1.29 ms** | 2.4 ms | 14.27 ms |
+
+- **The cached arm halves p95** (5.07 → 2.52 ms) at identical iteration
+  rate. k6 ships no HTTP cache and never sends `If-None-Match` on its own,
+  so this gain is purely server-side: the served 200 skips the pool and
+  the bytes hash.
+- **The conditional arm measures the 304 path head-on**: 3 requests per
+  iteration (1 capture + 2 replays, every replay answered 304 with the
+  echoed ETag and an empty body — 150,481 checks all green). At the same
+  25-VU shape the request count triples: 45,145 requests at 250.7 req/s,
+  median 0.35 ms. This is the transfer-skipped ceiling, not a browse-
+  throughput restatement.
+- **Statements-per-request collapsed**, proven with the query logger
+  (`log_statement='all'` ALTER DATABASE-scoped, marker-bracketed windows,
+  run-unique markers, one full load profile each):
+
+| Arm (load profile) | Requests | Logged statements | stmt/req |
+|---|---:|---:|---:|
+| browse TTL=0 (control) | 14,968 | 29,939 | **2.000** — the session-79 constant shape exactly |
+| browse TTL=15 | 15,115 | 3,959 | **0.262** (7.6× collapse; ≈ the 25% always-SQL `meta/cuisines` quarter + per-URL TTL re-captures) |
+| conditional TTL=15 | 45,139 | 144 | **0.003** (≈625× below control; 140 TTL re-capture SELECTs + one metrics-snapshot INSERT/DELETE cycle — replays never touch SQL) |
+
+Harness lessons from the first conditional run (spec-side, zero product
+bugs): k6 runs on Go, so response header names arrive **canonicalized**
+over the JS bridge — `ETag` surfaces as `Etag`; reading `headers['ETag']`
+yields undefined and the honest abort fired exactly as designed. The
+profile's loud-abort contract (strong ETag + `Cache-Control: public` or
+stop) is what caught it; TTL=0 itself stays byte-transparent (verified:
+no `Cache-Control`, Express's weak auto-etag only, replay 200s — the
+contract test keeps the three replay paths inside the session-103
+whitelist, `/restaurants/meta/cuisines` deliberately excluded because it
+can never 304).
+
 ## Query-plan findings and tuning decisions (November 4 baseline, historical)
 
 `EXPLAIN (ANALYZE, BUFFERS)` on the same seed showed:
@@ -312,3 +370,6 @@ available:
    p95 to move; record it as a NEW baseline (never restated against the
    November 4 numbers), optionally with an `If-None-Match` replay profile to
    measure the 304 path directly.
+   (DONE: session 104 — re-baseline above; p95 5.07 → 2.52 ms at TTL=15,
+   stmt/req 2.000 → 0.262, and the shipped `ops/load-test-conditional.js`
+   replay profile measures the 304 path head-on at 0.003 stmt/req.)

@@ -3,6 +3,77 @@
 Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
+## 2026-11-18 20:27 — Session 104 — k6 browse re-baseline under the HTTP cache + conditional-GET replay profile (Perf, Phase 9)
+
+**Built:**
+
+- Phase 9's top item (PERFORMANCE.md rec 6): the public browse profile
+  re-baselined under the session-103 cache, A/B against a TTL=0 control on
+  the same rig, recorded as a NEW baseline (never restated against the
+  November 4 numbers), plus the optional `If-None-Match` replay profile.
+- New read-only workload `ops/load-test-conditional.js`: per iteration one
+  unconditional capture (asserts strong `Etag` + `Cache-Control: public`
+  + JSON) then 2 `If-None-Match` replays that MUST be 304 with the echoed
+  tag and an empty body. Loud `exec.test.abort` when the capture answers
+  without a cacheable strong ETag — at TTL=0 that fires immediately
+  (verified live: the abort caught a harness bug, see below) instead of
+  quietly measuring 200s.
+- `ops/load-test.lib.mjs`: pure `cacheBrowsePath` (the three session-103
+  whitelisted URL shapes ONLY — `/restaurants/meta/cuisines` deliberately
+  excluded, it can never 304), `isStrongEtag` (quoted, no `W/` — mirrors
+  `etagFor`; Express's weak auto-etag must not pass), `REPLAYS_PER_ITERATION=2`,
+  `revalidateProfile(smoke|load)` — load keeps the browse VU shape so the
+  latency columns compare directly. Contract test extended: whitelist-only
+  path pick, uuid-gating invariant vs `cacheTargetOf`, etag ladder, stage
+  parity with `loadProfile('load')`.
+- Docs: PERFORMANCE.md gained the third-workload intro + run command, the
+  "Public browse re-baseline under the HTTP cache — November 18, 2026"
+  section (tables below), and recommendation 6 marked DONE. No product-code
+  changes — apps/api and apps/web untouched.
+
+**Verified:**
+
+- Re-rig first: fresh 28-migration chain + canonical seed into scratch DB
+  `foodorder_k6reb` (full chain from empty green), production build booted
+  :4100 per arm via `HTTP_CACHE_TTL_SEC` 15/0; k6 v2.3.0 in Docker,
+  `--network host`.
+- Clean load runs (no query logging), all thresholds green, 100.00% checks,
+  0% failed requests:
+  - browse TTL=0 control: 14,982 iters / 14,983 reqs @ 83.15 req/s,
+    avg 2.67 ms, p95 5.07, p99 9.16, max 60.21.
+  - browse TTL=15: 15,111 / 15,112 @ 83.86, avg 1.02, p95 2.52, p99 4.7,
+    max 37.63 — p95 HALVED vs control at the same iteration rate.
+  - conditional TTL=15: 15,048 iters / 45,145 reqs @ 250.74 req/s,
+    avg 0.55 ms, p95 1.29, p99 2.4 — every one of the 30,096 replays a 304
+    (150,481/150,481 checks incl. echoed-etag + empty-body pins).
+- Statements-per-request A/B via query logger (`ALTER DATABASE ... SET
+  log_statement='all'`, RUN-UNIQUE markers, pool re-booted after the ALTER;
+  full load profile per window): control **2.000** stmt/req (14,968 reqs →
+  29,939 statements — the session-79 constant shape exactly), cached browse
+  **0.262** (15,115 → 3,959; 7.6× collapse), replay arm **0.003**
+  (45,139 → 144: 140 TTL re-capture SELECTs + one metrics-snapshot
+  INSERT/DELETE cycle; replays touched zero SQL). `log_statement` RESET
+  afterwards; scratch DB dropped.
+- Conditional smoke 74 iters / 223 reqs / 741 checks 100%.
+- Harness bug caught by the profile's own abort contract: k6's Go bridge
+  canonicalizes response header names — `headers['ETag']` is undefined,
+  `headers['Etag']` is the key. Fixed in the script; zero product bugs.
+- `node --test ops/load-test.contract.test.mjs` green; `nest build` green;
+  API jest delta 0 (no src touched), web delta 0; TTL=0 transparency
+  curl-verified (no `Cache-Control`, weak Express auto-etag only, replay
+  200s).
+
+**Left for next sessions:**
+
+- The browse profile never reuses ETags (k6 has no HTTP cache) — a real
+  proxy/crawler fleet mixes capture+revalidation; the conditional profile
+  covers the replay end, a mixed hit/miss ratio profile could cover
+  intermediates someday.
+- `/api/search` has no k6 traffic in either browse rotation (the storefront
+  list `search=` rides the `/restaurants` template) — a search-shaped
+  replay arm would complete the whitelist coverage.
+
+---
 ## 2026-11-18 18:55 — Session 103 — Public-read HTTP cache: ETag + short TTL on the browse reads (API, Phase 9)
 
 **Built:**
