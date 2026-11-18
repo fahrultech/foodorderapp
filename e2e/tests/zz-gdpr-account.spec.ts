@@ -47,6 +47,12 @@ async function signInUi(page: Page, email: string) {
   await page.getByLabel('Email', { exact: true }).fill(email);
   await page.getByLabel('Password', { exact: true }).fill(DEMO_PASS);
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  // Same mid-login-goto abort class this file already documents ("racing one
+  // mid-login renders the dashboard as guest") — now the helper ITSELF waits
+  // for the redirect commit, so a caller can never navigate over an
+  // in-flight POST /auth/login again (session 100; pinned by
+  // e2e/tests/zz-login-abort.spec.ts).
+  await expect(page).not.toHaveURL(/\/login(\?|#|$)/, { timeout: 20_000 });
 }
 
 /** Every object key in the payload tree — the leak sweep walks these. */
