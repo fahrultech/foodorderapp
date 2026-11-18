@@ -412,6 +412,7 @@
     "histCancelling": "Cancelling\u2026",
     "dash": "\u2014",
     "trafficHeading": "Traffic & error budget",
+    "ownerTrafficHeading": "Traffic for {restaurant}",
     "trafficCumulative": "Cumulative since API boot \u00b7 snapshot {time} \u00b7 uptime {uptime}",
     "trafficCardRequests": "Requests",
     "trafficCardLatency": "Latency p95",

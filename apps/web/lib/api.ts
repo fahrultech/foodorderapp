@@ -504,6 +504,26 @@ export interface MetricsSnapshot {
   routes: MetricsRouteRow[];
 }
 
+/**
+ * Response contract of GET /restaurants/:id/metrics — mirrors
+ * RestaurantTrafficSnapshot in apps/api/src/common/metrics/request-metrics.ts
+ * EXACTLY (restaurant-metrics-http.spec pins the round-trip). Same totals /
+ * route-row objects as the ADMIN snapshot, but scoped to ONE restaurant's
+ * bucket and with ZERO global fields — the OWNER rung must never surface
+ * platform-wide traffic (session 85 decision, shipped session 98).
+ * Cumulative since API boot, not persisted per restaurant.
+ */
+export interface RestaurantMetricsSnapshot {
+  restaurantId: string;
+  scope: 'restaurant';
+  window: 'since_api_boot';
+  generatedAt: string;
+  uptimeSec: number;
+  boundsMs: number[];
+  totals: MetricsSnapshot['totals'];
+  routes: MetricsRouteRow[];
+}
+
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api';
 export { API_URL };
 
@@ -674,6 +694,16 @@ export const api = {
   /** All-time completed-order revenue and UTC hourly demand for an owned restaurant. */
   getRestaurantAnalytics: (accessToken: string, restaurantId: string) =>
     request<RestaurantAnalytics>(`/restaurants/${restaurantId}/orders/analytics`, {
+      headers: bearer(accessToken),
+    }),
+  /**
+   * Per-restaurant request traffic (session 98): route-template rows, status
+   * classes and histogram latency estimates for requests ATTRIBUTED to this
+   * restaurant. OWNER required (admins bypass; foreign -> 403, unknown -> 404).
+   * Cumulative since the API process booted; the read itself never counts.
+   */
+  getRestaurantMetrics: (accessToken: string, restaurantId: string) =>
+    request<RestaurantMetricsSnapshot>(`/restaurants/${restaurantId}/metrics`, {
       headers: bearer(accessToken),
     }),
   /**

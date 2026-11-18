@@ -412,6 +412,7 @@
     "histCancelling": "Membatalkan\u2026",
     "dash": "\u2014",
     "trafficHeading": "Lalu lintas & anggaran error",
+    "ownerTrafficHeading": "Trafik untuk {restaurant}",
     "trafficCumulative": "Kumulatif sejak API boot \u00b7 snapshot {time} \u00b7 uptime {uptime}",
     "trafficCardRequests": "Permintaan",
     "trafficCardLatency": "Latensi p95",

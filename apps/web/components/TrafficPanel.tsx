@@ -4,8 +4,14 @@ import { useTranslations } from 'next-intl';
 import type { MetricsSnapshot } from '@/lib/api';
 
 /**
- * Traffic & error-budget cards + per-route table for the ADMIN overview —
- * the dashboard stub on top of GET /admin/metrics (session 80's registry).
+ * Traffic & error-budget cards + per-route table — the dashboard stub on top
+ * of the request-metrics registry (session 80). Rendered in TWO scopes:
+ * - ADMIN /admin over GET /admin/metrics (global snapshot, session 85),
+ * - OWNER /dashboard/analytics over GET /restaurants/:id/metrics (a single
+ *   restaurant bucket, session 98). RestaurantMetricsSnapshot satisfies the
+ *   same structural view — the panel only ever reads totals, routes,
+ *   generatedAt and uptimeSec, so a global field can never leak into the
+ *   OWNER rung through this component even by accident.
  *
  * Contract notes:
  * - The snapshot is CUMULATIVE SINCE API BOOT (no windows, no ring
@@ -42,6 +48,14 @@ function formatUptime(sec: number): string {
   return `${Math.floor(m / 60)}h ${m % 60}m`;
 }
 
+/**
+ * The STRUCTURAL view the panel reads — satisfied by BOTH the admin
+ * MetricsSnapshot and the owner RestaurantMetricsSnapshot. Deliberately a
+ * Pick, not a union: adding a required field to either API payload cannot
+ * force global data onto the OWNER rung through this component.
+ */
+export type TrafficView = Pick<MetricsSnapshot, 'generatedAt' | 'uptimeSec' | 'totals' | 'routes'>;
+
 export interface ErrorBudget {
   /** 5xx share of all tracked responses, in percentage points; null = no samples yet. */
   errorRatePct: number | null;
@@ -53,7 +67,7 @@ export interface ErrorBudget {
 }
 
 /** Exported for unit specs — pure math over the snapshot totals. */
-export function computeErrorBudget(snapshot: MetricsSnapshot): ErrorBudget {
+export function computeErrorBudget(snapshot: Pick<TrafficView, 'totals'>): ErrorBudget {
   const { requests, byStatus } = snapshot.totals;
   if (requests <= 0) {
     return { errorRatePct: null, consumedPct: null, remainingPts: null, withinBudget: true };
@@ -88,7 +102,14 @@ function Card({
   );
 }
 
-export default function TrafficPanel({ snapshot }: { snapshot: MetricsSnapshot }) {
+export default function TrafficPanel({
+  snapshot,
+  heading,
+}: {
+  snapshot: TrafficView;
+  /** Scope override for the section title (owner view names its restaurant). */
+  heading?: string;
+}) {
   const t = useTranslations('Portal');
   const dash = t('dash');
   const totals = snapshot.totals;
@@ -100,7 +121,7 @@ export default function TrafficPanel({ snapshot }: { snapshot: MetricsSnapshot }
     <section className="mt-10" aria-labelledby="traffic-heading">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <h2 id="traffic-heading" className="text-xl font-black text-stone-900">
-          {t('trafficHeading')}
+          {heading ?? t('trafficHeading')}
         </h2>
         <p className="text-xs text-stone-500">
           {t('trafficCumulative', {

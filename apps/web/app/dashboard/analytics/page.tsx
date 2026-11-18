@@ -1,13 +1,38 @@
 'use client';
 
 import Link from 'next/link';
+import dynamic from 'next/dynamic';
 import { useEffect, useMemo, useState } from 'react';
 import PortalTabs from '@/components/PortalTabs';
 import { useAuth } from '@/lib/auth';
 import { api, formatPrice } from '@/lib/api';
-import type { Restaurant, RestaurantAnalytics } from '@/lib/api';
+import type { Restaurant, RestaurantAnalytics, RestaurantMetricsSnapshot } from '@/lib/api';
 import { authedCall } from '@/lib/authed-call';
 import { useTranslations } from 'next-intl';
+
+// Owner traffic panel (session 98 sub-item): the per-restaurant metrics
+// chunk is NOT part of the /dashboard/analytics payload. The dynamic import
+// only starts when the component is first RENDERED, and the render gate
+// below is `traffic != null` — so the chunk is fetched strictly BEHIND the
+// GET /restaurants/:id/metrics round-trip (same contract as /admin,
+// session 90). ssr:false because the snapshot is bearer-only client data.
+/** Module-scope dynamic() cannot call hooks — this tiny component owns the
+ *  localized skeleton aria-label (Portal.trafficLoadingAria, session 93). */
+function TrafficPanelSkeleton() {
+  const t = useTranslations('Portal');
+  return (
+    <div
+      className="h-40 animate-pulse rounded-2xl border border-stone-200 bg-stone-50"
+      aria-label={t('trafficLoadingAria')}
+      data-testid="traffic-panel-loading"
+    />
+  );
+}
+
+const TrafficPanel = dynamic(() => import('@/components/TrafficPanel'), {
+  ssr: false,
+  loading: () => <TrafficPanelSkeleton />,
+});
 
 function hourLabel(hourUtc: number): string {
   const start = String(hourUtc).padStart(2, '0');
@@ -22,6 +47,9 @@ export default function AnalyticsPage() {
   const [restaurants, setRestaurants] = useState<Restaurant[] | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [analytics, setAnalytics] = useState<RestaurantAnalytics | null>(null);
+  const [traffic, setTraffic] = useState<RestaurantMetricsSnapshot | null>(null);
+  const [trafficError, setTrafficError] = useState<string | null>(null);
+  const [trafficLoading, setTrafficLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
@@ -81,6 +109,37 @@ export default function AnalyticsPage() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status, isOwnerish, selectedId, reloadKey, restaurants, getAccessToken, logout]);
+
+  // Per-restaurant traffic (session 98 sub-item): an INDEPENDENT fetch
+  // beside analytics — a metrics failure must never blank the revenue
+  // section (admin-page degradation rule, session 85), and vice versa.
+  useEffect(() => {
+    if (status !== 'signedIn' || !isOwnerish || !selectedId) {
+      setTraffic(null);
+      setTrafficError(null);
+      return;
+    }
+    let alive = true;
+    setTrafficLoading(true);
+    setTraffic(null);
+    setTrafficError(null);
+    void (async () => {
+      const res = await authedCall(getAccessToken, logout, (token) =>
+        api.getRestaurantMetrics(token, selectedId),
+      );
+      if (!alive) return;
+      if (res.ok) {
+        setTraffic(res.data);
+      } else if (res.kind === 'error') {
+        setTrafficError(res.message);
+      }
+      setTrafficLoading(false);
+    })();
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status, isOwnerish, selectedId, reloadKey, getAccessToken, logout]);
 
   const selected = useMemo(
     () => (restaurants ?? []).find((restaurant) => restaurant.id === selectedId) ?? null,
@@ -239,6 +298,33 @@ export default function AnalyticsPage() {
           </section>
         </>
       ) : null}
+
+      {/* Traffic section degrades LOUD but only itself (session 85/91 rule:
+          a failed load never silently hides — and never claims "no data"
+          either: the honest zero rows come from a SUCCESSFUL fetch). */}
+      {selectedId && (trafficLoading || traffic || trafficError) && (
+        <div className="mt-10">
+          {traffic ? (
+            <TrafficPanel
+              snapshot={traffic}
+              heading={t('ownerTrafficHeading', {
+                restaurant: selected?.name ?? t('fallbackRestaurantName'),
+              })}
+            />
+          ) : trafficError ? (
+            <div
+              role="alert"
+              className="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-amber-800"
+              data-testid="traffic-load-error"
+            >
+              <p className="font-bold">{t('trafficLoadError')}</p>
+              <p className="mt-1 text-sm">{trafficError}</p>
+            </div>
+          ) : (
+            <TrafficPanelSkeleton />
+          )}
+        </div>
+      )}
     </div>
   );
 }
