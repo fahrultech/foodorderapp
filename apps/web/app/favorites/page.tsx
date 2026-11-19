@@ -75,10 +75,20 @@ export default function FavoritesPage() {
         </div>
       )}
 
+      {/* Loading-states pass (roadmap Phase 9): the skeleton carries the
+          established animate-pulse idiom (orders history, session 77/91
+          surfaces) and a stable testid so e2e can pin "skeleton during the
+          fetch, content or honest empty/error after it — never a mid-load
+          empty card". */}
       {pending && (
-        <ul className="mt-8 space-y-3" aria-busy="true" aria-label={t('loadingAria')}>
+        <ul
+          className="mt-8 space-y-3"
+          data-testid="favorites-skeleton"
+          aria-busy="true"
+          aria-label={t('loadingAria')}
+        >
           {[0, 1, 2].map((i) => (
-            <li key={i} className="h-24 rounded-2xl bg-stone-100" aria-hidden />
+            <li key={i} className="h-24 animate-pulse rounded-2xl bg-stone-100" aria-hidden />
           ))}
         </ul>
       )}

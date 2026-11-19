@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { useAuth } from '@/lib/auth';
 import { ApiError, api, type DeliveryAddress, type DeliveryAddressInput } from '@/lib/api';
+import { fallbackMessage } from '@/lib/locale-strings';
 
 /** Mirrors the API's DTO bounds — fast client feedback, server stays the authority. */
 const PHONE_RE = /^\+?[0-9 ()-]{7,20}$/;
@@ -53,11 +54,14 @@ export default function AddressesPage() {
       setRows(res.items);
       setLoadError(null);
     } catch (err) {
-      setLoadError(err instanceof ApiError ? err.message : t('loadError'));
+      // Phase 6 error-vs-empty doctrine (isApiDown twin of authedCall,
+      // session 91): a network drop is NOT a generic "could not load" —
+      // name the unreachable API, exactly like the favorites card does.
+      setLoadError(err instanceof ApiError ? err.message : fallbackMessage('apiDown'));
     } finally {
       setLoaded(true);
     }
-  }, [getAccessToken, t]);
+  }, [getAccessToken]);
 
   useEffect(() => {
     if (status === 'signedIn') void refresh();
@@ -129,7 +133,7 @@ export default function AddressesPage() {
       await fn(tok);
       await refresh();
     } catch (err) {
-      setLoadError(err instanceof ApiError ? err.message : t('actionError'));
+      setLoadError(err instanceof ApiError ? err.message : fallbackMessage('apiDown'));
     } finally {
       setBusyId(null);
     }
@@ -165,21 +169,42 @@ export default function AddressesPage() {
         </div>
       )}
 
+      {/* Loading-states pass (roadmap Phase 9): animated-pulse idiom + stable
+          testids, mirroring the favorites page. */}
       {pending && (
-        <ul className="mt-8 space-y-3" aria-busy="true" aria-label={t('loadingAria')}>
+        <ul
+          className="mt-8 space-y-3"
+          data-testid="addresses-skeleton"
+          aria-busy="true"
+          aria-label={t('loadingAria')}
+        >
           {[0, 1, 2].map((i) => (
-            <li key={i} className="h-28 rounded-2xl bg-stone-100" aria-hidden />
+            <li key={i} className="h-28 animate-pulse rounded-2xl bg-stone-100" aria-hidden />
           ))}
         </ul>
       )}
 
       {loadError && (
-        <p role="alert" className="mt-6 rounded-xl bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
+        <div
+          role="alert"
+          data-testid="addresses-error"
+          className="mt-6 rounded-xl bg-red-50 px-4 py-3 text-sm font-medium text-red-700"
+        >
           {loadError}
-        </p>
+          <button
+            onClick={() => void refresh()}
+            className="ml-3 rounded-lg bg-red-700 px-3 py-1 text-xs font-semibold text-white hover:bg-red-800"
+          >
+            {c('retry')}
+          </button>
+        </div>
       )}
 
-      {status === 'signedIn' && !pending && rows.length === 0 && editing !== 'new' && (
+      {/* A failed load is NOT an empty book: the empty card waits for a
+          successful load (same error-vs-empty split as favorites / the
+          session-91 portal doctrine — otherwise a dead API renders
+          "No saved addresses yet" over missing data). */}
+      {status === 'signedIn' && !pending && !loadError && rows.length === 0 && editing !== 'new' && (
         <div className="mt-8 rounded-2xl border border-dashed border-stone-300 bg-stone-50 p-10 text-center">
           <p className="text-lg font-semibold text-stone-700">{t('emptyTitle')}</p>
           <p className="mt-1 text-sm text-stone-500">{t('emptyBody')}</p>
