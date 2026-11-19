@@ -203,6 +203,12 @@ export interface Order {
     quantity: number;
     /** Unit price snapshot INCL. option deltas (server-priced). */
     unitPriceCents: number;
+    /**
+     * FK to the dish — null after a hard menu delete (ON DELETE SET NULL),
+     * which is exactly the signal the session-107 "Order again" ladder uses
+     * to report a gone dish. Present on every order read (entity passthrough).
+     */
+    menuItemId?: string | null;
     /** Receipt of the chosen options; null = no options / pre-options row. */
     optionSelections?: OrderOptionSelection[] | null;
   }>;

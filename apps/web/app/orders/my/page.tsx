@@ -13,6 +13,7 @@ import {
 } from '@/lib/api';
 import type { MyOrdersPage as MyOrdersData, Order, OrderStatus } from '@/lib/api';
 import StatusBadge from '@/components/StatusBadge';
+import OrderAgainButton from '@/components/OrderAgainButton';
 import { useTranslations } from 'next-intl';
 
 const PAGE_SIZE = 10;
@@ -381,6 +382,14 @@ export default function MyOrdersPage() {
                       </Link>
                     </div>
                   </div>
+                  {/* "Order again" (session 107): completed orders only. A
+                      block BELOW the action row so the ladder's result /
+                      replace-confirmation panel has the full card width. */}
+                  {order.status === 'completed' && (
+                    <div className="mt-3 border-t border-stone-100 pt-3">
+                      <OrderAgainButton order={order} />
+                    </div>
+                  )}
                 </div>
               );
             })}

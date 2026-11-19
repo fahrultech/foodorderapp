@@ -719,5 +719,25 @@
     "detachedSuffix": ", {count} restaurant(s) detached",
     "releasedSuffix": ", {count} delivery assignment(s) released",
     "backCta": "Back to restaurants"
+  },
+  "OrderAgain": {
+    "button": "Order again",
+    "working": "Rebuilding your cart\u2026",
+    "nothingAdded": "Nothing could be re-added from this order.",
+    "addedCount": "{count, plural, one {Added # item to your cart} other {Added # items to your cart}}",
+    "skippedHeading": "Skipped:",
+    "skipGone": "no longer on the menu",
+    "skipUnavailable": "currently unavailable",
+    "skipSoldOut": "sold out",
+    "skipOptionsChanged": "its options changed since you ordered",
+    "clampedNote": "{name}: only {count} left \u2014 quantity set to {count}",
+    "belowMin": "Cart subtotal {price} is below this restaurant's {min} minimum order.",
+    "goToRestaurant": "Go to {name}",
+    "replaceTitle": "Start this order in a new cart?",
+    "replaceBody": "Your cart holds dishes from {current}. Re-ordering will replace them with this order's items.",
+    "newCartLines": "New cart:",
+    "replaceConfirm": "Replace cart",
+    "replaceCancel": "Keep current cart",
+    "errLoad": "Could not load the current menu. Try again."
   }
 }

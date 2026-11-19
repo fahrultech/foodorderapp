@@ -54,6 +54,19 @@ export interface SwitchRequest {
   options?: CartLineOption[];
 }
 
+/**
+ * One pre-resolved cart line the session-107 "Order again" ladder hands to
+ * `applyOrderAgain` — a dish plus its rebuilt options AND an explicit
+ * quantity (the plain `add` ladder is one unit per click). Structurally
+ * compatible with `OrderAgainLine` from lib/order-again without importing
+ * it, so the cart stays free of the ladder's menu-read dependencies.
+ */
+export interface CartDraftLine {
+  item: Pick<MenuItem, 'id' | 'name' | 'priceCents'>;
+  options: CartLineOption[];
+  quantity: number;
+}
+
 export function optionsDeltaCents(options: CartLineOption[]): number {
   return options.reduce(
     (s, o) => s + (Number.isFinite(o.priceDeltaCents) ? o.priceDeltaCents : 0),
@@ -164,6 +177,17 @@ interface CartContextValue {
   setQty: (lineKey: string, qty: number) => void;
   /** Total units of one dish across every selection line (button badges). */
   quantityOf: (menuItemId: string) => number;
+  /**
+   * "Order again" (session 107): apply a whole ladder-resolved batch at once.
+   * 'merge' — the cart is empty or already holds THIS restaurant: lines add
+   * onto matching lineKeys (quantity += clamped). 'replace' — the caller got
+   * explicit confirmation that the other restaurant's cart is discarded.
+   */
+  applyOrderAgain: (
+    restaurant: { id: string; name: string },
+    drafts: CartDraftLine[],
+    mode: 'merge' | 'replace',
+  ) => void;
   clear: () => void;
   count: number;
   subtotalCents: number;
@@ -244,6 +268,45 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
 
   const cancelSwitch = useCallback(() => setSwitchRequest(null), []);
 
+  const applyOrderAgain = useCallback(
+    (
+      restaurant: { id: string; name: string },
+      drafts: CartDraftLine[],
+      mode: 'merge' | 'replace',
+    ) => {
+      setLines((prev) => {
+        const base =
+          mode === 'replace'
+            ? []
+            : // Merge only onto lines of the SAME restaurant; a foreign cart
+              // reaches here solely after the caller confirmed 'replace'.
+              prev.filter((l) => l.restaurantId === restaurant.id);
+        const byKey = new Map<string, CartLine>();
+        for (const l of base) byKey.set(l.lineKey, { ...l });
+        for (const d of drafts) {
+          const key = lineKeyFor(d.item.id, d.options);
+          const existing = byKey.get(key);
+          if (existing) {
+            existing.quantity = Math.min(50, existing.quantity + d.quantity);
+          } else {
+            const line = buildLine(d.item, restaurant, d.options);
+            line.quantity = Math.min(50, Math.max(1, d.quantity));
+            byKey.set(key, line);
+          }
+        }
+        // Preserve prior line order for carried-over rows, append new keys.
+        // Cart lineKeys are unique, so the base map is one entry per row.
+        const ordered: CartLine[] = base.map((l) => byKey.get(l.lineKey)!);
+        for (const d of drafts) {
+          const line = byKey.get(lineKeyFor(d.item.id, d.options))!;
+          if (!ordered.includes(line)) ordered.push(line);
+        }
+        return ordered;
+      });
+    },
+    [],
+  );
+
   const setQty = useCallback((lineKey: string, qty: number) => {
     setLines((prev) =>
       qty <= 0
@@ -263,6 +326,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
       setQty,
       quantityOf: (menuItemId: string) =>
         lines.reduce((s, l) => (l.menuItemId === menuItemId ? s + l.quantity : s), 0),
+      applyOrderAgain,
       clear,
       count,
       subtotalCents,
@@ -272,7 +336,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
       confirmSwitch,
       cancelSwitch,
     };
-  }, [lines, add, setQty, clear, switchRequest, confirmSwitch, cancelSwitch]);
+  }, [lines, add, setQty, applyOrderAgain, clear, switchRequest, confirmSwitch, cancelSwitch]);
 
   return (
     <CartContext.Provider value={value}>

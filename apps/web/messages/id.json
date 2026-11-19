@@ -719,5 +719,25 @@
     "detachedSuffix": ", {count} restoran dilepas",
     "releasedSuffix": ", {count} penugasan pengiriman dilepaskan",
     "backCta": "Kembali ke restoran"
+  },
+  "OrderAgain": {
+    "button": "Pesan lagi",
+    "working": "Menyiapkan keranjang Anda\u2026",
+    "nothingAdded": "Tidak ada yang bisa dipesan ulang dari pesanan ini.",
+    "addedCount": "{count, plural, other {# item ditambahkan ke keranjang Anda}}",
+    "skippedHeading": "Dilewati:",
+    "skipGone": "tidak ada lagi di menu",
+    "skipUnavailable": "sedang tidak tersedia",
+    "skipSoldOut": "stok habis",
+    "skipOptionsChanged": "pilihannya berubah sejak Anda memesan",
+    "clampedNote": "{name}: sisa {count} \u2014 jumlah diubah menjadi {count}",
+    "belowMin": "Subtotal keranjang {price} di bawah minimum pesanan restoran ini sebesar {min}.",
+    "goToRestaurant": "Ke {name}",
+    "replaceTitle": "Mulai pesanan ini di keranjang baru?",
+    "replaceBody": "Keranjang Anda berisi hidangan dari {current}. Memesan ulang akan menggantinya dengan item dari pesanan ini.",
+    "newCartLines": "Keranjang baru:",
+    "replaceConfirm": "Ganti keranjang",
+    "replaceCancel": "Pertahankan keranjang",
+    "errLoad": "Gagal memuat menu saat ini. Coba lagi."
   }
 }

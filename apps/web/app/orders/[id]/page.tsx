@@ -4,6 +4,7 @@ import { api, formatPrice, optionRowLabels } from '@/lib/api';
 import OrderTimeline from '@/components/OrderTimeline';
 import OrderLiveFeed from '@/components/OrderLiveFeed';
 import RateOrderCard from '@/components/RateOrderCard';
+import OrderAgainButton from '@/components/OrderAgainButton';
 import PaymentPanel from '@/components/PaymentPanel';
 import OrderVerify from '@/components/OrderVerify';
 import { getTranslations } from 'next-intl/server';
@@ -165,6 +166,16 @@ export default async function OrderPage({
           {t('orderMore')}
         </Link>
       </div>
+
+      {/* "Order again" (session 107): the receipt mirrors the history-card
+          action for COMPLETED orders. Client island — the cart is
+          localStorage-backed, so it works for guests too (checkout already
+          supports guest carts). */}
+      {order.status === 'completed' && (
+        <div className="mt-2 text-center">
+          <OrderAgainButton order={order} variant="block" />
+        </div>
+      )}
     </div>
   );
 }
