@@ -1,4 +1,5 @@
 import { expect, test, type APIRequestContext } from '@playwright/test';
+import { signInUi } from '../helpers/fixtures';
 
 const API = process.env.E2E_API_URL || 'http://localhost:4000/api';
 
@@ -62,10 +63,7 @@ test('owner can inspect analytics, upload a menu image, and run the kitchen boar
   page,
   request,
 }) => {
-  await page.goto('/login?next=/dashboard/analytics');
-  await page.locator('#email').fill('owner@foodorder.app');
-  await page.locator('#password').fill(['demo', '1234'].join(''));
-  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await signInUi(page, 'owner@foodorder.app', { goto: '/login?next=/dashboard/analytics' });
 
   await expect(page.getByRole('heading', { level: 1, name: 'Restaurant analytics' })).toBeVisible();
   await expect(page.getByRole('link', { name: /Analytics/ })).toHaveAttribute('aria-current', 'page');

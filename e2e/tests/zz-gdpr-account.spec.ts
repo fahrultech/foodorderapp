@@ -1,4 +1,5 @@
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
+import { API, DEMO_PASS, bearer, signInUi, warungFixture } from '../helpers/fixtures';
 import * as fs from 'node:fs';
 
 /**
@@ -23,37 +24,12 @@ import * as fs from 'node:fs';
  * order create with the DTO's real whitelisted names).
  */
 
-const API = process.env.E2E_API_URL || 'http://localhost:4000/api';
 const WEB = process.env.E2E_WEB_URL || 'http://localhost:3000';
 
-// Same sanitizer-safe idiom as zz-forms-a11y: no literal credential token.
-const DEMO_PASS = 'demo' + '1234';
 /** Exact destructive-action phrase the DeleteAccountDto demands. */
 const CONFIRM = 'DELETE';
 /** lib/auth.tsx STORAGE_KEY — the local session blob ("session", not secret). */
 const AUTH_STORAGE_KEY = ['foodorder', 'auth', 'v1'].join('.');
-
-async function warungFixture(request: APIRequestContext) {
-  const list = await (await request.get(`${API}/restaurants?search=Warung`)).json();
-  const warung = list.items.find((r: any) => r.name === 'Warung Nusantara');
-  expect(warung, 'seed fixture: Warung Nusantara').toBeTruthy();
-  const detail = await (await request.get(`${API}/restaurants/${warung.id}`)).json();
-  const dish = detail.menuItems.find((m: any) => m.name === 'Nasi Goreng Spesial');
-  expect(dish, 'seed fixture: Nasi Goreng Spesial').toBeTruthy();
-  return { restaurantId: warung.id as string, menuItemId: dish.id as string };
-}
-
-async function signInUi(page: Page, email: string) {
-  await page.getByLabel('Email', { exact: true }).fill(email);
-  await page.getByLabel('Password', { exact: true }).fill(DEMO_PASS);
-  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
-  // Same mid-login-goto abort class this file already documents ("racing one
-  // mid-login renders the dashboard as guest") — now the helper ITSELF waits
-  // for the redirect commit, so a caller can never navigate over an
-  // in-flight POST /auth/login again (session 100; pinned by
-  // e2e/tests/zz-login-abort.spec.ts).
-  await expect(page).not.toHaveURL(/\/login(\?|#|$)/, { timeout: 20_000 });
-}
 
 /** Every object key in the payload tree — the leak sweep walks these. */
 function collectKeys(node: unknown, into: string[] = []): string[] {
@@ -106,7 +82,7 @@ test('journey: in-app export, deletion guards, confirmed delete forces sign-out 
       contactEmail: gdprEmail,
       deliveryAddress: '9 Right-to-be-Forgotten St, Jakarta',
     },
-    headers: { authorization: `Bearer ${session.access_token}` },
+    headers: bearer(session.access_token),
   });
   expect(create.status(), await create.text()).toBe(201);
   gdprOrder = (await create.json()) as { id: string; code: string };

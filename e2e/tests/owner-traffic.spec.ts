@@ -1,4 +1,5 @@
 import { expect, test, type APIRequestContext } from '@playwright/test';
+import { signInUi } from '../helpers/fixtures';
 
 /**
  * Owner traffic panel on /dashboard/analytics (session 98 sub-item) —
@@ -18,10 +19,8 @@ function bearer(token: string): Record<string, string> {
 }
 
 async function signInAsOwner(page: import('@playwright/test').Page) {
-  await page.goto('/login?next=/dashboard/analytics');
-  await page.locator('#email').fill('owner@foodorder.app');
-  await page.locator('#password').fill(['demo', '1234'].join(''));
-  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  // Shared redirect-COMMIT contract (session 106) — was a local copy.
+  await signInUi(page, 'owner@foodorder.app', { goto: '/login?next=/dashboard/analytics' });
   await expect(page.getByRole('heading', { level: 1, name: 'Restaurant analytics' })).toBeVisible();
 }
 

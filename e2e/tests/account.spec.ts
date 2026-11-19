@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { signInUi } from '../helpers/fixtures';
 
 /**
  * Signed-in smoke: the demo seed account logs in, the header switches to the
@@ -9,9 +10,7 @@ import { expect, test } from '@playwright/test';
 test('demo user signs in and sees their order history', async ({ page }) => {
   await page.goto('/login');
   await expect(page.getByRole('heading', { level: 1, name: 'Sign in' })).toBeVisible();
-  await page.locator('#email').fill('demo@foodorder.app');
-  await page.locator('#password').fill('demo1234');
-  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await signInUi(page, 'demo@foodorder.app');
 
   // Login redirects to '/' (no ?next was set); header switches to signed-in nav.
   await expect(page).not.toHaveURL(/\/login/);

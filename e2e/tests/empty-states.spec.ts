@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { signInUi } from '../helpers/fixtures';
 
 /**
  * Phase 6 storefront states audit: dead links and a dead API must answer
@@ -39,10 +40,7 @@ test('home search with no results names the query and offers a clear-filters esc
 test('favorites shows a failure card with retry instead of lying "Nothing saved"', async ({
   page,
 }) => {
-  await page.goto('/login');
-  await page.locator('#email').fill('demo@foodorder.app');
-  await page.locator('#password').fill(['demo', '1234'].join(''));
-  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await signInUi(page, 'demo@foodorder.app', { goto: '/login' });
   // Suite contract (account.spec): bare /login lands on '/' once signed in.
   await expect(page).not.toHaveURL(/\/login/);
 

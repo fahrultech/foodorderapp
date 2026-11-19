@@ -1,4 +1,5 @@
 import { expect, Page, test } from '@playwright/test';
+import { signInUi } from '../helpers/fixtures';
 
 /**
  * Session 91 — kitchen display + driver inbox states audit (the portal
@@ -15,15 +16,10 @@ import { expect, Page, test } from '@playwright/test';
  * `zz-driver-portal` spec consumes (FO-SEED3 stays untouched).
  */
 
-const DEMO_PASSWORD = 'demo' + '1234';
 
 async function signIn(page: Page, email: string) {
-  await page.goto('/login');
-  await page.locator('#email').fill(email);
-  await page.locator('#password').fill(DEMO_PASSWORD);
-  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
-  // Suite contract (account.spec): bare /login lands on '/' once signed in.
-  await expect(page).not.toHaveURL(/\/login/);
+  // Shared redirect-COMMIT contract (session 106) — was a local copy.
+  await signInUi(page, email, { goto: '/login' });
 }
 
 function ordersPage() {

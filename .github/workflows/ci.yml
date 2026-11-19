@@ -252,6 +252,13 @@ jobs:
           # a non-production ephemeral key for the throwaway CI database only.
           export JWT_SECRET=ci-e2e-ephemeral-key-not-for-production
           npx playwright test
+      - name: Enforce fixture-timing ceiling
+        # Session 106: every direct-API fixture leg stamps a fixture-timing
+        # annotation; this gate fails the job when any leg crossed its
+        # wall-clock ceiling (defaults in the script; zero legs = dead
+        # instrumentation = failure too).
+        working-directory: e2e
+        run: node check-fixture-timings.mjs
       - name: Upload Playwright report on failure
         if: failure()
         uses: actions/upload-artifact@v4

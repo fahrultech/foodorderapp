@@ -1,4 +1,5 @@
 import { expect, Page, test } from '@playwright/test';
+import { signInUi } from '../helpers/fixtures';
 
 /**
  * Session 105 — loading/skeleton pass on /favorites + /addresses (Phase 9
@@ -18,7 +19,6 @@ import { expect, Page, test } from '@playwright/test';
  * an "Add address" control over an unloaded list).
  */
 
-const DEMO_PASSWORD = ['demo', '1234'].join('');
 const FAV_ROUTES = '**/api/users/me/favorites';
 const ADDR_ROUTES = '**/api/users/me/addresses';
 
@@ -79,12 +79,8 @@ function addrPayload() {
 }
 
 async function signIn(page: Page, email: string) {
-  await page.goto('/login');
-  await page.locator('#email').fill(email);
-  await page.locator('#password').fill(DEMO_PASSWORD);
-  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
-  // Redirect-COMMIT contract (session 100): never navigate on click-time only.
-  await expect(page).not.toHaveURL(/\/login/);
+  // Shared redirect-COMMIT contract (session 106) — was a local copy.
+  await signInUi(page, email, { goto: '/login' });
 }
 
 async function routeDelayed(page: Page, pattern: string, body: string, delayMs: number) {

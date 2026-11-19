@@ -1,4 +1,5 @@
 import { expect, Page, test } from '@playwright/test';
+import { signInUi } from '../helpers/fixtures';
 
 /**
  * Session 92 — portal CHROME localization (EN/ID) across dashboard,
@@ -16,14 +17,11 @@ import { expect, Page, test } from '@playwright/test';
  * reads 'Masuk' — the helper accepts either wording (input ids are stable).
  */
 
-const DEMO_PASSWORD = 'demo' + '1234';
 
 async function signIn(page: Page, email: string) {
-  await page.goto('/login');
-  await page.locator('#email').fill(email);
-  await page.locator('#password').fill(DEMO_PASSWORD);
-  await page.getByRole('button', { name: /^(Sign in|Masuk)$/ }).click();
-  await expect(page).not.toHaveURL(/\/login/);
+  // Shared redirect-COMMIT contract (session 106): the locale-tolerant CTA
+  // and the /login wait are now the helper's own guarantees.
+  await signInUi(page, email, { goto: '/login' });
 }
 
 async function useIndonesian(page: Page) {

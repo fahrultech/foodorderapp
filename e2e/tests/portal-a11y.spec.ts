@@ -1,4 +1,5 @@
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
+import { API, bearer, createOrder, loginToken, payOrder, signInUi, warungFixture } from '../helpers/fixtures';
 
 /**
  * Phase 6 a11y pass on checkout + owner portal (session 78):
@@ -19,75 +20,6 @@ import { expect, test, type APIRequestContext, type Page } from '@playwright/tes
  * owner@foodorder.app / demo@foodorder.app (pw demo1234), Warung Nusantara.
  * Orders are paid first — the confirm gate is ON by default.
  */
-
-const API = process.env.E2E_API_URL || 'http://localhost:4000/api';
-
-async function loginToken(request: APIRequestContext, email: string): Promise<string> {
-  const res = await request.post(`${API}/auth/login`, {
-    data: { email, password: 'demo1234' },
-  });
-  expect(res.ok()).toBeTruthy();
-  const body = (await res.json()) as { access_token: string };
-  return body.access_token;
-}
-
-async function warungFixture(request: APIRequestContext) {
-  const list = await (await request.get(`${API}/restaurants?search=Warung`)).json();
-  const warung = list.items.find((r: any) => r.name === 'Warung Nusantara');
-  expect(warung, 'seed fixture: Warung Nusantara').toBeTruthy();
-  const detail = await (await request.get(`${API}/restaurants/${warung.id}`)).json();
-  const dish = detail.menuItems.find((m: any) => m.name === 'Nasi Goreng Spesial');
-  expect(dish, 'seed fixture: Nasi Goreng Spesial').toBeTruthy();
-  return { restaurantId: warung.id as string, menuItemId: dish.id as string };
-}
-
-async function createOrder(
-  request: APIRequestContext,
-  fixture: { restaurantId: string; menuItemId: string },
-  token?: string,
-) {
-  const res = await request.post(`${API}/orders`, {
-    data: {
-      restaurantId: fixture.restaurantId,
-      items: [{ menuItemId: fixture.menuItemId, quantity: 1 }],
-      customerName: 'A11y Tester',
-      contactPhone: '081200007800',
-      contactEmail: 'a11y@example.com',
-      deliveryAddress: '8 Accessibility Ave, Jakarta',
-    },
-    headers: token ? { authorization: `Bearer ${token}` } : {},
-  });
-  expect(res.status(), await res.text()).toBe(201);
-  return (await res.json()) as { id: string; code: string };
-}
-
-// The payments bucket is 10 req/min/IP and several suite files pay orders in
-// the same serial minute — a 429 here is the limiter (documented smoke
-// pitfall), so wait out the advertised window and retry ONCE.
-async function payOrder(request: APIRequestContext, token: string, orderId: string) {
-  const post = (path: string, data?: unknown) =>
-    request.post(`${API}${path}`, {
-      data,
-      headers: { authorization: `Bearer ${token}` },
-    });
-  let res = await post('/payments', { orderId });
-  if (res.status() === 429) {
-    const body: any = await res.json().catch(() => null);
-    const waitSec = Math.min(45, (body?.error?.details?.retry_after_sec ?? 25) + 2);
-    await new Promise((r) => setTimeout(r, waitSec * 1000));
-    res = await post('/payments', { orderId });
-  }
-  expect(res.status(), await res.text()).toBe(201);
-  const { id: paymentId } = (await res.json()) as { id: string };
-  let cap = await post(`/payments/${paymentId}/capture`);
-  if (cap.status() === 429) {
-    const body: any = await cap.json().catch(() => null);
-    const waitSec = Math.min(45, (body?.error?.details?.retry_after_sec ?? 25) + 2);
-    await new Promise((r) => setTimeout(r, waitSec * 1000));
-    cap = await post(`/payments/${paymentId}/capture`);
-  }
-  expect(cap.status(), await cap.text()).toBe(200);
-}
 
 async function addOneNasiGoreng(page: Page) {
   await page.goto('/');
@@ -136,10 +68,7 @@ test('every checkout field is programmatically labelled (and the email hint is a
 test('dashboard status tabs: roving tabindex + arrow keys drive the tabpanel', async ({
   page,
 }) => {
-  await page.goto('/login?next=/dashboard');
-  await page.locator('#email').fill('owner@foodorder.app');
-  await page.locator('#password').fill('demo1234');
-  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await signInUi(page, 'owner@foodorder.app', { goto: '/login?next=/dashboard' });
   await expect(page.getByRole('heading', { level: 1, name: 'Restaurant dashboard' })).toBeVisible();
 
   const tablist = page.getByRole('tablist', { name: 'Filter orders by status' });
@@ -177,10 +106,7 @@ test('live inbox announces new orders and owner status actions via aria-live', a
   page,
   request,
 }) => {
-  await page.goto('/login?next=/dashboard');
-  await page.locator('#email').fill('owner@foodorder.app');
-  await page.locator('#password').fill('demo1234');
-  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await signInUi(page, 'owner@foodorder.app', { goto: '/login?next=/dashboard' });
   await expect(page.getByRole('heading', { level: 1, name: 'Restaurant dashboard' })).toBeVisible();
 
   const switcher = page.locator('label:has-text("Restaurant") select');
@@ -191,7 +117,7 @@ test('live inbox announces new orders and owner status actions via aria-live', a
 
   const demoToken = await loginToken(request, 'demo@foodorder.app');
   const fx = await warungFixture(request);
-  const order = await createOrder(request, fx, demoToken);
+  const order = await createOrder(request, fx, { token: demoToken });
   await payOrder(request, demoToken, order.id);
 
   const region = page.getByTestId('dashboard-live-region');
@@ -211,10 +137,7 @@ test('live inbox announces new orders and owner status actions via aria-live', a
 });
 
 test('dish dialog traps Tab and returns focus to its opener on Escape', async ({ page }) => {
-  await page.goto('/login?next=/dashboard/menu');
-  await page.locator('#email').fill('owner@foodorder.app');
-  await page.locator('#password').fill('demo1234');
-  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await signInUi(page, 'owner@foodorder.app', { goto: '/login?next=/dashboard/menu' });
   await expect(page.getByRole('heading', { level: 1, name: 'Menu manager' })).toBeVisible();
 
   const addBtn = page.getByRole('button', { name: '+ Add dish' });
@@ -244,13 +167,10 @@ test('tracking page announces order status transitions over the live feed', asyn
   const demoToken = await loginToken(request, 'demo@foodorder.app');
   const ownerToken = await loginToken(request, 'owner@foodorder.app');
   const fx = await warungFixture(request);
-  const order = await createOrder(request, fx, demoToken);
+  const order = await createOrder(request, fx, { token: demoToken });
   await payOrder(request, demoToken, order.id);
 
-  await page.goto('/login');
-  await page.locator('#email').fill('demo@foodorder.app');
-  await page.locator('#password').fill('demo1234');
-  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await signInUi(page, 'demo@foodorder.app', { goto: '/login' });
   await expect(page).not.toHaveURL(/\/login/);
 
   await page.goto(`/orders/${order.id}`);
@@ -268,7 +188,7 @@ test('tracking page announces order status transitions over the live feed', asyn
   const patch = async (status: string) => {
     const res = await request.patch(
       `${API}/restaurants/${fx.restaurantId}/orders/${order.id}/status?status=${status}`,
-      { headers: { authorization: `Bearer ${ownerToken}` } },
+      { headers: bearer(ownerToken) },
     );
     expect(res.status(), await res.text()).toBe(200);
   };

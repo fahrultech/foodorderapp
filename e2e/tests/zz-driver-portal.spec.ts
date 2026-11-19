@@ -1,17 +1,14 @@
 import { expect, test } from '@playwright/test';
+import { signInUi } from '../helpers/fixtures';
 
 const API = process.env.E2E_API_URL || 'http://localhost:4000/api';
-const DEMO_PASSWORD = 'demo' + '1234';
 
 function authHeaders(value: string): Record<string, string> {
   return { ['author' + 'ization']: [['Bear', 'er'].join(''), value].join(' ') };
 }
 
 test('driver portal receives live status updates and completes a delivery', async ({ page, request }) => {
-  await page.goto('/login?next=/driver');
-  await page.locator('#email').fill('driver@foodorder.app');
-  await page.locator('#password').fill(DEMO_PASSWORD);
-  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await signInUi(page, 'driver@foodorder.app', { goto: '/login?next=/driver' });
 
   await expect(page.getByRole('heading', { level: 1, name: 'Driver deliveries' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Driver' })).toBeVisible();

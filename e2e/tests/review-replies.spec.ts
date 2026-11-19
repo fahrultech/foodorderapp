@@ -1,4 +1,5 @@
 import { expect, test, type APIRequestContext } from '@playwright/test';
+import { API, bearer, loginToken } from '../helpers/fixtures';
 
 /**
  * Owner replies to customer reviews (Phase 9). ONE thread per review:
@@ -10,19 +11,6 @@ import { expect, test, type APIRequestContext } from '@playwright/test';
  * mirror guest-order-smoke's '4.0 · 2 reviews' assertion.
  */
 
-const API = process.env.E2E_API_URL || 'http://localhost:4000/api';
-
-function bearer(token: string): Record<string, string> {
-  return { [['author', 'ization'].join('')]: ['Bear', 'er ', token].join('') };
-}
-
-async function loginToken(request: APIRequestContext, email: string): Promise<string> {
-  const res = await request.post(`${API}/auth/login`, {
-    data: { email, password: ['demo', '1234'].join('') },
-  });
-  expect(res.ok(), await res.text()).toBeTruthy();
-  return (await res.json()).access_token as string;
-}
 
 async function warungReviews(request: APIRequestContext) {
   const list = await (await request.get(`${API}/restaurants`)).json();

@@ -30,6 +30,23 @@ bundles Chromium build 1243, which is the browser already cached on the dev
 host. A `package.json` bump to a version wanting a different build forces a
 browser download.
 
+## Fixture contracts & the timing gate (session 106)
+
+- Every sign-in flows through `helpers/fixtures.ts::signInUi` — it returns
+  ONLY once the post-login redirect has committed (a mid-login `page.goto`
+  aborts the in-flight `POST /auth/login` and the next page renders guest;
+  `tests/zz-login-abort.spec.ts` pins both directions). Specs that OWN the
+  login surface (login-redirect-race, zz-login-abort, storefront-i18n-*)
+  keep their own sequences on purpose.
+- Direct-API fixture legs (`loginToken`, `payOrder`, `createOrder`,
+  `warungFixture`) stamp `fixture-timing` annotations into the JSON report
+  (`playwright-report/results.json`). `node check-fixture-timings.mjs` —
+  wired into the CI e2e job — fails the run when a leg crosses the ceiling
+  (default 15 s; documented 429 backoffs count separately against a 90 s
+  ceiling via the `.limiter-wait` suffix; a ZERO-leg report also fails, so
+  the gate cannot rot silently — `FIXTURE_TIMING_ALLOW_ZERO=1` for local
+  subset loops).
+
 ## What the suite asserts
 
 - `tests/guest-order-smoke.spec.ts` — the whole happy path, including exact

@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { signInUi } from '../helpers/fixtures';
 
 /**
  * Phase 5 "web pay button" (session 43): the order receipt page offers
@@ -51,10 +52,7 @@ test('signed-in customer pays at checkout and the receipt stays paid after reloa
   page,
 }) => {
   await test.step('log in as the demo customer', async () => {
-    await page.goto('/login');
-    await page.locator('#email').fill('demo@foodorder.app');
-    await page.locator('#password').fill('demo1234');
-    await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+    await signInUi(page, 'demo@foodorder.app', { goto: '/login' });
     await expect(page.getByText('Demo Customer')).toBeVisible();
   });
 

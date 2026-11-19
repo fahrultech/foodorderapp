@@ -1,4 +1,5 @@
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
+import { API, DEMO_PASS, bearer, createOrder, loginToken, payOrder, signInUi, timed, warungFixture } from '../helpers/fixtures';
 
 /**
  * Phase 7 a11y pass #2 (session 81) — the forms session 78 explicitly left
@@ -14,126 +15,12 @@ import { expect, test, type APIRequestContext, type Page } from '@playwright/tes
  * Named zz-forms-* so Playwright's serial run sorts it after every
  * seed-absolute assertion (admin counts, owner-analytics $73 fixture,
  * guest-smoke rating pills) — this file registers a user, saves an address,
- * and completes + reviews a NEW Warung order. The API helpers are copied
- * VERBATIM from portal-a11y.spec.ts (same fixtures: demo@foodorder.app /
- * owner@foodorder.app via loginToken, Warung Nasi Goreng, 429-tolerant
- * payOrder for the payments bucket).
+ * and completes + reviews a NEW Warung order. The API helpers (loginToken,
+ * Warung fixtures, 429-tolerant payOrder) live in ../helpers/fixtures since
+ * session 106 — same fixtures: demo@foodorder.app / owner@foodorder.app,
+ * Warung Nasi Goreng, the payments-bucket retry doctrine.
  */
 
-const API = process.env.E2E_API_URL || 'http://localhost:4000/api';
-
-/** Session 100 (flake autopsy tooling): every direct-API fixture leg
- *  stamps its wall-clock cost. The recurring `receipt: bare link...` flake
- *  previously forced "instrument the fixture timings" follow-ups twice —
- *  annotations land in the reporter for EVERY run (pass or fail) and in the
- *  failing test's stdout, so a recurrence immediately names the slow/failed
- *  leg instead of pointing at whole helpers. */
-async function timed<T>(label: string, fn: () => Promise<T>): Promise<T> {
-  const startedAt = Date.now();
-  try {
-    return await fn();
-  } finally {
-    const ms = Date.now() - startedAt;
-    try {
-      test
-        .info()
-        .annotations.push({ type: 'fixture-timing', description: `${label}: ${ms}ms` });
-    } catch {
-      /* outside a test zone — the console line below is the fallback */
-    }
-    console.log(`[fixture-timing] ${label}: ${ms}ms`);
-  }
-}
-
-async function loginToken(request: APIRequestContext, email: string): Promise<string> {
-  return timed(`loginToken(${email})`, async () => {
-    const attempt = () =>
-      request.post(`${API}/auth/login`, {
-        data: { email, password: DEMO_PASS },
-      });
-    // 429 tolerance (session 100, payOrder's doctrine): the auth bucket is
-    // 10/min per identity by default — several specs log in within the same
-    // rolling minute, and a limiter hit here previously read as a fixture
-    // crash. Wait the advertised window and retry ONCE.
-    let res = await attempt();
-    if (res.status() === 429) {
-      const rl: any = await res.json().catch(() => null);
-      const waitSec = Math.min(45, (rl?.error?.details?.retry_after_sec ?? 7) + 1);
-      await new Promise((r) => setTimeout(r, waitSec * 1000));
-      res = await attempt();
-    }
-    expect(res.ok(), await res.text()).toBe(true);
-    const body = (await res.json()) as { access_token: string };
-    return body.access_token;
-  });
-}
-
-async function warungFixture(request: APIRequestContext) {
-  return timed('warungFixture', async () => {
-  const list = await (await request.get(`${API}/restaurants?search=Warung`)).json();
-  const warung = list.items.find((r: any) => r.name === 'Warung Nusantara');
-  expect(warung, 'seed fixture: Warung Nusantara').toBeTruthy();
-  const detail = await (await request.get(`${API}/restaurants/${warung.id}`)).json();
-  const dish = detail.menuItems.find((m: any) => m.name === 'Nasi Goreng Spesial');
-  expect(dish, 'seed fixture: Nasi Goreng Spesial').toBeTruthy();
-  return { restaurantId: warung.id as string, menuItemId: dish.id as string };
-  });
-}
-
-async function createOrder(
-  request: APIRequestContext,
-  fixture: { restaurantId: string; menuItemId: string },
-  token?: string,
-) {
-  return timed('createOrder', async () => {
-  const res = await request.post(`${API}/orders`, {
-    data: {
-      restaurantId: fixture.restaurantId,
-      items: [{ menuItemId: fixture.menuItemId, quantity: 1 }],
-      customerName: 'A11y Tester',
-      contactPhone: '081200007800',
-      contactEmail: 'a11y@example.com',
-      deliveryAddress: '8 Accessibility Ave, Jakarta',
-    },
-    headers: token ? { authorization: `Bearer ${token}` } : {},
-  });
-  expect(res.status(), await res.text()).toBe(201);
-  return (await res.json()) as { id: string; code: string };
-  });
-}
-
-// The payments bucket is 10 req/min/IP and several suite files pay orders in
-// the same serial minute — a 429 here is the limiter (documented smoke
-// pitfall), so wait out the advertised window and retry ONCE.
-async function payOrder(request: APIRequestContext, token: string, orderId: string) {
-  return timed('payOrder', async () => {
-  const post = (path: string, data?: unknown) =>
-    request.post(`${API}${path}`, {
-      data,
-      headers: { authorization: `Bearer ${token}` },
-    });
-  let res = await post('/payments', { orderId });
-  if (res.status() === 429) {
-    const body: any = await res.json().catch(() => null);
-    const waitSec = Math.min(45, (body?.error?.details?.retry_after_sec ?? 25) + 2);
-    await new Promise((r) => setTimeout(r, waitSec * 1000));
-    res = await post('/payments', { orderId });
-  }
-  expect(res.status(), await res.text()).toBe(201);
-  const { id: paymentId } = (await res.json()) as { id: string };
-  let cap = await post(`/payments/${paymentId}/capture`);
-  if (cap.status() === 429) {
-    const body: any = await cap.json().catch(() => null);
-    const waitSec = Math.min(45, (body?.error?.details?.retry_after_sec ?? 25) + 2);
-    await new Promise((r) => setTimeout(r, waitSec * 1000));
-    cap = await post(`/payments/${paymentId}/capture`);
-  }
-  expect(cap.status(), await cap.text()).toBe(200);
-  });
-}
-
-
-const DEMO_PASS = 'demo' + '1234';
 
 /** Drive an order through the OWNER ladder. The shipped confirm gate means
  *  `confirmed` refuses unpaid orders — pay before calling. */
@@ -147,28 +34,11 @@ async function ownerAdvance(
   for (const status of ['confirmed', 'preparing', 'delivering', 'completed']) {
     const res = await request.patch(
       `${API}/restaurants/${restaurantId}/orders/${orderId}/status?status=${status}`,
-      { headers: { authorization: `Bearer ${ownerToken}` }, },
+      { headers: bearer(ownerToken), },
     );
     expect(res.status(), await res.text()).toBe(200);
   }
   });
-}
-
-async function signInUi(page: Page, email: string) {
-  await page.getByLabel('Email', { exact: true }).fill(email);
-  await page.getByLabel('Password', { exact: true }).fill(DEMO_PASS);
-  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
-  // SESSION 100 FLAKE KILL — never return mid-login. A page.goto issued
-  // right after the click ABORTS the in-flight POST /auth/login (Chromium
-  // cancels pending fetches when the document navigates away), so the next
-  // page renders the GUEST state: the exact `receipt: bare link...` failure
-  // signature (zz-gdpr-account documented the same class verbatim: "racing
-  // one mid-login renders the dashboard as guest"). The post-login redirect
-  // only commits AFTER login() resolved and applySession persisted the
-  // tokens, so waiting the URL off /login (the suite's own idiom) makes
-  // this helper safe to follow with ANY navigation. `e2e/tests/
-  // zz-login-abort.spec.ts` pins both directions deterministically.
-  await expect(page).not.toHaveURL(/\/login(\?|#|$)/, { timeout: 20_000 });
 }
 
 /** Cross-test state (serial single worker): the order the rate test drives
@@ -293,7 +163,7 @@ test('receipt: bare link auto-unlocks via the bearer rung; the rate form is full
   const demoToken = await loginToken(request, 'demo@foodorder.app');
   const ownerToken = await loginToken(request, 'owner@foodorder.app');
   const fx = await warungFixture(request);
-  const order = await createOrder(request, fx, demoToken);
+  const order = await createOrder(request, fx, { token: demoToken });
   await payOrder(request, demoToken, order.id);
   await ownerAdvance(request, ownerToken, fx.restaurantId, order.id);
   drivenOrder = order;

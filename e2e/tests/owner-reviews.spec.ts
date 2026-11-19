@@ -1,4 +1,5 @@
 import { expect, Page, test, type APIRequestContext } from '@playwright/test';
+import { loginToken, signInUi } from '../helpers/fixtures';
 
 /**
  * Session 102 — the OWNER REPLY COMPOSER on /dashboard/reviews: the web
@@ -20,21 +21,6 @@ const WEB = process.env.E2E_WEB_URL || 'http://localhost:3000';
 
 function bearer(token: string): Record<string, string> {
   return { [['author', 'ization'].join('')]: ['Bear', 'er ', token].join('') };
-}
-
-async function loginToken(request: APIRequestContext, email: string): Promise<string> {
-  const res = await request.post(`${API}/auth/login`, {
-    data: { email, password: ['demo', '1234'].join('') },
-  });
-  expect(res.ok(), await res.text()).toBeTruthy();
-  return (await res.json()).access_token as string;
-}
-
-async function signInUi(page: Page, email: string) {
-  await page.getByLabel('Email', { exact: true }).fill(email);
-  await page.getByLabel('Password', { exact: true }).fill(['demo', '1234'].join(''));
-  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
-  await expect(page).not.toHaveURL(/\/login(\?|#|$)/, { timeout: 20_000 });
 }
 
 async function warungId(request: APIRequestContext): Promise<string> {

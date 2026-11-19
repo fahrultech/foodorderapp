@@ -1,4 +1,5 @@
 import { expect, test, type APIRequestContext } from '@playwright/test';
+import { loginToken, signInUi } from '../helpers/fixtures';
 
 /**
  * Storefront "only N left" badge + dashboard stock editor (Phase 5 follow-up,
@@ -24,11 +25,8 @@ function bearer(token: string): Record<string, string> {
 }
 
 async function ownerToken(request: APIRequestContext): Promise<string> {
-  const res = await request.post(`${API}/auth/login`, {
-    data: { email: 'owner@foodorder.app', password: ['demo', '1234'].join('') },
-  });
-  expect(res.ok(), await res.text()).toBeTruthy();
-  return ((await res.json()) as { access_token: string }).access_token;
+  // Shared instrumented login (session 106): timed + 429-tolerant.
+  return loginToken(request, 'owner@foodorder.app');
 }
 
 async function tehFixture(request: APIRequestContext) {
@@ -124,10 +122,7 @@ test('owner menu manager dialog sets, lowers, and clears stock', async ({ page, 
   const token = await ownerToken(request);
   const { restaurantId, menuItemId } = await tehFixture(request);
   try {
-  await page.goto('/login');
-  await page.locator('#email').fill('owner@foodorder.app');
-  await page.locator('#password').fill(['demo', '1234'].join(''));
-  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await signInUi(page, 'owner@foodorder.app', { goto: '/login' });
   // Suite contract (see account.spec): a bare /login lands on '/' once the
   // session cookie is set — wait for the redirect BEFORE navigating on.
   await expect(page).not.toHaveURL(/\/login/);

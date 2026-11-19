@@ -1,4 +1,5 @@
 import { expect, test, type APIRequestContext } from '@playwright/test';
+import { API, bearer, createOrder, loginToken, payOrder, signInUi, warungFixture } from '../helpers/fixtures';
 
 /**
  * Phase 5 "dashboard/order-tracking consume the WS feed (SSE stays the
@@ -24,82 +25,22 @@ import { expect, test, type APIRequestContext } from '@playwright/test';
  * only sees 2 POSTs from this file.
  */
 
-const API = process.env.E2E_API_URL || 'http://localhost:4000/api';
-
-async function loginToken(request: APIRequestContext, email: string): Promise<string> {
-  const res = await request.post(`${API}/auth/login`, {
-    data: { email, password: 'demo1234' },
-  });
-  expect(res.ok()).toBeTruthy();
-  const body = (await res.json()) as { access_token: string };
-  return body.access_token;
-}
-
-/** Find Warung Nusantara + one dish id over the public REST API. */
-async function warungFixture(request: APIRequestContext) {
-  const list = await (await request.get(`${API}/restaurants?q=Warung`)).json();
-  const warung = list.items.find((r: any) => r.name === 'Warung Nusantara');
-  expect(warung, 'seed fixture: Warung Nusantara').toBeTruthy();
-  const detail = await (await request.get(`${API}/restaurants/${warung.id}`)).json();
-  const dish = detail.menuItems.find((m: any) => m.name === 'Nasi Goreng Spesial');
-  expect(dish, 'seed fixture: Nasi Goreng Spesial').toBeTruthy();
-  return { restaurantId: warung.id as string, menuItemId: dish.id as string };
-}
-
-async function createOrder(
-  request: APIRequestContext,
-  fixture: { restaurantId: string; menuItemId: string },
-  token?: string,
-) {
-  const res = await request.post(`${API}/orders`, {
-    data: {
-      restaurantId: fixture.restaurantId,
-      items: [{ menuItemId: fixture.menuItemId, quantity: 1 }],
-      customerName: 'Live Feed Tester',
-      contactPhone: '081200003700',
-      // Receipt proof (Phase 6): the tracking page opens on the BARE order
-      // url; the SSR read carries no bearer, so the OrderVerify island
-      // auto-unlocks via demo's token and re-enters with THIS stored email.
-      contactEmail: 'demo@foodorder.app',
-      deliveryAddress: 'Jl. Merdeka No. 37, Jakarta',
-    },
-    headers: token ? { authorization: `Bearer ${token}` } : {},
-  });
-  expect(res.status(), await res.text()).toBe(201);
-  return (await res.json()) as { id: string; code: string };
-}
-
-/**
- * Pay an order via the documented ladder (POST /payments intent ->
- * POST /payments/:id/capture). Required before any owner confirm since the
- * order-machine gate is enabled by default — see file header.
- */
-async function payOrder(
-  request: APIRequestContext,
-  token: string,
-  orderId: string,
-) {
-  const intent = await request.post(`${API}/payments`, {
-    data: { orderId },
-    headers: { authorization: `Bearer ${token}` },
-  });
-  expect(intent.status(), await intent.text()).toBe(201);
-  const { id: paymentId } = (await intent.json()) as { id: string };
-  const capture = await request.post(`${API}/payments/${paymentId}/capture`, {
-    headers: { authorization: `Bearer ${token}` },
-  });
-  expect(capture.status(), await capture.text()).toBe(200);
-}
-
+// Fixture identity for this file's orders. Receipt proof (Phase 6): the
+// tracking page opens on the BARE order url; the SSR read carries no
+// bearer, so the OrderVerify island auto-unlocks via demo's token and
+// re-enters with THIS stored email.
+const LIVE_FEED_ORDER = {
+  customerName: 'Live Feed Tester',
+  contactPhone: '081200003700',
+  contactEmail: 'demo@foodorder.app',
+  deliveryAddress: 'Jl. Merdeka No. 37, Jakarta',
+} as const;
 test('owner inbox follows the WebSocket feed — a new order lands in seconds', async ({
   page,
   request,
 }) => {
   // UI login (also warms the token the WS handshake uses).
-  await page.goto('/login?next=/dashboard');
-  await page.locator('#email').fill('owner@foodorder.app');
-  await page.locator('#password').fill('demo1234');
-  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await signInUi(page, 'owner@foodorder.app', { goto: '/login?next=/dashboard' });
   await expect(page.getByRole('heading', { level: 1, name: 'Restaurant dashboard' })).toBeVisible();
 
   // Pin a known restaurant. The switcher only exists once restaurants have
@@ -115,7 +56,7 @@ test('owner inbox follows the WebSocket feed — a new order lands in seconds', 
   // Guest order via REST: the gateway fans it to room r:<warung> — the inbox
   // must show it (with the NEW badge) well under the 10s poll interval.
   const fx = await warungFixture(request);
-  const order = await createOrder(request, fx);
+  const order = await createOrder(request, fx, LIVE_FEED_ORDER);
   const card = page.locator(`[data-testid="inbox-card-${order.code}"]`);
   await expect(card).toBeVisible({ timeout: 5_000 });
   await expect(card.getByText('New')).toBeVisible();
@@ -129,13 +70,10 @@ test('customer tracking page follows an owner status change over the feed', asyn
   const customerToken = await loginToken(request, 'demo@foodorder.app');
   const ownerToken = await loginToken(request, 'owner@foodorder.app');
   const fx = await warungFixture(request);
-  const order = await createOrder(request, fx, customerToken);
+  const order = await createOrder(request, fx, { ...LIVE_FEED_ORDER, token: customerToken });
 
   // Signed-in via the UI so the tracking page's WS island can authenticate.
-  await page.goto('/login');
-  await page.locator('#email').fill('demo@foodorder.app');
-  await page.locator('#password').fill('demo1234');
-  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await signInUi(page, 'demo@foodorder.app', { goto: '/login' });
   await expect(page).not.toHaveURL(/\/login/);
 
   await page.goto(`/orders/${order.id}`);
@@ -152,7 +90,7 @@ test('customer tracking page follows an owner status change over the feed', asyn
   // the page must re-render (router.refresh -> server GET) without any reload.
   const patch = await request.patch(
     `${API}/restaurants/${fx.restaurantId}/orders/${order.id}/status?status=confirmed`,
-    { headers: { authorization: `Bearer ${ownerToken}` } },
+    { headers: bearer(ownerToken) },
   );
   expect(patch.status(), await patch.text()).toBe(200);
 
@@ -177,10 +115,7 @@ test('dashboard falls back to the SSE stream when the WebSocket feed is down', a
   });
   const page = await ctx.newPage();
   try {
-    await page.goto('/login?next=/dashboard');
-    await page.locator('#email').fill('owner@foodorder.app');
-    await page.locator('#password').fill('demo1234');
-    await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+    await signInUi(page, 'owner@foodorder.app', { goto: '/login?next=/dashboard' });
     await expect(
       page.getByRole('heading', { level: 1, name: 'Restaurant dashboard' }),
     ).toBeVisible();
@@ -194,7 +129,7 @@ test('dashboard falls back to the SSE stream when the WebSocket feed is down', a
     await expect(pill).toHaveAttribute('data-feed-transport', 'sse', { timeout: 15_000 });
 
     const fx = await warungFixture(request);
-    const order = await createOrder(request, fx);
+    const order = await createOrder(request, fx, LIVE_FEED_ORDER);
     const card = page.locator(`[data-testid="inbox-card-${order.code}"]`);
     await expect(card).toBeVisible({ timeout: 5_000 });
     await expect(pill).toHaveAttribute('data-feed-transport', 'sse');

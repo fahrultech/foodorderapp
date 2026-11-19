@@ -21,7 +21,11 @@ export default defineConfig({
   fullyParallel: false,
   workers: 1,
   retries: 0,
-  reporter: [['list'], ['html', { open: 'never' }]],
+  // The json reporter feeds e2e/check-fixture-timings.mjs — the session-106
+  // CI ceiling over the `fixture-timing` annotations stamped by
+  // helpers/fixtures.ts. Keep it in the list even locally: the gate always
+  // reads the same artifact the suite produces.
+  reporter: [['list'], ['html', { open: 'never' }], ['json', { outputFile: 'playwright-report/results.json' }]],
   use: {
     baseURL: process.env.E2E_WEB_URL || 'http://localhost:3000',
     trace: 'on-first-retry',

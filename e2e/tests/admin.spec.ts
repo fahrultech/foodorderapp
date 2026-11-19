@@ -1,19 +1,13 @@
 import { expect, test } from '@playwright/test';
+import { signInUi } from '../helpers/fixtures';
 
 /** Read-only admin oversight: role-gated nav plus users/restaurants/orders data. */
 test('admin can open the platform overview', async ({ page }) => {
-  await page.goto('/login');
-  await page.locator('#email').fill('admin@foodorder.app');
-  await page.locator('#password').fill(['demo', '1234'].join(''));
-  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await signInUi(page, 'admin@foodorder.app', { goto: '/login' });
 
   await expect(page.getByRole('link', { name: 'Admin' })).toBeVisible();
-  // Race hardening (session 93, A/B-quantified 1/5 on BOTH trees): the
-  // role-gated 'Admin' link is already visible on /login itself, so the click
-  // can start before the post-login router.replace('/') commits — and the
-  // redirect then lands on home and swallows the navigation. Wait for the
-  // redirect to settle first.
-  await expect(page).not.toHaveURL(/\/login/);
+  // Session-93 race note, now structural: signInUi only returns once the
+  // post-login redirect has COMMITTED (session 100/106 contract).
   await page.getByRole('link', { name: 'Admin' }).click();
 
   await expect(page.getByRole('heading', { level: 1, name: 'Admin overview' })).toBeVisible();
@@ -30,10 +24,7 @@ test('admin can open the platform overview', async ({ page }) => {
 });
 
 test('non-admin accounts do not get an admin navigation entry', async ({ page }) => {
-  await page.goto('/login');
-  await page.locator('#email').fill('owner@foodorder.app');
-  await page.locator('#password').fill(['demo', '1234'].join(''));
-  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await signInUi(page, 'owner@foodorder.app', { goto: '/login' });
 
   await expect(page.getByRole('link', { name: 'Admin' })).toHaveCount(0);
   await page.goto('/admin');
