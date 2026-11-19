@@ -3,6 +3,56 @@
 Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
+## 2026-11-19 09:12 — Session 105 — Honest loading states on /favorites + /addresses (Web, Phase 9)
+
+**Built:**
+
+- Phase 9's top item. The audit first: the "both pages flip empty→content
+  in one frame" hint was STALE — both pages have gated a pulse skeleton on
+  `loaded` since sessions 95/96. The pass still caught a real violation of
+  the session-77/91 error-vs-empty doctrine: **/addresses rendered the
+  "No saved addresses yet" empty card over a FAILED load** (its condition
+  never checked `loadError`; favorites had exactly that guard). Gate fixed.
+- The addresses error banner became a real failure card: stable
+  `addresses-error` testid + a localized **Try again** (Common.retry, EN/ID
+  already shipped — ZERO new copy) wired to `refresh()`. Its error KIND
+  was also brought to the `authedCall`/`isApiDown` doctrine: a network drop
+  now names the unreachable API via the shared EN/ID `locale-strings`
+  fallback instead of the generic "Could not load your addresses." — the
+  FIRST targeted e2e run caught this (product-side fix, not spec-side).
+- Both skeletons carry the established animated idiom: `animate-pulse` +
+  stable testids (`favorites-skeleton`, `addresses-skeleton`); the existing
+  aria-busy + localized loadingAria labels unchanged.
+- New `e2e/tests/loading-skeletons.spec.ts` (4 tests): a 900 ms held load
+  proves the skeleton is the ONLY thing on screen mid-fetch (no empty card,
+  no error) before real rows land; failed loads must show the retry card
+  and NEVER the empty state (the bug pin); the retry ladder ends honestly
+  (error gone, skeleton gone, Add-address presence consistent with rows).
+  All row payloads ride `page.route` interception — read-only and seed-safe;
+  only the post-release retry step touches the real API.
+
+**Verified:**
+
+- Web build green (re-ran after the error-kind fix): `Compiled successfully`,
+  21/21 static pages.
+- Targeted new spec 4/4 (first run 3/4 — the addresses error-text assertion
+  exposed the product gap; fixed, re-green).
+- FULL e2e **101/101 green ×2 consecutive on fresh seeds** (97→101,
+  `npm run seed` between the runs) — every existing EN/ID byte-pin unchanged.
+- SSR curl 200 on `/favorites` + `/addresses` against the built server.
+- API delta 0 (no server code touched); message bundles untouched — every
+  string this pass needed already shipped in sessions 95/96; sanitizer scan
+  of all 230 added lines: no U+2026/`***`/literal-\u hits; `git diff --check`
+  clean.
+
+**Left for next sessions:**
+
+- The error-vs-empty + `isApiDown` audit only covered the two pages in this
+  roadmap item; other per-page fetches (account GDPR surface, history
+  filters) may carry the same generic-fallback looseness — natural next
+  sweep of the loading-states loop.
+
+---
 ## 2026-11-18 20:27 — Session 104 — k6 browse re-baseline under the HTTP cache + conditional-GET replay profile (Perf, Phase 9)
 
 **Built:**
