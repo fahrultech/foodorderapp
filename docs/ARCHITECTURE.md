@@ -233,8 +233,16 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   fetches on document navigation) — the target renders GUEST because
   `login()` never resolved, not because it was slow. `inert` blocks
   clicks, not navigations, so this is suite doctrine: every e2e sign-in
-  helper must await the redirect COMMIT (`not.toHaveURL(/\/login/)`)
-  before the caller navigates anywhere; `e2e/tests/zz-login-abort.spec.ts`
+  helper must await the redirect COMMIT (`not.toHaveURL(/\/login/)`).
+  Session 106 made that ONE contract instead of N local copies: all suite
+  sign-ins flow through `e2e/helpers/fixtures.ts::signInUi` (locale-tolerant,
+  optional `goto`), its direct-API fixture legs stamp `fixture-timing`
+  annotations, and `e2e/check-fixture-timings.mjs` turns those into a ceiling
+  that fails the e2e CI job (defaults 15s work / 90s documented limiter
+  wait; a zero-leg report fails too, so the gate cannot rot silently). Only
+  the specs that OWN the login surface keep their own sequences:
+  login-redirect-race, zz-login-abort, storefront-i18n-auth-id,
+  storefront-i18n-account-id. `e2e/tests/zz-login-abort.spec.ts`
   pins both directions deterministically with a held login response.
 - **Order status machine** — transitions validated server-side
   (`pending→confirmed→preparing→delivering→completed`, cancellable through preparing).

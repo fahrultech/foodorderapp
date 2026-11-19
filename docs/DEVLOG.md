@@ -3,6 +3,80 @@
 Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
+## 2026-11-19 12:56 — Session 106 — Flake tooling graduated: ONE sign-in contract + the fixture-timing CI ceiling (E2E, Phase 9)
+
+**Built:**
+
+- Phase 9's top item. The session-100 flake kit is now suite-wide, from one
+  source: new `e2e/helpers/fixtures.ts` owns `signInUi` (redirect-COMMIT
+  contract, locale-tolerant `Sign in`/`Masuk` CTA + stable `#email`/
+  `#password` ids, optional `goto`), `loginToken`/`payOrder` (timed,
+  429-tolerant on BOTH payment legs), `createOrder`/`warungFixture` (timed),
+  plus `timed`/`limiterWait`/`bearer`/`API`/`WEB`/`DEMO_PASS`.
+- 19 spec files migrated. 16 inline click-sequences replaced (admin ×2,
+  live-feed ×3, portal-a11y ×4, account, order-access, owner-analytics,
+  empty-states, pay-order, stock, zz-driver-portal) — several had NO redirect
+  guard at all (admin test 2, owner-analytics, pay-order: live members of
+  the session-100 abort class). 9 local helper copies deleted
+  (loginToken ×6, payOrder ×3, warungFixture ×4, createOrder ×3, signInUi ×4,
+  bearer ×2, timed, ownerToken, placeOrder/warungNasiGoreng); 7 local
+  sign-in functions rewritten as one-line delegations (portal-states,
+  loading-skeletons, portal-chrome-id, admin-traffic, owner-traffic,
+  zz-forms-a11y via import, zz-gdpr-account via import). Raw
+  `headers: { authorization: ... }` literals are gone from the whole suite
+  (runtime-assembled `bearer()` everywhere — sanitizer-adjacency doctrine).
+- Deliberately NOT touched: `login-redirect-race`, `zz-login-abort`,
+  `storefront-i18n-auth-id`, `storefront-i18n-account-id` — those specs'
+  inline sequences ARE the login surface under test (ID-chrome label fills
+  included).
+- live-feed's order identity moved to a named `LIVE_FEED_ORDER` const
+  (contactEmail receipt-proof comment preserved); its fixture read now uses
+  the correct `search=` param (the old `?q=` was a silently-ignored alias).
+- **The ceiling:** playwright config gained the `json` reporter
+  (`playwright-report/results.json`); `e2e/check-fixture-timings.mjs` reads
+  every `fixture-timing` annotation and fails on any leg over the ceiling —
+  15 s work legs, 90 s `.limiter-wait` legs (rate-limit backoffs are credited
+  OUT of their work leg, so the documented 429 doctrine can never false-fire
+  it), and a ZERO-leg report fails too (a silently-dead gate is exactly what
+  this kills). Wired as a step after `npx playwright test` in the CI e2e job.
+- ARCHITECTURE's sign-in-doctrine bullet rewritten from "every helper must
+  await the redirect" to the single-source reality + the gate; e2e/README
+  gained a "Fixture contracts & the timing gate" section.
+
+**Verified:**
+
+- `playwright test --list`: 101 tests in 35 files — byte-identical inventory
+  to session 105 (pure refactor, zero test churn).
+- FULL e2e **101/101 green ×2 consecutive on fresh seeds** (3.0 + 3.1 min,
+  `npm run seed` between) — every EN/ID byte-pin unchanged.
+- Gate on BOTH run reports: exit 0; measured 38 work legs max **121 ms**
+  (15 s ceiling ≈ 120× headroom) + real 9–10 s `payOrder.limiter-wait`
+  legs classified separately exactly as designed (live proof of the
+  credit mechanism).
+- Gate negative tests (synthetic reports): ceiling=50ms → 19 violations
+  exit 1; zero-leg report → exit 1; `FIXTURE_TIMING_ALLOW_ZERO=1` → 0;
+  work-vs-wait ceiling split proven with a 5000ms work + 120000ms wait
+  fixture (3 classifications, each exit as intended).
+- API delta 0 (no server code touched): `nest build` green, jest 95 suites/
+  1206 tests — identical to sessions 103–105. Web delta 0 (no app source).
+- Sanitizer scan of all 24 changed/new files: zero U+2026/`***`/literal-\u
+  on added lines (the pay-order `landmarks…` hit is pre-existing app copy,
+  verified byte-identical in HEAD); `git diff --check` clean; ci.yml
+  re-parsed with PyYAML (step order printed).
+- CI honesty note: the new gate step has not yet executed on GitHub runners;
+  local max observed is 121 ms against the 15 s ceiling, so a first CI run
+  failing on ceiling would mean >100× runner slowness — recalibrate via the
+  env knobs if ever observed.
+
+**Left for next sessions:**
+
+- Optional: extend `timed()` coverage to the remaining bespoke API-leg
+  helpers (owner-analytics' createPaidConfirmedOrder, stock's setStock) —
+  they run once per test today; the ceiling mostly guards the shared legs.
+- The two Phase 8 lock-items stand untouched (per-restaurant durability,
+  order-centric attribution).
+
+---
 ## 2026-11-19 09:12 — Session 105 — Honest loading states on /favorites + /addresses (Web, Phase 9)
 
 **Built:**
