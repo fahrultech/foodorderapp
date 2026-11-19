@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { BrowseCompressionService } from './browse-compression.service';
 import { HttpCacheService } from './http-cache.service';
 
 /**
@@ -8,7 +9,7 @@ import { HttpCacheService } from './http-cache.service';
  * the same instance, mirroring the MetricsModule precedent (session 80).
  */
 @Module({
-  providers: [HttpCacheService],
-  exports: [HttpCacheService],
+  providers: [HttpCacheService, BrowseCompressionService],
+  exports: [HttpCacheService, BrowseCompressionService],
 })
 export class HttpCacheModule {}

@@ -9,6 +9,7 @@ import { createRootLogger, PinoLoggerService } from './common/logging/pino-logge
 import { createHttpLoggingMiddleware } from './common/logging/http-logging';
 import { RequestMetricsService } from './common/metrics/request-metrics.service';
 import { HttpCacheService } from './common/http-cache/http-cache.service';
+import { BrowseCompressionService } from './common/http-cache/browse-compression.service';
 import { SwaggerModule } from '@nestjs/swagger';
 import {
   SWAGGER_UI_PATH,
@@ -35,9 +36,16 @@ async function bootstrap() {
   // the three so a served 304/200-from-store — which skips routing
   // entirely — was still seen by BOTH finish listeners: every revalidated
   // browse keeps its metrics sample and its access line (session 103).
+  // The gzip layer (session 108) sits between logging and the cache: it
+  // patches res.end BEFORE the cache middleware runs, so the bytes the
+  // cache serves straight from its store flow through the SAME wrapper as
+  // captured handler responses. Registering it after the cache would
+  // silently leave served hits uncompressed (the order IS the contract —
+  // pinned in http-cache.integration.spec.ts).
   app.use(requestIdMiddleware);
   app.use(app.get(RequestMetricsService).middleware());
   app.use(createHttpLoggingMiddleware(rootLogger));
+  app.use(app.get(BrowseCompressionService).middleware());
   app.use(app.get(HttpCacheService).middleware());
   app.enableCors({ origin: true, credentials: true, exposedHeaders: [REQUEST_ID_HEADER] });
   // OpenAPI docs. Document is generated from controller/DTO metadata at boot.

@@ -1,5 +1,6 @@
 import * as http from 'http';
 import { Writable } from 'node:stream';
+import { gunzipSync } from 'node:zlib';
 import { Controller, Get, INestApplication, Module, Param, Post, Query } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import type { Logger as PinoInstance } from 'pino';
@@ -8,12 +9,13 @@ import { createRootLogger, PinoLoggerService } from '../logging/pino-logger';
 import { requestIdMiddleware } from '../logging/request-id.middleware';
 import { RequestMetricsRegistry } from '../metrics/request-metrics';
 import { createRequestMetricsMiddleware } from '../metrics/request-metrics.middleware';
-import { HttpCacheStore } from './http-cache';
+import { createBrowseCompressionMiddleware } from './browse-compression';
+import { etagFor, HttpCacheStore } from './http-cache';
 import { createHttpCacheMiddleware } from './http-cache.middleware';
 
 /**
- * Production middleware chain over a real HTTP server (session 103):
- *   requestId -> metrics -> pino-http access logging -> public-read cache
+ * Production middleware chain over a real HTTP server (sessions 103/108):
+ *   requestId -> metrics -> pino-http access logging -> browse gzip -> public-read cache
  * Pins the four contracts unit tests CANNOT prove:
  *  1. a revalidated fresh hit answers 304 WITHOUT the handler ever running
  *     (the live zero-SQL claim, mirrored here with handler call counters);
@@ -81,6 +83,7 @@ interface FullResponse {
   status: number;
   headers: http.IncomingHttpHeaders;
   body: string;
+  bytes: Buffer;
 }
 
 function request(app: INestApplication, method: string, path: string, headers?: Record<string, string>): Promise<FullResponse> {
@@ -90,16 +93,17 @@ function request(app: INestApplication, method: string, path: string, headers?: 
     const req = http.request({ host: '127.0.0.1', port, method, path, headers }, (res) => {
       const chunks: Buffer[] = [];
       res.on('data', (c) => chunks.push(c));
-      res.on('end', () =>
-        resolve({ status: res.statusCode!, headers: res.headers, body: Buffer.concat(chunks).toString('utf8') }),
-      );
+      res.on('end', () => {
+        const bytes = Buffer.concat(chunks);
+        resolve({ status: res.statusCode!, headers: res.headers, bytes, body: bytes.toString('utf8') });
+      });
     });
     req.on('error', reject);
     req.end();
   });
 }
 
-async function bootChain(ttlSec: number): Promise<{
+async function bootChain(ttlSec: number, minBytes = 0): Promise<{
   app: INestApplication;
   registry: RequestMetricsRegistry;
   store: HttpCacheStore;
@@ -125,11 +129,15 @@ async function bootChain(ttlSec: number): Promise<{
   const root = createRootLogger({ level: 'debug', stream });
   const moduleRef = await Test.createTestingModule({ imports: [ProbeModule] }).compile();
   const app = moduleRef.createNestApplication();
-  // EXACT production order (main.ts, session 103): cache LAST of the three.
+  // EXACT production order (main.ts, sessions 103 + 108): gzip BEFORE the
+  // cache (its res.end wrapper must be installed while the cache serves
+  // from the store), cache LAST of the four. minBytes=0 keeps the gzip
+  // layer inert so the cache-era assertions stay byte-for-byte.
   app.setGlobalPrefix('api');
   app.use(requestIdMiddleware);
   app.use(createRequestMetricsMiddleware(registry));
   app.use(createHttpLoggingMiddleware(root));
+  app.use(createBrowseCompressionMiddleware({ minBytes }));
   app.use(createHttpCacheMiddleware({ ttlSec, store }));
   app.useLogger(new PinoLoggerService(root));
   await app.listen(0);
@@ -363,5 +371,127 @@ describe('public-read http cache — TTL expiry + stale revalidation (ttl=1s)', 
     expect(snap.totals.byStatus['2xx']).toBe(3);
     expect(snap.totals.byStatus['3xx']).toBe(1);
     expect(snap.routes.find((r) => r.route === 'GET /api/restaurants/:id')!.requests).toBe(4);
+  });
+});
+
+describe('browse gzip layer over the same chain (session 108 — order IS the contract)', () => {
+  let app: INestApplication;
+  let registry: RequestMetricsRegistry;
+  let root: PinoInstance;
+  let lines: Record<string, unknown>[];
+  let gzipEtag = '';
+  let decodedCapture = '';
+
+  // minBytes=64: the list probe body (~95 B) clears it, the detail probe
+  // (~51 B) deliberately does not — one real boot exercises BOTH arms.
+  beforeAll(async () => {
+    ({ app, registry, root, lines } = await bootChain(60, 64));
+    for (const k of Object.keys(calls)) calls[k as keyof typeof calls] = 0;
+    version = 1;
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  it('gzip capture: encoded 200 whose ETag is the hash of the DECODED bytes', async () => {
+    const gz = await request(app, 'GET', '/api/restaurants', { 'accept-encoding': 'gzip' });
+    expect(gz.status).toBe(200);
+    expect(gz.headers['content-encoding']).toBe('gzip');
+    expect(gz.headers.etag).toMatch(STRONG_ETAG_RE);
+    expect(gz.headers['cache-control']).toBe('public, max-age=60');
+    const decoded = gunzipSync(gz.bytes);
+    decodedCapture = decoded.toString('utf8');
+    gzipEtag = gz.headers.etag!;
+    // THE rule of this layer: the validator names the uncompressed payload
+    // — what the store hashed and what any encoding round-trips to.
+    expect(etagFor(decoded)).toBe(gzipEtag);
+    // the encoded length is sent byte-exact (no chunked fallback)
+    expect(gz.headers['content-length']).toBe(String(gz.bytes.length));
+    const vary = new Set(
+      String(gz.headers.vary)
+        .split(',')
+        .map((p) => p.trim().toLowerCase()),
+    );
+    expect([...vary].sort()).toEqual(['accept-encoding', 'authorization']);
+    expect(calls.list).toBe(1);
+  });
+
+  it('identity variant of the SAME stored entry: byte-transparent, SAME ETag, cache Vary stays pinned', async () => {
+    const id = await request(app, 'GET', '/api/restaurants');
+    expect(id.status).toBe(200);
+    expect(id.headers['content-encoding']).toBeUndefined();
+    expect(id.headers.etag).toBe(gzipEtag);
+    expect(id.headers.vary).toBe('Authorization'); // never extended for an identity response
+    expect(Buffer.compare(Buffer.from(id.body, 'utf8'), Buffer.from(decodedCapture, 'utf8'))).toBe(0);
+    expect(calls.list).toBe(1); // served from the store — the no-AE preflight left the cache fully in charge
+  });
+
+  it('store-served gzip hit re-encodes WITHOUT the handler and decodes identically', async () => {
+    const gz2 = await request(app, 'GET', '/api/restaurants', { 'accept-encoding': 'gzip' });
+    expect(gz2.status).toBe(200);
+    expect(gz2.headers['content-encoding']).toBe('gzip');
+    expect(gz2.headers.etag).toBe(gzipEtag);
+    expect(gunzipSync(gz2.bytes).toString('utf8')).toBe(decodedCapture);
+    expect(calls.list).toBe(1); // ORDER PROOF: registering gzip AFTER the cache would leave this hit identity
+  });
+
+  it('gzip revalidation answers 304 with no body and NO Content-Encoding', async () => {
+    const reval = await request(app, 'GET', '/api/restaurants', {
+      'accept-encoding': 'gzip',
+      'if-none-match': gzipEtag,
+    });
+    expect(reval.status).toBe(304);
+    expect(reval.bytes.length).toBe(0);
+    expect(reval.headers['content-encoding']).toBeUndefined();
+    expect(reval.headers.etag).toBe(gzipEtag);
+    expect(calls.list).toBe(1);
+  });
+
+  it('below-threshold browse body keeps identity bytes even when gzip is wanted', async () => {
+    const detail = await request(app, 'GET', `/api/restaurants/${RID}`, { 'accept-encoding': 'gzip' });
+    expect(detail.status).toBe(200);
+    expect(detail.headers['content-encoding']).toBeUndefined();
+    expect(JSON.parse(detail.body).id).toBe(RID);
+    expect(detail.headers.etag).toMatch(STRONG_ETAG_RE);
+    expect(detail.headers.vary).toBe('Authorization');
+  });
+
+  it('scope: non-whitelisted routes and HEAD never encode; bearer opts out of CACHE only, not of encoding', async () => {
+    const cuisines = await request(app, 'GET', '/api/restaurants/meta/cuisines', { 'accept-encoding': 'gzip' });
+    expect(cuisines.headers['content-encoding']).toBeUndefined();
+    expect(cuisines.headers['cache-control']).toBeUndefined();
+
+    const head = await request(app, 'HEAD', '/api/restaurants', { 'accept-encoding': 'gzip' });
+    expect(head.headers['content-encoding']).toBeUndefined();
+    expect(head.bytes.length).toBe(0);
+
+    const authed = await request(app, 'GET', '/api/restaurants', {
+      'accept-encoding': 'gzip',
+      authorization: 'Bearer unit-*-jwt',
+    });
+    expect(authed.status).toBe(200);
+    expect(authed.headers['content-encoding']).toBe('gzip');
+    // Bearer opts out of the CACHE entirely — no strong validator, only
+    // Express's own automatic weak ETag (res.send freshness) remains.
+    expect(authed.headers.etag).toMatch(/^W\/"[^"]+"$/);
+    expect(authed.headers['cache-control']).toBeUndefined();
+    expect(gunzipSync(authed.bytes).toString('utf8')).toContain('Probe Warung');
+  });
+
+  it('the gzip variants tally onto the SAME template key for metrics', async () => {
+    const row = registry.snapshot().routes.find((r) => r.route === 'GET /api/restaurants');
+    expect(row).toBeDefined();
+    // capture(2xx) + identity store hit(2xx) + gzip store hit(2xx) + 304(3xx) + bearer(2xx)
+    expect(row!.requests).toBe(5);
+    expect(row!.byStatus['2xx']).toBe(4);
+    expect(row!.byStatus['3xx']).toBe(1);
+    await drain(root);
+    const access200 = lines.filter((l) => {
+      const req = l.req as { method?: string; url?: string } | undefined;
+      const res = l.res as { statusCode?: number } | undefined;
+      return res?.statusCode === 200 && req?.url === '/api/restaurants' && req?.method === 'GET';
+    });
+    expect(access200.length).toBe(4); // every encoded GET 200 kept its access line (HEAD excluded)
   });
 });
