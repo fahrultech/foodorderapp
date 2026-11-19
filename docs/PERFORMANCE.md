@@ -23,7 +23,12 @@ never will — destructive traffic stays in its own scenario (below).
   session-103 cache headers) followed by two `If-None-Match` replays that
   MUST be 304. Read-only; aborts loudly if the target answers without a
   strong ETag + `Cache-Control: public` (e.g. `HTTP_CACHE_TTL_SEC=0`),
-  because that would measure nothing.
+  because that would measure nothing. Since session 108 both legs send
+  browser-shaped `Accept-Encoding: gzip` (k6's default is identity and
+  would measure an unencoded wire the profile ships compression for),
+  record per-leg `capture_ms`/`replay_ms` trends, and pin a numeric
+  Content-Length on the capture — that header is the honest wire-size
+  signal (k6 decompresses at the JS layer).
 
 Pure helpers (cart planning, payload shape, profiles) live in
 `ops/load-test.lib.mjs` and are pinned by `ops/load-test.contract.test.mjs`
@@ -329,6 +334,55 @@ no `Cache-Control`, Express's weak auto-etag only, replay 200s — the
 contract test keeps the three replay paths inside the session-103
 whitelist, `/restaurants/meta/cuisines` deliberately excluded because it
 can never 304).
+
+## Response compression of the public browse payloads — November 19, 2026 (session 108)
+
+Phase 10: gzip on top of the session-103 cache for the THREE whitelisted
+reads (`GET /api/restaurants`, `/api/restaurants/:id`, `/api/search`). The
+store keeps UNCOMPRESSED bytes and the strong ETag stays the sha256 of the
+decoded payload — identical validator across the gzip and identity
+variants (live curl proof: `sha256first32(gunzip(wire)) == ETag` on all
+three paths, and the identity variant byte-equal to the decoded gzip
+variant). `HTTP_COMPRESS_MIN_BYTES` (default 1024, `0` off, garbage ->
+default) scopes the layer: non-whitelisted routes, HEAD, POST, 4xx/5xx and
+sub-1 KiB bodies never see a res wrapper at all; `Vary` gains
+`Accept-Encoding` ONLY on actually-encoded responses; 304s stay bodiless
+and the zero-SQL revalidation claim survives under gzip (query-logger
+window: 0 statements across a 304 + two store-served hits, one of them
+re-encoded).
+
+Results (all thresholds green, 100.00% checks, 0 failed requests; same
+host and k6 v2.3.0 rig as session 104, fresh 28-migration scratch DB,
+production build on :4100):
+
+| Profile | Arm | Iterations | Requests | Throughput | avg | p95 | p99 | Max | data_received |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| conditional `load` | `HTTP_COMPRESS_MIN_BYTES=0` control | 15,043 | 45,130 | 250.58 req/s | 0.56 ms | 1.31 ms | 2.68 ms | 23.3 ms | 62.0 MB (1,375 B/req) |
+| conditional `load` | **gzip (default)** | 15,022 | 45,067 | 250.32 req/s | 0.66 ms | 1.53 ms | 2.97 ms | 37.2 ms | **28.5 MB (633 B/req)** |
+| capture leg only (`capture_ms` trend) | control | 15,043 | — | — | 0.605 ms | 1.32 ms | — | 23.3 ms | — |
+| capture leg only (`capture_ms` trend) | **gzip** | 15,022 | — | — | 0.778 ms | 1.64 ms | — | 35.4 ms | list 6,914 -> 1,924 B (**72% off**) |
+
+- **Wire bytes are the headline**: the conditional profile's total bytes
+  received collapse 62.0 -> 28.5 MB (**54%**, driven by the per-path 72%
+  on the restaurant list; the 304 replays are already bodiless and stay
+  unchanged). The capture-leg `Content-Length` IS the encoded length
+  (byte-exact, not chunked) — k6 reports it as 1,924 vs 6,914.
+- **Throughput holds**: 250.32 vs 250.58 req/s at the identical 25-VU
+  shape; the per-leg trends (new `capture_ms`/`replay_ms` in
+  `ops/load-test-conditional.js`) put the gzip cost exactly where it
+  belongs — the capture leg pays ~+0.3 ms at p95 for the per-request
+  `gzipSync`, the replay leg is unchanged inside run noise. On this
+  2 vCPU box the CPU was the constrained resource; headroom is bought
+  with bandwidth, not latency.
+- **The profile itself changed (session 108)**: k6 sends
+  `Accept-Encoding: identity` by default, so BOTH arms now explicitly
+  request `Accept-Encoding: gzip` (browser-shaped) and k6 decompresses at
+  the JS layer — every existing check still reads decoded JSON; the raw
+  `Content-Length` header is the honest wire-size signal. A loud
+  numeric-`Content-Length` check was added to the capture contract.
+- Cross-check against session 104: its control row (1.29 ms p95 aggregate,
+  250.74 req/s) is what the B2 row reproduces — the replay-heavy shape is
+  stable, and neither arm regressed it.
 
 ## Query-plan findings and tuning decisions (November 4 baseline, historical)
 

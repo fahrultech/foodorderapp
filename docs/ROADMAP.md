@@ -159,12 +159,31 @@
   report keeps the shopper with a result panel + continue CTA; 18 OrderAgain
   keys × EN/ID; web build green, new 5-test `zz-order-again` spec, full e2e
   101→106 green ×2 fresh-seed + timing gate OK, API delta 0 (95/1206).)
-- [ ] Perf: response compression on the API's public browse payloads
+- [x] Perf: response compression on the API's public browse payloads
   (`GET /restaurants`, `/:id`, `/search` — the session-103 cache stores
   UNCOMPRESSED bodies, so gzip layers on top of the 200 path; prove the
   content-encoding + cache-correctness interaction with curl AND make sure
   the ETag still matches what was hashed), then re-measure with the k6
   conditional profile — record as a new row in docs/PERFORMANCE.md.
+  (2026-11-19, session 108; hand-rolled DI-free `browse-compression.ts`
+  registered BEFORE the cache so store-served hits flow through the SAME
+  res.end wrapper (order = contract, pinned in the live chain suite) —
+  same `cacheTargetOf` whitelist, GET/json-2xx/>=`HTTP_COMPRESS_MIN_BYTES`
+  (default 1024, 0 off), identity/HEAD/POST/sub-path/4xx clients never
+  get their res patched; store stays uncompressed and the strong ETag
+  stays sha256 of the DECODED bytes — identical across variants,
+  curl+smoke-proven on all three paths (sha256first32(gunzip(wire)) ==
+  ETag), Vary gains Accept-Encoding ONLY on encoded responses, 304s stay
+  bodiless, zero-SQL revalidation survives the layer (query-logger 0
+  statements), bearer'd rows encode (orthogonal to the cache opt-out);
+  no new dependency, no lockfile churn; conditional profile updated to
+  browser-shaped Accept-Encoding + per-leg capture_ms/replay_ms trends
+  (k6 defaults to identity — a naive A/B would have sampled an
+  unencoded wire): throughput holds 250.3 vs 250.6 req/s, wire
+  62.0→28.5 MB (list capture 6,914→1,924 B, −72%), capture p95 +0.32 ms
+  gzip CPU, replay unchanged, 100% checks both arms; 96 suites/1224
+  tests (+1/+18), live smoke 38/38 on a 28-migration from-empty DB,
+  e2e 106/106 green ×2 with the layer ON, web delta 0.)
 - [ ] Ops: alert rule for METRICS-SNAPSHOT staleness (session 89's durability
   rows are the error-budget's memory — a silent writer death zeroes history):
   `ops/alerts.ts` gains a `snapshot_stale` rule (no row newer than 2x the

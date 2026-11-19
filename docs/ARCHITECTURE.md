@@ -651,6 +651,24 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   `e2e/playwright.config.ts` boots the API with `HTTP_CACHE_TTL_SEC=0` —
   the suite's write-then-assert flows and seed-absolute counts must never
   read a cached copy.
+- **Browse gzip layer (`common/http-cache/browse-compression.ts`)** —
+  registered BEFORE the cache middleware (the order IS the contract): it
+  patches `res.end` first, so the bytes the cache serves straight from
+  its store flow through the SAME wrapper as captured handler responses.
+  Scope is the identical `cacheTargetOf` whitelist, GET-only,
+  `application/json` 2xx-only, buffered body >=
+  `HTTP_COMPRESS_MIN_BYTES` (default 1024, `0` off, garbage→default).
+  The store keeps UNCOMPRESSED bytes and the strong ETag remains the
+  sha256 of the DECODED payload — identical across the gzip and identity
+  variants (a strong validator promises semantic equality; a lossless
+  encoding preserves exactly that) and revalidation stays encoding-blind.
+  `Vary` gains `Accept-Encoding` ONLY on actually-encoded responses; 304s
+  and sub-threshold/4xx/bearers keep the cache's `Vary: Authorization`
+  byte-pinned; bearer'd responses DO get encoded (encoding is orthogonal
+  to the cache's bearer opt-out). Identity clients (no `Accept-Encoding:
+  gzip` — plain curl) never get their `res` patched at all. Hand-rolled
+  over the `compression` package for exactly these interleaving rules
+  plus byte-exact encoded `Content-Length`.
 - **Rate limiting (in-house guard, no dependency)** — sliding-window log per
   client IP over an in-memory store (`src/common/rate-limit/`). Opt-in per
   route via `@RateLimit('auth'|'orders')` + `RateLimitGuard` (guarded as the

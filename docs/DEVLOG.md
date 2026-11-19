@@ -3,6 +3,96 @@
 Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
+## 2026-11-19 19:01 — Session 108 — gzip on the public browse payloads, layered over the session-103 cache (API/Perf, Phase 10)
+
+**Built:**
+
+- Phase 10 top item, web delta 0. New `common/http-cache/browse-compression.ts`:
+  DI-free gzip layer registered in main.ts BEFORE the cache middleware —
+  the order IS the contract: the wrapper owns `res.end` while the cache
+  serves from its store, so store-served 200s encode exactly like
+  captured handler responses (registering AFTER the cache would silently
+  leave served hits identity; pinned in the live-chain integration
+  describe).
+- Scope = the SAME `cacheTargetOf` three-path whitelist as session 103
+  (single source of truth, explicit matcher, never a url heuristic): GET
+  only, `application/json` 2xx only, buffered body >=
+  `HTTP_COMPRESS_MIN_BYTES` (default 1024, `0` off, garbage→default —
+  the resolveTtlSec doctrine). Identity clients (no `Accept-Encoding:
+  gzip` — plain curl), HEAD, POST, sub-paths, non-uuid segments and
+  4xx/5xx never get their `res` patched at all — byte-transparent.
+- The validator rule is the design spine: the store keeps UNCOMPRESSED
+  bytes and the strong ETag stays the sha256 of the DECODED payload —
+  identical across the gzip and identity variants (strong = semantic
+  equality; a lossless encoding preserves exactly that), revalidation is
+  encoding-blind, 304s stay bodiless with no Content-Encoding. `Vary`
+  gains `Accept-Encoding` ONLY on actually-encoded responses; identity,
+  304 and below-threshold responses keep `Vary: Authorization`
+  byte-pinned. Bearer'd responses DO get encoded — the encoding layer is
+  orthogonal to the cache bearer opt-out (pinned live + in chain specs).
+- Hand-rolled instead of the `compression` package: interleaving with
+  the cache's own res.end patching, byte-exact encoded `Content-Length`
+  (the package streams chunked instead), the explicit whitelist doctrine
+  — and ZERO new dependencies, ZERO lockfile churn. A 2 MiB buffer
+  safety valve flushes pathological bodies uncompressed.
+- `ops/load-test-conditional.js` (session-104 tool): BOTH legs now send
+  browser-shaped `Accept-Encoding: gzip` — empirically k6 defaults to
+  identity (first A/B moved byte-identical wire on both arms, so a naive
+  re-measure would have sampled an unencoded connection the shipped
+  profile no longer speaks); new per-leg trends `capture_ms`/`replay_ms`
+  so the gzip CPU cost lands on the capture leg instead of smearing
+  across the 304 replays; new loud check 'capture declares a numeric
+  Content-Length' (that header IS the wire-size signal — k6
+  decompresses at the JS layer, proven). Contract test kept green.
+- Docs: new PERFORMANCE.md section with the A/B table incl. the
+  statements-per-request honesty note (unchanged — encoding never
+  touches SQL); ARCHITECTURE gained the gzip-layer bullet (order
+  contract, validator rule, Vary rule, bearer orthogonality).
+
+**Verified:**
+
+- API: 96 suites/1224 tests green (+1 suite/+18 tests vs session 106's
+  95/1206) — new `browse-compression.spec.ts` (knob doctrine, AE
+  negotiation incl. `q=0`/`*`, decision table, the
+  `etagFor(gunzip(gzip(body))) === etagFor(body)` round trip, pre-flight
+  no-patch matrix) + a 7-test gzip describe over the REAL production
+  chain at minBytes=64 (the minBytes=0 boot keeps every cache-era
+  assertion byte-for-byte).
+- Live smoke 38/38 on a 28-migration from-empty scratch DB:
+  `sha256first32(gunzip(wire)) == ETag` on ALL three paths; identity
+  variant byte-equal to the decoded gzip variant with the SAME ETag;
+  Content-Length == exact wire size on encoded responses; Vary carries
+  BOTH dimensions on encoded / exactly `Authorization` on identity;
+  gzip+INM 304 with no body and no Content-Encoding; fresh store-served
+  gzip hit re-encoded with the SAME validator; query-logger window over
+  a 304 + two store-served hits executed ZERO SQL statements (the
+  session-103 claim survives under gzip); a 66 B below-threshold search
+  miss stays identity yet is still ETag-cached; the 3,120 B menu
+  sub-path stays unencoded (proves scope, not size); bearer response
+  encoded with no cache headers; health + 4xx untouched; zero 500s in
+  the API log.
+- k6 conditional A/B on a scratch rig (25 VU / 3 min, identical request
+  shape both arms): throughput holds 250.32 vs 250.58 req/s; wire
+  62.0→28.5 MB (list capture 6,914→1,924 B, −72%; −54% profile-wide);
+  capture-leg p95 1.32→1.64 ms (the honest ~+0.3 ms gzip CPU per
+  capture), replay leg unchanged; aggregate p95 1.31→1.53 ms, p99
+  2.68→2.97 ms; checks 165,243/165,243 vs 165,474/165,474, zero failed
+  requests. Session-104 rows reproduced by the control arm.
+- Full e2e 106/106 green ×2 on fresh seeds with the layer ON by default
+  (playwright boots TTL=0; compression unaffected). Web build green.
+  Sanitizer scan: added lines clean (one self-inflicted U+2026 in my
+  own ARCHITECTURE prose was caught by the scan and fixed).
+
+**Left for next sessions:**
+
+- Store-side PRE-COMPRESSED variants (gzip once at store.set, serve
+  encoded bytes with zero per-request CPU) deliberately NOT taken — the
+  roadmap wording keeps the store uncompressed and the per-request
+  cost is measured small; revisit when browse traffic grows.
+- Phase 8's two 🔒 carryovers (per-restaurant durability, order-centric
+  attribution) remain the locked tail.
+
+---
 ## 2026-11-19 14:55 — Session 107 — "Order again": one-click cart replay from the frozen snapshot (Web, Phase 10)
 
 **Built:**

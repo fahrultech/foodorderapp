@@ -1,5 +1,6 @@
 import http from 'k6/http';
 import { check, sleep } from 'k6';
+import { Trend } from 'k6/metrics';
 import exec from 'k6/execution';
 import {
   REPLAYS_PER_ITERATION,
@@ -25,6 +26,13 @@ import {
  *     expiry the re-read recomputes the same bytes (the fixture is read-
  *     only) and the stale revalidation still ends 304 without a body.
  *
+ * Session 108: BOTH legs now send `Accept-Encoding: gzip` (browser-shaped
+ * requests — k6 sends identity by default and would otherwise measure a
+ * wire the profile ships no compression for). k6 decompresses at the JS
+ * layer, so every existing check keeps reading decoded JSON; the raw
+ * Content-Length header is the wire-size signal. capture_ms/replay_ms
+ * trends split latency per leg (the gzip cost belongs to capture only).
+ *
  * Run against the SAME scratch instance as the browse baseline, with
  * HTTP_CACHE_TTL_SEC set (the default 15 s is the shipped behavior). With
  * TTL=0 the replays would honestly 200 — the checks fail loudly, which is
@@ -40,6 +48,11 @@ export const options = {
   discardResponseBodies: false,
   userAgent: 'foodorder-k6',
 };
+
+// session 108: split latency by leg so the gzip cost lands on the ONE
+// capture request per iteration, never smeared across the 304 replays.
+export const capture_ms = new Trend('capture_ms', true);
+export const replay_ms = new Trend('replay_ms', true);
 
 export function setup() {
   const response = http.get(`${baseUrl}/restaurants?sort=rating&limit=20`, {
@@ -74,7 +87,11 @@ export default function revalidate(data) {
   const url = `${baseUrl}${path}`;
   const detail = path.startsWith('/restaurants/') ? 'restaurant-detail' : 'restaurants-list';
 
-  const capture = http.get(url, { tags: { endpoint: detail, mode: 'capture' } });
+  const capture = http.get(url, {
+    headers: { 'Accept-Encoding': 'gzip' },
+    tags: { endpoint: detail, mode: 'capture' },
+  });
+  capture_ms.add(capture.timings.duration);
   const captureOk = check(capture, {
     'capture status is 200': (res) => res.status === 200,
     'capture is JSON': (res) => String(res.headers['Content-Type'] || '').includes('application/json'),
@@ -83,6 +100,8 @@ export default function revalidate(data) {
     'capture carries a strong ETag': (res) => isStrongEtag(res.headers['Etag']),
     'capture declares Cache-Control public': (res) =>
       /^public, max-age=\d+$/.test(String(res.headers['Cache-Control'] || '')),
+    'capture declares a numeric Content-Length (wire size)': (res) =>
+      /^[0-9]+$/.test(String(res.headers['Content-Length'] || '')),
   });
   if (!captureOk) {
     // Fixture drift or the cache is off — replaying anyway would measure
@@ -96,9 +115,10 @@ export default function revalidate(data) {
   const etag = capture.headers['Etag'];
   for (let i = 0; i < REPLAYS_PER_ITERATION; i += 1) {
     const replay = http.get(url, {
-      headers: { 'If-None-Match': etag },
+      headers: { 'If-None-Match': etag, 'Accept-Encoding': 'gzip' },
       tags: { endpoint: detail, mode: 'replay' },
     });
+    replay_ms.add(replay.timings.duration);
     check(replay, {
       'replay status is 304': (res) => res.status === 304,
       'replay echoes the same ETag': (res) => res.headers['Etag'] === etag,
