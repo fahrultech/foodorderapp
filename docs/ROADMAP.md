@@ -144,12 +144,21 @@
 
 ## Phase 10 — Order velocity, payload size & gate telemetry (opened 2026-11-19, Phase 9 exhausted; from the Product / Perf / Ops / Test evergreen loops)
 
-- [ ] Product: "Order again" — one click on a COMPLETED order (history card +
+- [x] Product: "Order again" — one click on a COMPLETED order (history card +
   receipt) refills the cart from the ORDERED snapshot (menu items that were
   deleted/disabled since are reported honestly and skipped; option choices
   ride the jsonb snapshot), then routes to the restaurant page. API read
   helpers already exist; the interesting part is the option-choice
   availability ladder + the min-order/cart-switch interplay. EN/ID + e2e.
+  (2026-11-19, session 107; pure `lib/order-again.ts` ladder — first failing
+  rung skips-and-names: gone/unavailable/sold-out/options-changed, stock
+  clamps ride with a report, prices ALWAYS current not the snapshot;
+  `CartProvider.applyOrderAgain` batch writer with the documented
+  merge-by-lineKey vs confirmed-replace split; ONE island on history cards
+  AND the SSR receipt (guest cart works); clean plan auto-routes, any
+  report keeps the shopper with a result panel + continue CTA; 18 OrderAgain
+  keys × EN/ID; web build green, new 5-test `zz-order-again` spec, full e2e
+  101→106 green ×2 fresh-seed + timing gate OK, API delta 0 (95/1206).)
 - [ ] Perf: response compression on the API's public browse payloads
   (`GET /restaurants`, `/:id`, `/search` — the session-103 cache stores
   UNCOMPRESSED bodies, so gzip layers on top of the 200 path; prove the

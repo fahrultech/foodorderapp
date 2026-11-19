@@ -3,6 +3,84 @@
 Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
+## 2026-11-19 14:55 — Session 107 — "Order again": one-click cart replay from the frozen snapshot (Web, Phase 10)
+
+**Built:**
+
+- Phase 10's top item, API delta 0 (the receipts already ship every field
+  the ladder needs — `menuItemId` + jsonb `optionSelections`, live-proven
+  via curl before writing a line of code).
+- `lib/order-again.ts` — pure DI/React-free availability ladder. Per ordered
+  row the first failing rung skips-and-names it: null/dangling
+  `menuItemId` → `gone`; `isAvailable:false` → `unavailable`; tracked
+  `stock===0` → `sold-out`; a frozen `choiceId` no longer in the same
+  option group, or a rebuilt selection violating the group's CURRENT
+  min/max (new mandatory group included) → `options-changed`. Surviving
+  lines ride at TODAY's prices (snapshot prices are never trusted — the
+  server re-prices at create anyway), duplicates merge by `lineKey`, and a
+  tracked-stock shortfall CLAMPS the quantity and reports it.
+- `CartProvider.applyOrderAgain(restaurant, drafts, 'merge'|'replace')` —
+  the batch writer the single-unit `add` never was: merge onto matching
+  lineKeys for an empty/same-restaurant cart (qty += clamped, cap 50),
+  replace only from an explicitly confirmed foreign cart.
+- `components/OrderAgainButton.tsx` — one island mounted in BOTH surfaces:
+  completed history cards (`app/orders/my`, new block below the action
+  row) and the SSR receipt page (`app/orders/[id]`, guest-proof — the
+  cart is localStorage). Click → `GET /restaurants/:id` → ladder. A fully
+  clean plan auto-routes to the restaurant page; ANY skip/clamp/
+  below-minimum keeps the shopper with a result panel (units added, each
+  skipped dish + reason, clamped lines, min-order warning vs the
+  PROJECTED cart subtotal) and an explicit "Go to {restaurant}" CTA. A
+  foreign cart gets an inline replace confirmation (cancel = cart fully
+  intact) — same never-silently-discard doctrine as `CartSwitchDialog`.
+- `Order.items[]` gained `menuItemId?: string | null` in `lib/api.ts`
+  (wire truth, entity passthrough). New `OrderAgain` namespace 18 keys ×
+  EN/ID (ICU plural `addedCount` keeps the numeric arg per session-102
+  rule; whole-tree EN/ID key parity asserted programmatically before
+  write — 695 leaf keys).
+- ARCHITECTURE gained the ladder rule (first failing rung wins; prices
+  never from the snapshot; batch writer is the only reorder path).
+
+**Verified:**
+
+- Web build green (twice; the second build covered the final comment-only
+  edit). SSR HTML of a completed receipt contains the `order-again-FO-SEED8`
+  island (curl grep on `next start`).
+- New `e2e/tests/zz-order-again.spec.ts` 5 tests: clean FO-SEED8 click →
+  auto-route + badge '1' (seed shape proven against the live payload:
+  1x Nasi Goreng $18 ≥ $10 min); FO-SEED9 ($5 tea) → below-minimum panel
+  with byte-exact EN strings + continue CTA, NO route; hidden-dish ladder
+  (owner API hides Es Teh after a paid+completed 2-dish options order) →
+  skipped-and-named while the Extra-egg selection rides at the CURRENT
+  $20.00 unit, second replay from the RECEIPT page merges onto the same
+  lineKey, cart proves 'Size: Large' never entered, availability restored
+  in a finally; foreign-cart replace confirm/cancel both pinned; ID chrome
+  byte-pins ('Pesan lagi', '1 item ditambahkan ke keranjang Anda', 'Ke
+  Warung Nusantara'). History assertions ride the Completed FILTER TAB via
+  the locale-agnostic `#orders-tab-completed` id — earlier zz-* specs grow
+  demo's unfiltered history, so page-1 absolutes are not a fair pin.
+- FULL e2e 101 → **106/106 green ×2 consecutive on fresh seeds**, plus
+  5/5 again on the final rebuilt artifact; `check-fixture-timings.mjs`
+  exit 0 on both reports (max work leg incl. new fixtures ≈ 120 ms).
+  Honest harness note: the FIRST targeted probe consumed the once-per-seed
+  state (admin/owner-analytics seed absolutes) — reseeded before every
+  counting run, exactly the documented session-94 trap.
+- API untouched: `nest build` green, jest **95 suites / 1206 tests — delta
+  0** vs session 106.
+- Sanitizer scan: added diff lines clean of U+2026/`***`/literal `\u`
+  (message JSONs carry the standard `\uXXXX` ESCAPES the doctrine
+  prescribes; a raw U+2026 that slipped into two comments was rewritten
+  ASCII); `git diff --check` clean.
+
+**Left for next sessions:**
+
+- 'Order again' shares no promo: the snapshot's `promoCode` is deliberately
+  NOT replayed (caps/expiry would make it dishonest). A "the code you used
+  is still valid" hint could ride `POST /promos/validate` later.
+- Cancelled orders intentionally get no button (the roadmap scoped this to
+  COMPLETED); extending it is a copy + ladder decision, not a plumbing one.
+
+---
 ## 2026-11-19 12:56 — Session 106 — Flake tooling graduated: ONE sign-in contract + the fixture-timing CI ceiling (E2E, Phase 9)
 
 **Built:**

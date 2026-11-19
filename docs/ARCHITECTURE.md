@@ -91,6 +91,24 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   `switchRequest` and a confirmation modal ("Start a new cart?") shows the
   current cart (count, restaurant, subtotal) vs the one-item new cart —
   Keep discards the add, Replace swaps. Escape/backdrop close = Keep.
+- **"Order again" replays the frozen snapshot through a pure ladder**
+  (session 107) — one click on a COMPLETED order (history card `app/orders/my`
+  or the receipt island) rebuilds cart lines from `order_items` (name,
+  quantity, `menuItemId`, `optionSelections`) against the CURRENT
+  `GET /restaurants/:id` menu. The resolver is DI/React-free
+  (`lib/order-again.ts`) so it is unit-testable and shared: per ordered row
+  the first failing rung SKIPS-and-NAMES it (id null post hard-delete or not
+  on menu → 'gone'; `isAvailable:false` → 'unavailable'; `stock===0` →
+  'sold-out'; a frozen `choiceId` no longer in the same group, or the rebuilt
+  selection violating current min/max → 'options-changed'), else the line
+  rides at TODAY's price and any tracked-stock shortfall is CLAMPED and
+  reported. Prices are never taken from the snapshot (server re-prices at
+  order time anyway). `CartProvider.applyOrderAgain(drafts, 'merge'|'replace')`
+  is the only writer: 'merge' onto matching `lineKey`s for the same/empty
+  cart, 'replace' only after the inline foreign-cart confirmation. A fully
+  clean plan routes to the restaurant; any skip/clamp/below-minimum keeps the
+  shopper on the page with a result panel + explicit "Go to ..." CTA. Never a
+  silent swap.
 - **In-page menu search is client-side** — the restaurant page already ships
   the full menu in `GET /restaurants/:id`; `MenuBrowser` filters it in memory
   (name/description/category, case-insensitive) instead of adding a per-keystroke
