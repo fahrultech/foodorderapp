@@ -184,11 +184,22 @@
   gzip CPU, replay unchanged, 100% checks both arms; 96 suites/1224
   tests (+1/+18), live smoke 38/38 on a 28-migration from-empty DB,
   e2e 106/106 green ×2 with the layer ON, web delta 0.)
-- [ ] Ops: alert rule for METRICS-SNAPSHOT staleness (session 89's durability
+- [x] Ops: alert rule for METRICS-SNAPSHOT staleness (session 89's durability
   rows are the error-budget's memory — a silent writer death zeroes history):
   `ops/alerts.ts` gains a `snapshot_stale` rule (no row newer than 2x the
   snapshot interval while the writer is enabled) + the alert-scan script +
   unit/live coverage of the fire and the disabled-writer exemption.
+  (2026-11-20, session 109; DI-free 4th rule over an optional caller-supplied
+  `SnapshotFreshnessInput` — disabled writer EXEMPT by design, zero-rows grace
+  from API uptime, UNREADABLE store reported honestly, ceiling =
+  `ALERT_SNAPSHOT_STALE_AFTER_SEC` or derived 2x interval (miss-two-ticks rule),
+  warning severity still flips `alerting` so exit codes page; route wires
+  `MetricsPersistenceService.freshnessInput()` so admin AND the unchanged
+  alert-scan inherit it, fold line reports honest not-evaluated; +17 tests
+  96/1241 incl. mirror pin re-deriving rule ids from the real engine; live
+  smoke 32/32 three boot arms — healthy/exit-0, DROP-TABLE dead writer firing
+  with the REAL scan exit 1, disabled exemption + knob echo exit-0; all 4
+  smoke FAILs were harness bugs.)
 - [ ] Test: fixture-timing trend visibility — the ceiling fails CI but the
   distribution is invisible: have check-fixture-timings.mjs also emit a
   GitHub job summary table (slowest legs by label + run-over-run counts) and

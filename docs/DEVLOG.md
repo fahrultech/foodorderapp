@@ -3,6 +3,82 @@
 Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
+## 2026-11-20 10:05 — Session 109 — snapshot_stale alert rule: catching the silently dead durability writer (API/Ops, Phase 10)
+
+**Built:**
+
+- Phase 10 Ops item, web delta 0. `ops/alerts.ts` gains its FOURTH rule,
+  `snapshot_stale` (warning severity — telemetry degrades, users don't,
+  same ladder as route_key_overflow; still flips the verdict to
+  `alerting`, so alert-scan pages). The session-89 durability rows are
+  the error budget's MEMORY: when the snapshot writer dies silently the
+  windowed history zeroes while every live number keeps answering
+  "healthy" — this rule watches exactly that.
+- The engine stays DI-free: a new optional third argument
+  `SnapshotFreshnessInput {enabled, intervalSec, lastCapturedAtMs,
+  storeError?, nowMs?}` carries the DB facts; `evaluateAlerts` does the
+  arithmetic (injectable clock, STRICTLY-above ceiling, future-dated rows
+  clamp to age 0). Semantics: writer DISABLED (`METRICS_SNAPSHOT_INTERVAL
+  _SEC=0`) is EXEMPT by design; zero rows grace from API uptime (a fresh
+  boot has not reached its first tick — no false page); an UNREADABLE
+  store (dropped table / dead connection) reports honestly as
+  `UNREADABLE` rather than a fabricated "no rows"; a readable-but-stale
+  row reports its age. Threshold default = 2x the configured interval —
+  the writer must MISS TWO consecutive ticks (a single save hiccup
+  retried next tick is noise); `ALERT_SNAPSHOT_STALE_AFTER_SEC` (positive
+  int, 0/garbage → derived) overrides the multiplier, never disables the
+  rule.
+- Wiring: `MetricsPersistenceService.freshnessInput()` (the proven
+  find+take:1 idiom, never throws — read failure → `storeError: true`);
+  `GET /admin/alerts` becomes async and supplies the observation, so the
+  admin pull rung AND the scheduler poller inherit the rule with ZERO
+  alert-scan script changes (its exit-1 transport already rides
+  `firingRules`). The synchronous pino fold line has no DB handle:
+  there the rule honestly reports "not evaluated" (never a false ok,
+  never a false fire) — documented in the engine header + ARCHITECTURE.
+- Response contract `admin-alerts.response.ts` re-pinned (both enums gain
+  `snapshot_stale`, thresholds gain the nullable
+  `snapshotStaleAfterSec`); admin.controller.spec now holds a MIRROR pin
+  that re-derives rule ids/severities + threshold keys from the REAL
+  engine (the fixture can no longer silently lag a rename) and pins the
+  route's exact observation payload.
+- Header/comment updates in `alert-scan.ts`, `ops/alert-scan.sh` and
+  `docs/ARCHITECTURE.md` (rule list, observation contract, exemption).
+
+**Verified:**
+
+- API: 96 suites / 1241 tests green (+0/+17 vs session 108's 96/1224) —
+  alerts.spec gains a 9-test snapshot_stale describe (absent-observation,
+  exemption, fresh/stale/at-ceiling boundary 600 vs 600.001s, clock-skew
+  clamp, env-override, uptime grace, UNREADABLE, summarize, all-FOUR
+  firing order) + knob-parse pins; metrics-persistence.spec +4
+  freshnessInput cases (incl. the never-throw posture and the
+  find+take:1 call-shape); alert-scan.spec +1 exit-1 pass-through; the
+  rules-length combos re-pinned 3→4 honestly.
+- Live smoke 32/32 on a 28-migration from-empty scratch DB, THREE boot
+  arms: ARM1 healthy writer (interval 2s → derived threshold 4 echoed
+  live, rule present-not-firing, 4-rule order on the wire, rows landing,
+  fold-line verdict honest-ok, scan exit 0); ARM2 silently-dead writer
+  (DROP TABLE mid-run → rule FIRES with the UNREADABLE detail, status
+  alerting, /admin/metrics still 200 with durability.error, persistence
+  warns in the API log, REAL alert-scan exits 1 and names the rule);
+  ARM3 disabled writer (interval 0 + tightened ceiling 2s + uptime past
+  it → EXEMPT not-firing, knob echoes 2 into thresholds, ZERO repo touch,
+  scan exit 0). First-run 3 FAILs (fold interval never set; ARM3 still
+  counting the table ARM2 had legitimately dropped) and one more on the
+  first rerun (postgres-owned stand-in table the foodorder role could not
+  read) — ALL FOUR harness bugs, zero product bugs; final rig green 32/32.
+- Sanitizer scan: 14 changed files + the smoke script codepoint-clean
+  (no U+2026 / `***` / literal-u escapes on added lines); `git diff
+  --check` clean.
+
+**Left for next:**
+
+- None on this item. Evergreen note: if the per-restaurant durability
+  🔒 item is picked up, `freshnessInput` is the shape to generalize
+  (per-key row age), not a second engine.
+
+---
 ## 2026-11-19 19:01 — Session 108 — gzip on the public browse payloads, layered over the session-103 cache (API/Perf, Phase 10)
 
 **Built:**

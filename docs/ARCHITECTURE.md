@@ -614,15 +614,27 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   the OWNER rung through it even by accident, and the panel chunk stays
   code-split behind the `traffic != null` render gate (session 90 rule).
   On top of the snapshots sits the DI-free alert engine
-  `ops/alerts.ts` (session 86): three rules — `error_budget` (5xx rate vs
+  `ops/alerts.ts` (session 86): four rules — `error_budget` (5xx rate vs
   the 99.5% availability SLO, gated by a minimum sample), `p95_latency`
-  (histogram estimate vs ceiling) and `route_key_overflow` (cardinality-cap
-  folding, a warning) — evaluated from env-resolved thresholds
-  (`ALERT_5XX_RATE_PCT_MAX` / `ALERT_P95_MS_MAX` / `ALERT_MIN_REQUESTS`,
+  (histogram estimate vs ceiling), `route_key_overflow` (cardinality-cap
+  folding, a warning) and `snapshot_stale` (session 109: fires while the
+  session-89 durability writer is enabled but the newest
+  `metrics_snapshots` row is older than `ALERT_SNAPSHOT_STALE_AFTER_SEC`,
+  default 2x the snapshot interval — a silently dead writer zeroes the
+  error budget's memory while every live number keeps looking healthy;
+  zero rows grace from API uptime, an UNREADABLE store reports honestly
+  as unreadable, and a DISABLED writer is EXEMPT by design; warning
+  severity — telemetry degrades, users don't) — evaluated from
+  env-resolved thresholds (`ALERT_5XX_RATE_PCT_MAX` / `ALERT_P95_MS_MAX` /
+  `ALERT_MIN_REQUESTS` / `ALERT_SNAPSHOT_STALE_AFTER_SEC`,
   read once at boot; garbage falls back, never crash-boots). ONE engine,
   three consumers that can never disagree: ADMIN pull route
-  `GET /admin/alerts` (full report), the compact `{status, firing}` verdict
-  folded into every `request_metrics` line (push), and the scheduler poller
+  `GET /admin/alerts` (full report; the staleness rule reads
+  `MetricsPersistenceService.freshnessInput()` there — the synchronous
+  fold line has no DB handle and honestly reports the rule as
+  not-evaluated, never as a false ok), the compact `{status, firing}`
+  verdict folded into every `request_metrics` line (push), and the
+  scheduler poller
   `ops/alert-scan.sh` → `src/scripts/alert-scan.ts` whose exit codes split
   `0 healthy · 1 alerting · 2 scan broken` so a broken smoke detector never
   pages like a fire. systemd examples: `ops/systemd/foodorder-alert-scan.*`.
