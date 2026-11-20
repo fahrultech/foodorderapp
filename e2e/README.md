@@ -49,15 +49,19 @@ browser download.
 - Session 110 trend visibility: the same gate aggregates per label and
   merges a run-over-run JSONL history (`FIXTURE_TIMING_HISTORY`, default
   `fixture-timing-history.jsonl`) that each CI e2e run publishes as the
-  `fixture-timing-history` artifact. The chain transport is gen-2 after
-  two proven custom-REST dead ends (job-token scope; undici strips
-  Authorization on the cross-origin 302 to the signed blob host):
-  `list-prior-history.mjs` picks the newest prior artifact anonymously,
-  the OFFICIAL download-artifact step (runner system auth,
-  continue-on-error) fetches it, and `fetch-fixture-timing-history.mjs`
-  merges the directory — falling back to REST, which self-attests every
-  failure as a fixed-120-byte sentinel record, so the PUBLIC artifact
-  size alone tells you whether the chain is alive. A label whose
+  `fixture-timing-history` artifact. Chain transport (VERIFIED ROUND TRIP
+  session 111): `list-prior-history.mjs` anonymously picks the newest
+  prior artifact, the official download-artifact step fetches it (needs
+  its `token:` input SET — without it v4.3.0 searches the CURRENT run and
+  always "fails"; fixed in ci.yml), and `fetch-fixture-timing-history.mjs`
+  merges the directory, falling back to custom REST when the dir is empty.
+  The REST fallback is the PROVEN workhorse: live artifact sizes
+  467→553→633→721→761→827→887 B across runs 125→132 equal one ~700 B
+  real record line per run (sentinel lines would add only ~12 B), so
+  every run from 126 on merged the real chain — zero sentinels published.
+  A download failure self-attests as a fixed-120-byte sentinel record,
+  so the PUBLIC artifact size alone tells you whether the chain is alive.
+  A label whose
   max crosses 60% of its ceiling (`FIXTURE_TIMING_WARN_FRACTION`) gets a
   `::warning` annotation — a crawling leg is caught BEFORE it crosses;
   violations additionally stamp `::error`. The run's job summary gains a

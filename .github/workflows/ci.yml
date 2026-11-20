@@ -285,6 +285,13 @@ jobs:
           name: fixture-timing-history
           run-id: ${{ steps.prevhist.outputs.run_id }}
           path: e2e/prior-history
+          # Session 111 wiring fix: WITHOUT an explicit token input the v4.3.0
+          # action never builds its cross-run REST search (options.findBy is
+          # gated on the token input) and queries the CURRENT run instead -
+          # so this step always stamped "Artifact not found" even though the
+          # prior artifact exists. Harmless (REST fallback carries the
+          # chain) but a misleading red ::error annotation on every run.
+          token: ${{ github.token }}
       - name: Merge fixture-timing history (dir first, REST fallback)
         # Prior-dir lines merged -> REST skipped entirely. Missing/empty
         # dir (listing said no prior, or the download step failed) ->

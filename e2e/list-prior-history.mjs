@@ -3,12 +3,14 @@
  * Session 110 (gen 2) — pick the LATEST prior run's fixture-timing-history
  * artifact for the official actions/download-artifact@v4 step.
  *
- * Listing is anonymous-safe (public repo, proven live) — the DOWNLOAD is
- * what no custom-code hop has ever gotten right here: job-token REST 403s
- * (scope), and undici strips Authorization on the 302 to the signed blob
- * host (empirically proven). The official action's SDK rides the runner's
- * own system auth, so we only need to tell it WHICH run. The history is a
- * rolling chain (each file already contains the merged prior ones,
+ * Listing is anonymous-safe (public repo, proven live). Session 111
+ * correction to the old narrative: the custom-REST DOWNLOAD actually works
+ * (job token -> 302 -> SAS blob; the stripped Authorization on that hop is
+ * harmless — the SAS IS the credential). What failed in every run 125-132
+ * was the official SDK step lacking its token input, which made it search
+ * the CURRENT run and stamp "Artifact not found" (fixed in ci.yml). The
+ * listing here exists so the SDK path can do the download. The history is
+ * a rolling chain (each file already contains the merged prior ones,
  * gate-trimmed to 20), so the single newest prior artifact is enough.
  *
  * Writes GITHUB_OUTPUT: found=0|1, run_id, artifact_id. NEVER fails the

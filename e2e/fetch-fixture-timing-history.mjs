@@ -34,11 +34,15 @@ async function api(path, init = {}) {
 }
 
 // Artifact zips 302 to a foreign signed blob host, and undici (Node fetch)
-// STRIPS Authorization on cross-origin redirects — proven locally in
-// session 110, which is exactly why every CI download arrived
-// unauthenticated and the merge no-op'd behind the "never fails" skip.
-// So: manual hop, second request WITHOUT the auth header (the SAS URL
-// needs none). Same-origin 4xx still surfaces its real status.
+// STRIPS Authorization on cross-origin redirects. The blob needs NO auth (the
+// SAS in the Location IS the credential), so the hop is survivable — this
+// script still does it MANUALLY to keep the failure classes separable
+// (origin 403 vs blob 4xx each stamp distinct sentinels). Session 111
+// correction: the old claim that this strip is why "every CI download
+// arrived unauthenticated and the merge no-op'd" was WRONG — live artifact
+// sizes (467→887 B, one ~700 B record per run since run 125) prove the
+// REST fallback has been merging real prior records all along. The step
+// that never worked was the official SDK one (missing token input; fixed).
 async function downloadZip(id) {
   const meta = await api(`/repos/${repo}/actions/artifacts/${id}/zip`, { redirect: 'manual' });
   if (meta.status >= 300 && meta.status < 400) {
@@ -57,13 +61,12 @@ let merged = 0;
 let dirLines = 0;
 const seenRunIds = new Set([THIS_RUN]);
 
-// GEN-2 PRIMARY PATH (session 110, after two REST-download dead ends): the
-// CI job downloads the newest prior history artifact with the OFFICIAL
-// actions/download-artifact@v4 step (its SDK rides the runner's system
-// auth — immune to both the job-token actions-scope question and undici
-// stripping Authorization on the cross-origin 302 hop, each proven
-// locally; the history is a rolling chain so one prior file suffices) and
-// hands us the directory. If it produced any valid lines, skip the custom
+// GEN-2 PRIMARY PATH (session 110): the CI job downloads the newest prior
+// history artifact with the OFFICIAL actions/download-artifact@v4 step and
+// hands us the directory. NOTE (session 111): that step only reaches the
+// cross-run search when its token input is SET (fixed in ci.yml) — until
+// then it always "failed" while the REST fallback below silently did the
+// real chaining. If it produced any valid lines, skip the custom
 // REST path entirely; otherwise fall through (a missing dir = listing said
 // "no prior" = legitimate first run; a REST attempt there still stamps
 // sentinels and keeps the public-size self-attestation honest).
