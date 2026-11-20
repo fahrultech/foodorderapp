@@ -3,6 +3,97 @@
 Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
+## 2026-11-20 19:38 — Session 112 — alert verdicts persisted: time series + history route + scan escalation (Ops, Phase 11)
+
+**Built:**
+
+- Phase 11 Ops item, API side (the admin-dashboard panel is explicitly
+  deferred as a sub-item — the roadmap item's third clause). 5 new files
+  (entity, migration, service, service spec, query DTO) + 11 edited
+  (module/data-source/controller/response-contract/scan + their specs,
+  swagger contract, audit registry, ops/alert-scan.sh).
+- `alert_verdicts` table (migration 29th, `AddAlertVerdicts1794988800000`):
+  capturedAt (indexed) + `status` varchar(16) CHECK IN ('ok','alerting') +
+  `firingRules` jsonb CHECK array + `report` jsonb CHECK object. status +
+  firingRules are redundant with the stored full report ON PURPOSE: the
+  CHECK keeps the domain honest at the storage layer and the streak
+  reader never has to crack jsonb.
+- `AlertVerdictsService` REUSES the session-89 writer pattern and,
+  literally, its tick: same `METRICS_SNAPSHOT_INTERVAL_SEC` (default 300,
+  0 off, garbage->default) + `METRICS_SNAPSHOT_RETENTION_SEC` knobs, one
+  evaluation per tick via the SAME engine the route answers with
+  (`metrics.alerts(freshnessInput())`), full report stored verbatim,
+  retention prune over the same cutoff — the snapshot write of the sibling
+  tick makes `snapshot_stale` read age ~0 on healthy ticks, so the series
+  records `ok` honestly while a dead metrics writer records its OWN firing.
+  Errors warn + return 'failed' — the session-86 dead-smoke-detector
+  doctrine. Delete clause uses the RAW quoted `"capturedAt"` (session-89
+  TypeORM alias trap pinned for this table too).
+- `GET /admin/alerts/history` (ADMIN, OpenAPI ops 75->76, SUCCESS pin
+  77->78): `AlertsHistoryQueryDto` (windowSec 60..2592000 default 86400,
+  limit 1..2000 default 288; blank-or-0 -> unset -> default per the
+  session-87 Number()-coercion truth; junk/out-of-range -> loud 400;
+  service re-clamps both for direct callers) registered in the
+  query-surface-audit REGISTRY with DTO-completeness + clamp evidence.
+  Response: windowed rows OLDEST-FIRST (full stored reports), knobs
+  echoed, `truncated`/`lastCapturedAt`/`error`, and the streak:
+  `persistedTrailingAlerting` (newest->first ok, `trailingCapped` = lower
+  bound at the limit), `currentStatus` (LIVE engine verdict at read time),
+  `alerting` = trailing + 1 while live alerting else 0. Reads NEVER write.
+- alert-scan ESCALATION: on an alerting verdict the scan side-reads
+  history (healthy polls stay exactly two requests) and bumps the page
+  note at `streak.alerting >= ALERT_SCAN_ESCALATE_AFTER` (default 3,
+  floor 1) — an `ESCALATION` stderr line (cron MAILTO transport) +
+  `escalated`/`streakAlerting`/`streakError` in the stdout JSON. Exit
+  codes 0/1/2 UNCHANGED — a chronic fire pages louder, never changes
+  class. A broken/garbled history read leaves escalation UNKNOWN
+  (streakError) — the fire's exit 1 stands.
+- Registration sweeps per the standing traps: swagger.spec 4 lists +
+  SUCCESS pin, data-source entity list 21->22 + spec pin,
+  swagger.spec mockedProviders (new AdminController ctor dep),
+  MetricsModule forFeature/providers/exports.
+
+**Verified:**
+
+- `cd apps/api && npm run build` green; jest 97 suites / 1263 tests
+  (96/1241 at session 109: +1 suite, +22 tests — 8 service unit,
+  5 admin HTTP history-route incl. wire 400s/blank-defaults/frozen
+  arithmetic, 6 scan escalation/config). Full suite rerun green after the
+  targeted fixes.
+- Live smoke 58/58 on a 29-migration from-empty scratch DB, TWO boot arms
+  (3s tick): arm 1 (`ALERT_P95_MS_MAX=0`) proved tick rows exist, pair
+  with metrics_snapshots 2/2, status domain + both jsonb CHECKs clean,
+  stored report carries all 4 rules with observed/threshold/detail
+  verbatim + p95 detail 'exceeds', stored thresholds echo the live knob,
+  retention prune ran (oldest row <=11s while ticks ran >12s),
+  SIGSTOP-frozen API<->SQL cross-checks EXACT (returned == row count,
+  trailing streak == SQL tail-run, lastCapturedAt == max capturedAt),
+  streak arithmetic + lower-bound flags (limit=1 -> truncated &&
+  trailingCapped && persisted==1), 401/403/5x-400 branches, blank params
+  -> defaults, illegal psql writes each died on their named CHECK,
+  legal insert landed exactly +1 then removed by exact predicate.
+  REAL scan: exit 1,
+  escalated:true at streak 3, stderr ESCALATION line; threshold 999 ->
+  same exit 1, no note. arm 2 (defaults): all rows ok, streak 0, scan
+  exit 0 with NO streakAlerting field (healthy never reads history),
+  both API logs free of error-level lines.
+- Docs surface: live docs-json documents the op with bearer security +
+  200/400/401/403 responses.
+- Smoke harness lessons (both harness, not product): `psql -q` NEVER
+  prints command tags — 'DELETE 1' asserts are structurally empty, use
+  delta-count SELECTs; psql booleans print `t` while jq prints `true` —
+  mixing the two fabricated 4 first-run FAILs.
+- Added-lines sanitizer scan CLEAN (U+2026 / *** / literal-\u) across all
+  19 touched files.
+
+**Left for next sessions:**
+
+- Web: error-budget-style alert-history panel on /admin consuming
+  `GET /admin/alerts/history` (+ e2e) — filed as a ROADMAP sub-item.
+- Per-restaurant durability + order-centric attribution (Phase 11's other
+  open 🔒 items) untouched.
+
+---
 ## 2026-11-20 15:30 — Session 111 — fixture-timing round trip VERIFIED + the transport's real bug found and fixed (Test, Phase 11)
 
 **Built:**

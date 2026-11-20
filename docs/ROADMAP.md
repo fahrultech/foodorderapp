@@ -226,12 +226,33 @@
   ordered so no sort change) AND the one genuine bug it exposed fixed:
   download-artifact@v4 needs `github-token:` for cross-run search —
   run 134 is the first with zero error annotations.)
-- [ ] Ops: persist alert verdicts — capture the alerts engine's evaluation
+- [x] Ops: persist alert verdicts — capture the alerts engine's evaluation
   (verdict, firingRules, ages) into a small time series alongside the
   session-89 metrics snapshots (reuse the writer pattern + a migration),
   serve a windowed `GET /admin/alerts/history`, render an error-budget
   style panel on the admin dashboard, and make alert-scan escalate
   repeated fires (>=3 consecutive alerting evals bumps the page note).
+  (2026-11-20, session 112; API side — `alert_verdicts` table (29th
+  migration; status CHECK + jsonb type CHECKs + capturedAt index) written
+  ONE ROW PER METRICS SNAPSHOT TICK by `AlertVerdictsService` reusing the
+  same interval/retention knobs and the SAME engine call the route makes
+  (full report stored verbatim; reads never write); `GET
+  /admin/alerts/history` (ops 75→76) windowed rows oldest-first + the
+  consecutive-alerting streak counting this read's live verdict on top of
+  the persisted tail run (trailingCapped = honest lower bound); DTO-
+  validated + service-clamped bounds registered in the query-surface
+  audit; alert-scan escalates at `ALERT_SCAN_ESCALATE_AFTER` (default 3)
+  with an stderr ESCALATION note + escalated/streakAlerting stdout fields
+  — exit-code class UNCHANGED, a broken history read leaves escalation
+  UNKNOWN; 97 suites/1263 tests (+1/+22), live smoke 58/58 on a
+  29-migration from-empty DB across two boot arms incl. SIGSTOP-frozen
+  API↔SQL exact cross-checks and the REAL scan escalating on a chronic
+  fire; web delta 0.)
+  - [ ] 🔒 Web: error-budget-style alert-history panel on `/admin`
+    consuming `GET /admin/alerts/history` — streak + firingRules over
+    time, degrade-on-metrics-failure parity with TrafficPanel, e2e via
+    the session-85 waitForResponse cross-check (absolute streak numbers
+    are boot-dependent, pin shapes). EN/ID.
 - [ ] Product: delivery ETA honesty — compute per-restaurant recent real
   duration (confirmed→completed, median of last 20, fallback to the
   seeded estimate when <5 samples), expose it on the restaurant payload,

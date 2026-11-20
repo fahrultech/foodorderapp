@@ -643,6 +643,26 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   `ops/alert-scan.sh` → `src/scripts/alert-scan.ts` whose exit codes split
   `0 healthy · 1 alerting · 2 scan broken` so a broken smoke detector never
   pages like a fire. systemd examples: `ops/systemd/foodorder-alert-scan.*`.
+  Since session 112 verdicts are a PERSISTED time series:
+  `AlertVerdictsService` reuses that same tick and appends one
+  `alert_verdicts` row per metrics-snapshot tick (migration 29th — status
+  CHECK + jsonb type CHECKs + capturedAt index; the SAME
+  `METRICS_SNAPSHOT_INTERVAL_SEC`/`_RETENTION_SEC` knobs, so ONE durability
+  switch governs both series and there is no half-on state), storing the
+  engine's FULL report verbatim so history answers "since when and against
+  which observed numbers", not just "is it firing". Reads NEVER write
+  (session 98's observer-exemption: polling cannot grow the series). ADMIN
+  `GET /admin/alerts/history` serves the windowed rows oldest-first plus a
+  streak — `persistedTrailingAlerting` walks back from the newest row to
+  the first ok (`trailingCapped` = the run hit the limit and is a LOWER
+  BOUND), and `streak.alerting` counts this read's LIVE verdict on top
+  (trailing + 1 while alerting, 0 once ok). The alert-scan escalation gate
+  consumes that last field: an alerting poll also fetches history (ONLY on
+  alerting — a healthy poll stays exactly two requests), and
+  `ALERT_SCAN_ESCALATE_AFTER` (default 3) bumps the page note — an
+  ESCALATION stderr line + `escalated`/`streakAlerting` in the stdout JSON
+  — while the 0/1/2 exit-code class NEVER changes; a broken history read
+  leaves escalation honestly UNKNOWN, a fire never reads as healthy.
 - **Public browse reads are ETag-cached** (session 103, Phase 9): a DI-free
   `common/http-cache/` middleware registered LAST in the chain (after
   metrics and pino-http both hook their `finish` listeners, so a served
