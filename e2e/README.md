@@ -52,8 +52,9 @@ browser download.
   `fixture-timing-history` artifact. Chain transport (VERIFIED ROUND TRIP
   session 111): `list-prior-history.mjs` anonymously picks the newest
   prior artifact, the official download-artifact step fetches it (needs
-  its `token:` input SET — without it v4.3.0 searches the CURRENT run and
-  always "fails"; fixed in ci.yml), and `fetch-fixture-timing-history.mjs`
+  its `github-token:` input SET — input name is `github-token`, NOT
+  `token`; without it v4 searches the CURRENT run and always "fails";
+  fixed + proven in ci.yml), and `fetch-fixture-timing-history.mjs`
   merges the directory, falling back to custom REST when the dir is empty.
   The REST fallback is the PROVEN workhorse: live artifact sizes
   467→553→633→721→761→827→887 B across runs 125→132 equal one ~700 B
