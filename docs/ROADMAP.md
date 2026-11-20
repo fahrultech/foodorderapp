@@ -213,5 +213,34 @@
   full e2e 106/106 real report, gate x2 with merged history, fetch script
   live against the real API anonymous.)
 
+## Phase 11 — Alert history, delivery ETAs & budget gates (opened 2026-11-20, Phase 10 exhausted; from the Test / Ops / Product / Perf / UX evergreen loops)
+
+- [ ] Test: verify the fixture-timing trend round trip — over the next two
+  CI runs after 57020d7 confirm the fetch step merges >=1 prior run, the
+  summary's historical-max column reflects CI-side legs, and history stays
+  bounded (~20 records); if the anonymous artifacts listing proves
+  unordered, switch the fetch script to sort by workflow-run id and note
+  it in e2e/README.md. Record the outcome in the DEVLOG either way.
+- [ ] Ops: persist alert verdicts — capture the alerts engine's evaluation
+  (verdict, firingRules, ages) into a small time series alongside the
+  session-89 metrics snapshots (reuse the writer pattern + a migration),
+  serve a windowed `GET /admin/alerts/history`, render an error-budget
+  style panel on the admin dashboard, and make alert-scan escalate
+  repeated fires (>=3 consecutive alerting evals bumps the page note).
+- [ ] Product: delivery ETA honesty — compute per-restaurant recent real
+  duration (confirmed→completed, median of last 20, fallback to the
+  seeded estimate when <5 samples), expose it on the restaurant payload,
+  and surface it on the restaurant page + checkout ("usually ~25 min"),
+  EN/ID + unit + e2e. Money stays integer cents; durations integer seconds.
+- [ ] Perf: First Load JS budget gate — a zero-dep node script reads the
+  gzip chunk sums (session-90 method) from apps/web/.next and FAILS the
+  CI web job when a core storefront route exceeds a committed baseline
+  table (docs/PERFORMANCE.md, measured at ship). Include a deliberate
+  over-budget negative test like the drift gate does.
+- [ ] UX: focus-visibility + skip-link audit — every portal control gets a
+  visible `:focus-visible` state, storefront gains a skip-to-content link,
+  and the keyboard-driven spec pattern (portal-a11y) pins both; EN/ID
+  chrome covered via existing message keys.
+
 ## Completed
 - 2026-10-17 — Phase 0: monorepo scaffold, NestJS API (auth, restaurants, menu, orders, status machine, health), Next.js storefront (browse, detail, cart, checkout, order page), docker compose + Dockerfiles, seed data, jest unit tests, CI-ready scripts.
