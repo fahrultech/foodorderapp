@@ -97,7 +97,13 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
   size ~1800+ = SDK download finally merged the chain (dir path, no new
   sentinels); size ~600-1000 with the REST 5-artifact sentinel band =
   SDK path dead too and the saga continues with a readable failure
-  class (sentinel kinds are carried in the file itself).
+  class (sentinel kinds are carried in the file itself). RUN 7 (green):
+  listing -> SDK download -> dir merge -> gate -> publish ALL completed
+  success, artifact grew 761 -> 827 B; run 6's download error did not
+  reproduce. Exact chain accounting needs the fetch/gate stdout lines
+  ("chain ready - N merged prior line(s)" + "N prior run(s) merged")
+  which require a SIGNED-IN view of the job page (or any token) -
+  ask the user to glance at one, or read the published artifact itself.
 - Watch the first real `::warning`s: if a label legitimately lives above
   60% (e.g. seeded limiter backoffs), tune the ceiling or fraction rather
   than silencing the annotation.
