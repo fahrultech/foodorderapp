@@ -273,7 +273,13 @@ jobs:
           export GH_REPO="${{ github.repository }}"
           node list-prior-history.mjs
       - name: Download prior history artifact (official SDK)
+        # continue-on-error: transport is best-effort BY CONTRACT across
+        # all three generations - a red chain step must never redden the
+        # job; the merge step's REST fallback + fixed-120B sentinels keep
+        # the published artifact-size self-attestation truthful about
+        # whatever happened here.
         if: steps.prevhist.outputs.found == '1'
+        continue-on-error: true
         uses: actions/download-artifact@v4
         with:
           name: fixture-timing-history

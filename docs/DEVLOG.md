@@ -62,7 +62,7 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 **Left for next session:**
 
 - CI round-trip saga (caught AND root-caused SAME session, final proof
-  pending run 5): run 44682441875 published a single-record artifact —
+  pending run 7): run 44682441875 published a single-record artifact —
   the token-authenticated merge silently no-op'd behind the best-effort
   contract. Fix attempt 1 (e2e job permissions actions:write —
   upload-artifact rides the runner system auth so a green publish does
@@ -85,7 +85,19 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
   turning the PUBLIC artifact size into the diagnostic. Run 5 decode:
   expect >= ~2500 B (4 real prior records + own); 1 record ~500 =
   listing dead; ~500+120x = downloads still dying (sentinel kinds
-  readable from the artifact itself with any authed token).
+  readable from the artifact itself with any authed token). RUN 6 then
+  failed LOUDLY (first red job today): the OFFICIAL
+  actions/download-artifact@v4 step (gen-2 wiring: anonymous listing ->
+  SDK download by run-id -> dir merge) errored even with actions:write
+  on the job token, and fatally - suite + listing + publish all stayed
+  green but the step short-circuited merge/gate into skips. Correct
+  wiring now: continue-on-error on the download step (best-effort
+  contract: chain transports must never redden the job, and the REST
+  fallback + sentinels keep self-attesting). Run 7 decode: job green;
+  size ~1800+ = SDK download finally merged the chain (dir path, no new
+  sentinels); size ~600-1000 with the REST 5-artifact sentinel band =
+  SDK path dead too and the saga continues with a readable failure
+  class (sentinel kinds are carried in the file itself).
 - Watch the first real `::warning`s: if a label legitimately lives above
   60% (e.g. seeded limiter backoffs), tune the ceiling or fraction rather
   than silencing the annotation.
