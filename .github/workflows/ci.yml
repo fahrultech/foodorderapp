@@ -189,6 +189,14 @@ jobs:
     name: E2E — Playwright smoke suite against live API + web
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # Session 110: the history-fetch step reads artifact zips over the REST
+    # API — the GITHUB_TOKEN needs the actions scope for that (upload-artifact
+    # rides the runner's own system auth, so a repo default WITHOUT actions
+    # write silently left the job token 403-only and the merge no-op'd;
+    # run 44682441875 proved it via its single-record artifact).
+    permissions:
+      contents: read
+      actions: write
     # Same throwaway-Postgres contract as db-bootstrap (host trust, no secret
     # literals). Fresh container => fresh seed fixtures => the suite's
     # seed-fixed assertions are the contract, exactly as on the dev host.

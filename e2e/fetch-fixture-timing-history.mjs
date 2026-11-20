@@ -66,22 +66,32 @@ outer: for (let page = 1; page <= 2; page++) {
       const dir = mkdtempSync('/tmp/fth-');
       const zip = `${dir}/a.zip`;
       writeFileSync(zip, buf);
-      const up = spawnSync('unzip', ['-p', zip, `*${NAME}.jsonl`], { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
-      if (up.status !== 0) {
-        console.log(`history fetch: artifact ${a.id} unzip found nothing (skipped)`);
+      let good = 0;
+      // enumerate entries instead of globbing (no pattern-matching ambiguity
+      // across the stored path shape)
+      const names = spawnSync("unzip", ["-Z1", zip], { encoding: "utf8" })
+        .stdout.split("\n").map((s) => s.trim()).filter((n) => n.endsWith(".jsonl"));
+      if (names.length === 0) {
+        console.log(`history fetch: artifact ${a.id} has no .jsonl entries (skipped)`);
         continue;
       }
-      let good = 0;
-      for (const line of up.stdout.split('\n')) {
-        const t = line.trim();
-        if (!t) continue;
-        try {
-          JSON.parse(t);
-        } catch {
-          continue; // the gate's own malformed-counter sees it too; drop here
+      for (const entry of names) {
+        const up = spawnSync("unzip", ["-p", zip, entry], { encoding: "utf8", maxBuffer: 16 * 1024 * 1024 });
+        if (up.status !== 0) {
+          console.log(`history fetch: artifact ${a.id} entry ${entry} unreadable (skipped)`);
+          continue;
         }
-        appendFileSync(OUT, `${t}\n`);
-        good += 1;
+        for (const line of up.stdout.split("\n")) {
+          const t = line.trim();
+          if (!t) continue;
+          try {
+            JSON.parse(t);
+          } catch {
+            continue; // the gate's own malformed-counter sees it too; drop here
+          }
+          appendFileSync(OUT, `${t}\n`);
+          good += 1;
+        }
       }
       merged += 1;
       console.log(`history fetch: merged artifact ${a.id} (${good} record line(s))`);

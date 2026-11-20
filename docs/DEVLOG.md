@@ -61,9 +61,21 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 **Left for next session:**
 
-- This push's CI run is the FIRST publishing history (its fetch leg
-  legitimately finds nothing); the NEXT e2e run proves the artifact
-  download round-trip for real — re-check the fetch output then.
+- CI round-trip follow-up (caught SAME session): run 44682441875 published
+  a SINGLE-record artifact (553 B; two records would be ~1000 B+) — the
+  token-authenticated merge silently no-op'd. Root cause hypothesis,
+  well-supported: the job GITHUB_TOKEN lacks the actions scope for the
+  artifact REST download (upload-artifact rides the runner's OWN system
+  auth, so a green publish step does NOT imply the token can read), and
+  the best-effort contract made the failure quiet — exactly the failure
+  mode this gate exists to end. Fix shipped: e2e job `permissions:
+  {contents: read, actions: write}` + enumeration-based zip extraction
+  (`unzip -Z1` filter endsWith('.jsonl') then per-entry extract — removes
+  the stored-path pattern ambiguity too). Verified: YAML safe_load with
+  the permissions block; extraction harness on root- AND nested-entry
+  zips (1 good line each); anonymous 401-skip path live against the two
+  real artifacts (exit 0, honest lines). The next push's artifact size is
+  the disambiguating proof — expect >=2 merged prior records (~1000 B+).
 - Watch the first real `::warning`s: if a label legitimately lives above
   60% (e.g. seeded limiter backoffs), tune the ceiling or fraction rather
   than silencing the annotation.
