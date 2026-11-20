@@ -261,6 +261,7 @@ describe('request metrics — live middleware chain', () => {
       fiveXxRatePctMax: 0.5,
       p95MsMax: 1000,
       minRequests: 50,
+      snapshotStaleAfterSec: null,
     });
     metricsService.logSnapshot();
     await drain();

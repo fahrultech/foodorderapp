@@ -73,15 +73,18 @@ export class AdminController {
     summary: 'Current alert state',
     description:
       'The ops/alerts rule engine evaluated against the LIVE metrics snapshot: error_budget ' +
-      '(5xx rate vs the 99.5% availability SLO), p95_latency (histogram estimate vs ceiling) ' +
-      'and route_key_overflow (cardinality-cap folding, a warning). Cumulative-since-boot ' +
+      '(5xx rate vs the 99.5% availability SLO), p95_latency (histogram estimate vs ceiling), ' +
+      'route_key_overflow (cardinality-cap folding) and snapshot_stale (the session-89 ' +
+      'durability writer going silently dead — evaluated from a metrics_snapshots read, ' +
+      'writer-disabled is exempt). Cumulative-since-boot ' +
       'totals inherited from GET /admin/metrics; the periodic `request_metrics` fold line ' +
-      'carries the same verdict compactly. ADMIN only.',
+      'carries the same verdict compactly (without the DB-backed staleness observation). ' +
+      'ADMIN only.',
   })
   @ApiOkResponse({ type: AdminAlertsReportResponse })
   @ApiError(401, 'Missing/invalid/expired access token.')
   @ApiError(403, 'Valid token but role is not ADMIN.')
-  alerts() {
-    return this.metrics.alerts();
+  async alerts() {
+    return this.metrics.alerts(await this.persistence.freshnessInput());
   }
 }

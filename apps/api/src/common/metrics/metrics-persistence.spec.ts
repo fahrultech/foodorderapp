@@ -263,3 +263,48 @@ describe('MetricsPersistenceService.describe (the additive /admin/metrics fields
     expect(out.window).toBeNull();
   });
 });
+
+describe('MetricsPersistenceService.freshnessInput (snapshot_stale observation, session 109)', () => {
+  it('DISABLED writer: no repo touch, enabled=false carries the exemption fact', async () => {
+    const { svc, repo } = makeFakes({ METRICS_SNAPSHOT_INTERVAL_SEC: '0' });
+    expect(await svc.freshnessInput()).toEqual({
+      enabled: false,
+      intervalSec: 0,
+      lastCapturedAtMs: null,
+    });
+    expect(repo.find).not.toHaveBeenCalled();
+  });
+
+  it('enabled + newest row: reports its epoch ms with the configured interval', async () => {
+    const { svc, repo } = makeFakes({ METRICS_SNAPSHOT_INTERVAL_SEC: '120' });
+    const capturedAt = new Date('2026-11-20T03:00:00.000Z');
+    repo.find.mockResolvedValueOnce([{ capturedAt } as unknown as MetricsSnapshotRow]);
+    expect(await svc.freshnessInput()).toEqual({
+      enabled: true,
+      intervalSec: 120,
+      lastCapturedAtMs: capturedAt.getTime(),
+    });
+    // The REAL repo API: find + take:1, never order-only findOne (session 89).
+    expect(repo.find).toHaveBeenCalledWith({ order: { capturedAt: 'DESC' }, take: 1 });
+  });
+
+  it('enabled + empty table: lastCapturedAtMs null, NO storeError (a legit zero-rows read)', async () => {
+    const { svc } = makeFakes();
+    expect(await svc.freshnessInput()).toEqual({
+      enabled: true,
+      intervalSec: DEFAULT_METRICS_SNAPSHOT_INTERVAL_SEC,
+      lastCapturedAtMs: null,
+    });
+  });
+
+  it('read failure NEVER throws: surfaces as storeError=true so the rule reports UNREADABLE', async () => {
+    const { svc, repo } = makeFakes();
+    repo.find.mockRejectedValueOnce(new Error('relation "metrics_snapshots" does not exist'));
+    expect(await svc.freshnessInput()).toEqual({
+      enabled: true,
+      intervalSec: DEFAULT_METRICS_SNAPSHOT_INTERVAL_SEC,
+      lastCapturedAtMs: null,
+      storeError: true,
+    });
+  });
+});

@@ -11,6 +11,14 @@
  *   3. `ops/alert-scan.sh` → src/scripts/alert-scan.ts (scheduler exit codes:
  *      0 healthy · 1 alerting · 2 scan itself failed).
  *
+ * The 4th rule additionally needs a DB-backed observation (age of the
+ * newest `metrics_snapshots` row). It is supplied by the CALLER as the
+ * third argument: `GET /admin/alerts` (and every consumer of it, incl.
+ * alert-scan) passes `MetricsPersistenceService.freshnessInput()`, so the
+ * scan inherits the rule with zero script changes. The periodic fold line
+ * is a synchronous consumer with no DB handle — there the rule reports an
+ * honest "not evaluated" verdict (never a false fire, never a false ok).
+ *
  * Rules (all thresholds operator-tunable via env, defaults below):
  *   - error_budget: 5xx share of requests vs the 99.5% availability SLO →
  *     a budget of 0.5% server errors. Only evaluated once the sample reaches
@@ -23,6 +31,16 @@
  *     `other` bucket (session 80). A WARNING: telemetry degrades, users
  *     don't. It still flips the verdict to `alerting` — a flood of distinct
  *     paths is worth a look.
+ *   - snapshot_stale (session 109): the metrics_snapshots durability rows
+ *     (session 89) are the error budget's MEMORY — a silently dead writer
+ *     zeroes the windowed history while every live number keeps looking
+ *     healthy. Fires when the writer is enabled but the newest stored row is
+ *     older than ALERT_SNAPSHOT_STALE_AFTER_SEC (default: 2x the snapshot
+ *     interval); with zero rows the grace counts from API uptime (a fresh
+ *     boot has not reached its first tick yet). A DISABLED writer
+ *     (METRICS_SNAPSHOT_INTERVAL_SEC=0) is EXEMPT by design — the operator
+ *     opted out of durability, so there is nothing to go stale. WARNING
+ *     severity like route_key_overflow: observability degrades, users don't.
  *
  * Cumulative-since-boot caveat inherited from the registry (session 85):
  * an early 5xx burst keeps the budget rule lit until traffic dilutes it.
@@ -36,9 +54,33 @@ import {
   OVERFLOW_KEY,
 } from '../common/metrics/request-metrics';
 
-export type AlertRuleId = 'error_budget' | 'p95_latency' | 'route_key_overflow';
+export type AlertRuleId =
+  | 'error_budget'
+  | 'p95_latency'
+  | 'route_key_overflow'
+  | 'snapshot_stale';
 export type AlertSeverity = 'error' | 'warning';
 export type AlertStatus = 'ok' | 'alerting';
+
+/**
+ * The durability observation the snapshot_stale rule needs (session 109).
+ * Produced by MetricsPersistenceService.freshnessInput() — the engine
+ * stays DI-free and the AGE arithmetic stays testable: `nowMs` is
+ * injectable, production defaults to Date.now().
+ */
+export interface SnapshotFreshnessInput {
+  /** Writer configured on (METRICS_SNAPSHOT_INTERVAL_SEC > 0). */
+  enabled: boolean;
+  /** The configured interval in seconds (0 when disabled). */
+  intervalSec: number;
+  /** Epoch ms of the newest metrics_snapshots row; null = no row (or unreadable). */
+  lastCapturedAtMs: number | null;
+  /** The store read itself FAILED (table missing / DB down) — honesty flag,
+   *  reported as "unreadable" rather than a fabricated "no rows" age. */
+  storeError?: boolean;
+  /** Clock override for tests. */
+  nowMs?: number;
+}
 
 export interface AlertThresholds {
   /** Percent (0-100). Rule fires when the 5xx rate STRICTLY exceeds it. */
@@ -47,6 +89,12 @@ export interface AlertThresholds {
   p95MsMax: number;
   /** Minimum total requests before the budget rule is evaluated at all. */
   minRequests: number;
+  /**
+   * snapshot_stale ceiling in seconds. null (default) = 2x the configured
+   * METRICS_SNAPSHOT_INTERVAL_SEC, resolved at evaluation time; a positive
+   * integer from ALERT_SNAPSHOT_STALE_AFTER_SEC overrides the multiplier.
+   */
+  snapshotStaleAfterSec: number | null;
 }
 
 export const DEFAULT_ALERT_THRESHOLDS: AlertThresholds = {
@@ -58,6 +106,11 @@ export const DEFAULT_ALERT_THRESHOLDS: AlertThresholds = {
   p95MsMax: 1000,
   // Below this sample the budget verdict is statistically meaningless.
   minRequests: 50,
+  // null = derive 2x the snapshot interval per evaluation. The factor 2
+  // means the writer must MISS TWO consecutive ticks before the alarm —
+  // a single hiccup (one failed save, immediately retried next tick) is
+  // noise, a silently dead writer is exactly two-tick silence.
+  snapshotStaleAfterSec: null,
 };
 
 export interface AlertRuleResult {
@@ -66,11 +119,12 @@ export interface AlertRuleResult {
   severity: AlertSeverity;
   /**
    * The number the verdict rests on: 5xx rate in percent / p95 ms estimate /
-   * distinct route keys. Null when not evaluable (no samples yet, or the
-   * sample is below `minRequests`).
+   * distinct route keys / snapshot age in seconds. Null when not evaluable
+   * (no samples yet, the sample is below `minRequests`, or the rule is
+   * exempt/not supplied).
    */
   observed: number | null;
-  /** The threshold `observed` is compared against (SLO pct / ms / key cap). */
+  /** The threshold `observed` is compared against (SLO pct / ms / key cap / stale seconds). */
   threshold: number;
   detail: string;
 }
@@ -106,6 +160,22 @@ function positiveIntThreshold(raw: string | undefined, fallback: number): number
   return Math.floor(n) > 0 ? Math.floor(n) : fallback;
 }
 
+/**
+ * ALERT_SNAPSHOT_STALE_AFTER_SEC: unset/blank/garbage/negative/0 → null,
+ * meaning "derive 2x the snapshot interval at evaluation time". Unlike the
+ * ceilings above, 0 is NOT a legal override here — a zero-second grace would
+ * fire whenever a row is even one ms old, i.e. always; the doctrine is that
+ * an operator who wants a tighter window passes a real number (session 89
+ * made the same call about zero retention: a degenerate value on this knob
+ * is indistinguishable from a typo).
+ */
+function positiveIntOrNull(raw: string | undefined): number | null {
+  if (raw === undefined || raw === null || String(raw).trim() === '') return null;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return Math.floor(n);
+}
+
 /** Same style as resolveRestockRepairConfig: pure env read, injectable for tests. */
 export function resolveAlertThresholds(
   env: Record<string, string | undefined> = process.env,
@@ -118,6 +188,7 @@ export function resolveAlertThresholds(
     ),
     p95MsMax: thresholdNumber(env.ALERT_P95_MS_MAX, DEFAULT_ALERT_THRESHOLDS.p95MsMax, 0),
     minRequests: positiveIntThreshold(env.ALERT_MIN_REQUESTS, DEFAULT_ALERT_THRESHOLDS.minRequests),
+    snapshotStaleAfterSec: positiveIntOrNull(env.ALERT_SNAPSHOT_STALE_AFTER_SEC),
   };
 }
 
@@ -125,6 +196,7 @@ export function resolveAlertThresholds(
 export function evaluateAlerts(
   snapshot: MetricsSnapshot,
   thresholds: AlertThresholds = DEFAULT_ALERT_THRESHOLDS,
+  freshness?: SnapshotFreshnessInput | null,
 ): AlertReport {
   const { totals } = snapshot;
 
@@ -173,6 +245,56 @@ export function evaluateAlerts(
       `per-route telemetry degrades, user traffic does not`
     : `${totals.routeKeys} distinct route keys, cap ${MAX_ROUTE_KEYS}`;
 
+  // ── rule 4: metrics-snapshot writer staleness (session 109) ─────────────
+  // The durability rows are the error budget's MEMORY. The age facts come
+  // from the caller's SnapshotFreshnessInput (DB-backed on the route/scan
+  // rung; absent on the synchronous fold line, which then reports an
+  // honest NOT-evaluated verdict rather than guessing).
+  let staleFiring = false;
+  let staleObserved: number | null = null;
+  let staleThreshold = thresholds.snapshotStaleAfterSec ?? 0;
+  let staleDetail: string;
+  if (!freshness) {
+    staleDetail = 'no durability observation supplied — rule not evaluated';
+  } else if (!freshness.enabled) {
+    staleThreshold = thresholds.snapshotStaleAfterSec ?? 2 * freshness.intervalSec;
+    staleDetail =
+      'snapshot writer disabled (METRICS_SNAPSHOT_INTERVAL_SEC=0) — rule exempt ' +
+      '(durability is opted out by design, nothing can go stale)';
+  } else {
+    const staleAfterSec = thresholds.snapshotStaleAfterSec ?? 2 * freshness.intervalSec;
+    staleThreshold = staleAfterSec;
+    const nowMs = freshness.nowMs ?? Date.now();
+    if (freshness.lastCapturedAtMs === null) {
+      // Zero provable-fresh rows (table never written OR unreadable). Grace
+      // counts from API uptime: the FIRST tick is only due intervalSec after
+      // boot, so a young process must not page for rows it has not tried to
+      // write yet.
+      const ageSec = snapshot.uptimeSec;
+      staleObserved = ageSec;
+      staleFiring = ageSec > staleAfterSec;
+      const storeNote = freshness.storeError
+        ? 'durability store UNREADABLE (reads failing) and'
+        : 'writer enabled but';
+      staleDetail = staleFiring
+        ? `${storeNote} no snapshot row within the ${staleAfterSec}s grace ` +
+          `(interval ${freshness.intervalSec}s, API up ${ageSec}s) — the snapshot ` +
+          `writer is silently dead and the error-budget history is not landing`
+        : `${storeNote} no stored row yet (API up ${ageSec}s < ${staleAfterSec}s grace, ` +
+          `first write due at ${freshness.intervalSec}s)`;
+    } else {
+      const ageSec = Math.max(0, (nowMs - freshness.lastCapturedAtMs) / 1000);
+      staleObserved = round2(ageSec);
+      staleFiring = ageSec > staleAfterSec;
+      staleDetail = staleFiring
+        ? `newest snapshot row is ${staleObserved}s old (> ${staleAfterSec}s ceiling, ` +
+          `writer due every ${freshness.intervalSec}s) — the snapshot writer is ` +
+          `silently dead and the error-budget history is not landing`
+        : `newest snapshot row ${staleObserved}s old within the ${staleAfterSec}s ceiling ` +
+          `(writer every ${freshness.intervalSec}s)`;
+    }
+  }
+
   const rules: AlertRuleResult[] = [
     {
       id: 'error_budget',
@@ -197,6 +319,14 @@ export function evaluateAlerts(
       observed: totals.routeKeys,
       threshold: MAX_ROUTE_KEYS,
       detail: overflowDetail,
+    },
+    {
+      id: 'snapshot_stale',
+      firing: staleFiring,
+      severity: 'warning',
+      observed: staleObserved,
+      threshold: staleThreshold,
+      detail: staleDetail,
     },
   ];
 

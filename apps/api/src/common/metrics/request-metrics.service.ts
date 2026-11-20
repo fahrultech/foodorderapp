@@ -7,6 +7,7 @@ import {
   AlertThresholds,
   evaluateAlerts,
   resolveAlertThresholds,
+  SnapshotFreshnessInput,
   summarizeAlerts,
 } from '../../ops/alerts';
 
@@ -50,6 +51,7 @@ export class RequestMetricsService implements OnModuleDestroy {
       ALERT_5XX_RATE_PCT_MAX: config.get<string>('ALERT_5XX_RATE_PCT_MAX'),
       ALERT_P95_MS_MAX: config.get<string>('ALERT_P95_MS_MAX'),
       ALERT_MIN_REQUESTS: config.get<string>('ALERT_MIN_REQUESTS'),
+      ALERT_SNAPSHOT_STALE_AFTER_SEC: config.get<string>('ALERT_SNAPSHOT_STALE_AFTER_SEC'),
     });
     if (this.intervalSec > 0) {
       this.timer = setInterval(() => this.logSnapshot(), this.intervalSec * 1000);
@@ -75,9 +77,16 @@ export class RequestMetricsService implements OnModuleDestroy {
     return this.registry.restaurantSnapshot(restaurantId);
   }
 
-  /** Full alert report over the LIVE snapshot — the GET /admin/alerts route. */
-  alerts(): AlertReport {
-    return evaluateAlerts(this.registry.snapshot(), this.alertThresholds);
+  /**
+   * Full alert report over the LIVE snapshot — the GET /admin/alerts route.
+   * The optional `freshness` observation (session 109) powers the
+   * snapshot_stale rule: the route supplies MetricsPersistenceService
+   * .freshnessInput() so the pull consumers (admin, alert-scan) inherit it;
+   * without an observation (the synchronous fold line below) the rule
+   * reports an honest "not evaluated".
+   */
+  alerts(freshness?: SnapshotFreshnessInput | null): AlertReport {
+    return evaluateAlerts(this.registry.snapshot(), this.alertThresholds, freshness);
   }
 
   logSnapshot(): void {

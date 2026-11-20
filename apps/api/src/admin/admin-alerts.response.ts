@@ -27,12 +27,21 @@ export class AlertThresholdsResponse {
     description: 'Minimum total requests before the error_budget rule is evaluated at all.',
   })
   minRequests: number;
+  @ApiProperty({
+    type: 'number',
+    nullable: true,
+    description:
+      'snapshot_stale ceiling in seconds; null (default) means "2x the configured ' +
+      'METRICS_SNAPSHOT_INTERVAL_SEC, derived at evaluation time". An explicit override ' +
+      'comes from ALERT_SNAPSHOT_STALE_AFTER_SEC (positive seconds; 0/garbage fall back to null).',
+  })
+  snapshotStaleAfterSec: number | null;
 }
 
 export class AlertRuleResultResponse {
   @ApiProperty({
     type: 'string',
-    enum: ['error_budget', 'p95_latency', 'route_key_overflow'],
+    enum: ['error_budget', 'p95_latency', 'route_key_overflow', 'snapshot_stale'],
   })
   id: string;
 
@@ -82,7 +91,7 @@ export class AdminAlertsReportResponse {
   @ApiProperty({
     type: 'string',
     isArray: true,
-    enum: ['error_budget', 'p95_latency', 'route_key_overflow'],
+    enum: ['error_budget', 'p95_latency', 'route_key_overflow', 'snapshot_stale'],
     description: 'Ids of the firing rules; empty when status is ok.',
   })
   firingRules: string[];

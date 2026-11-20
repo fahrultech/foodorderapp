@@ -11,6 +11,7 @@ import {
 } from './metrics-window';
 import { MetricsSnapshot } from './request-metrics';
 import { RequestMetricsService } from './request-metrics.service';
+import { SnapshotFreshnessInput } from '../../ops/alerts';
 
 export const DEFAULT_METRICS_SNAPSHOT_INTERVAL_SEC = 300; // 5 min
 export const DEFAULT_METRICS_SNAPSHOT_RETENTION_SEC = 86400; // 24 h — at the default
@@ -179,6 +180,34 @@ export class MetricsPersistenceService implements OnModuleDestroy {
       );
       durability.error = true;
       return { durability, window: null };
+    }
+  }
+
+  /**
+   * The DB-backed observation for the `snapshot_stale` alert rule
+   * (session 109). ONE indexed read (the same newest-row idiom as
+   * describe()). Never throws: a store read failure lands as
+   * `lastCapturedAtMs: null + storeError: true` — an UNREADABLE durability
+   * store is exactly what the rule exists to catch (a dead writer looks
+   * identical from the age side), and the evaluator reports it honestly as
+   * "unreadable", not as a fabricated "no rows".
+   */
+  async freshnessInput(): Promise<SnapshotFreshnessInput> {
+    const base: SnapshotFreshnessInput = {
+      enabled: this.enabled,
+      intervalSec: this.snapshotIntervalSec,
+      lastCapturedAtMs: null,
+    };
+    if (!this.enabled) return base;
+    try {
+      // find+take:1, never order-only findOne (session 89 TypeORM refusal).
+      const [row] = await this.repo.find({ order: { capturedAt: 'DESC' }, take: 1 });
+      return { ...base, lastCapturedAtMs: row ? row.capturedAt.getTime() : null };
+    } catch (err) {
+      this.logger.warn(
+        `metrics snapshot freshness read failed: ${(err as Error)?.message ?? 'unknown error'}`,
+      );
+      return { ...base, storeError: true };
     }
   }
 

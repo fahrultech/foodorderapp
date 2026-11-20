@@ -10,7 +10,8 @@ import 'dotenv/config';
  * into a scheduler exit code:
  *
  *   0 = healthy (status ok)         — cron stays silent
- *   1 = ALERTING (any rule fires)   — cron/systemd mail transport notifies
+ *   1 = ALERTING (any rule fires: error_budget / p95_latency /
+ *     route_key_overflow / snapshot_stale)  — cron/systemd mail transport notifies
  *   2 = the SCAN itself failed      — API down, bad creds, unexpected shape
  *
  * Exit 1 vs exit 2 is the point: "the building is on fire" and "the smoke

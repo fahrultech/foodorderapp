@@ -51,7 +51,12 @@ describe('resolveAlertThresholds', () => {
       ALERT_P95_MS_MAX: '0',
       ALERT_MIN_REQUESTS: '1',
     });
-    expect(t).toEqual({ fiveXxRatePctMax: 0, p95MsMax: 0, minRequests: 1 });
+    expect(t).toEqual({
+      fiveXxRatePctMax: 0,
+      p95MsMax: 0,
+      minRequests: 1,
+      snapshotStaleAfterSec: null,
+    });
     expect(resolveAlertThresholds({ ALERT_5XX_RATE_PCT_MAX: '-0.1' }).fiveXxRatePctMax).toBe(0.5);
   });
 
@@ -59,6 +64,17 @@ describe('resolveAlertThresholds', () => {
     expect(resolveAlertThresholds({ ALERT_MIN_REQUESTS: '0' }).minRequests).toBe(50);
     expect(resolveAlertThresholds({ ALERT_MIN_REQUESTS: '2.9' }).minRequests).toBe(2);
     expect(resolveAlertThresholds({ ALERT_MIN_REQUESTS: '1e3' }).minRequests).toBe(1000);
+  });
+
+  it('ALERT_SNAPSHOT_STALE_AFTER_SEC: positive integer overrides, everything else means "derive 2x interval" (null)', () => {
+    expect(resolveAlertThresholds({ ALERT_SNAPSHOT_STALE_AFTER_SEC: '30' }).snapshotStaleAfterSec).toBe(30);
+    expect(resolveAlertThresholds({ ALERT_SNAPSHOT_STALE_AFTER_SEC: '4.9' }).snapshotStaleAfterSec).toBe(4);
+    // 0 is NOT a legal override here (a zero grace fires always) — falls back to derived.
+    expect(resolveAlertThresholds({ ALERT_SNAPSHOT_STALE_AFTER_SEC: '0' }).snapshotStaleAfterSec).toBeNull();
+    expect(resolveAlertThresholds({ ALERT_SNAPSHOT_STALE_AFTER_SEC: '-5' }).snapshotStaleAfterSec).toBeNull();
+    expect(resolveAlertThresholds({ ALERT_SNAPSHOT_STALE_AFTER_SEC: 'soon' }).snapshotStaleAfterSec).toBeNull();
+    expect(resolveAlertThresholds({ ALERT_SNAPSHOT_STALE_AFTER_SEC: '' }).snapshotStaleAfterSec).toBeNull();
+    expect(resolveAlertThresholds({}).snapshotStaleAfterSec).toBeNull();
   });
 });
 
@@ -136,7 +152,7 @@ describe('evaluateAlerts — error_budget', () => {
 
   it('zero threshold + min 1: a lone 5xx out of one request is a verdict', () => {
     const snap = registrySnapshot(many('GET /api/x', 1, 500, 10));
-    const report = evaluateAlerts(snap, { fiveXxRatePctMax: 0, p95MsMax: 100000, minRequests: 1 });
+    const report = evaluateAlerts(snap, { fiveXxRatePctMax: 0, p95MsMax: 100000, minRequests: 1, snapshotStaleAfterSec: null });
     expect(rule(report, 'error_budget')).toMatchObject({ firing: true, observed: 100 });
   });
 
@@ -209,20 +225,141 @@ describe('evaluateAlerts — route_key_overflow', () => {
   });
 });
 
+describe('evaluateAlerts — snapshot_stale (session 109)', () => {
+  const T = Date.parse('2026-11-20T00:00:00.000Z');
+  const snap = (uptimeSec: number) => ({
+    ...registrySnapshot(() => undefined),
+    uptimeSec,
+  });
+  const fresh = (f: Record<string, unknown>) =>
+    ({ enabled: true, intervalSec: 300, lastCapturedAtMs: null, ...f }) as any;
+
+  it('no observation (the synchronous fold-line consumer): rule present, NOT firing, honest detail', () => {
+    const report = evaluateAlerts(snap(999999));
+    expect(report.rules).toHaveLength(4);
+    const s = rule(report, 'snapshot_stale');
+    expect(s).toMatchObject({ firing: false, severity: 'warning', observed: null });
+    expect(s.detail).toMatch(/not evaluated/);
+    expect(report.status).toBe('ok');
+  });
+
+  it('DISABLED writer is exempt — even with zero rows and huge uptime', () => {
+    const report = evaluateAlerts(
+      snap(100000),
+      DEFAULT_ALERT_THRESHOLDS,
+      fresh({ enabled: false, intervalSec: 0 }),
+    );
+    const s = rule(report, 'snapshot_stale');
+    expect(s.firing).toBe(false);
+    expect(s.detail).toMatch(/disabled .*exempt/);
+    expect(report.status).toBe('ok');
+  });
+
+  it('a recent row sits inside the derived 2x-interval ceiling (600s at 300s interval)', () => {
+    const report = evaluateAlerts(snap(999999), DEFAULT_ALERT_THRESHOLDS, fresh({
+      lastCapturedAtMs: T - 10_000,
+      nowMs: T,
+    }));
+    const s = rule(report, 'snapshot_stale');
+    expect(s).toMatchObject({ firing: false, observed: 10, threshold: 600 });
+    expect(s.detail).toMatch(/within/);
+  });
+
+  it('fires STRICTLY above the ceiling: exactly 600s old is quiet, 600.001s alerts with numbers', () => {
+    const at = evaluateAlerts(snap(999999), DEFAULT_ALERT_THRESHOLDS, fresh({
+      lastCapturedAtMs: T - 600_000,
+      nowMs: T,
+    }));
+    expect(rule(at, 'snapshot_stale').firing).toBe(false);
+
+    const over = evaluateAlerts(snap(999999), DEFAULT_ALERT_THRESHOLDS, fresh({
+      lastCapturedAtMs: T - 600_001,
+      nowMs: T,
+    }));
+    const s = rule(over, 'snapshot_stale');
+    expect(s).toMatchObject({ firing: true, observed: 600, threshold: 600 });
+    expect(over.status).toBe('alerting');
+    expect(over.firingRules).toEqual(['snapshot_stale']);
+    expect(s.detail).toMatch(/silently dead/);
+  });
+
+  it('future-dated row (clock skew) reads as age 0, never a negative fire', () => {
+    const report = evaluateAlerts(snap(999999), DEFAULT_ALERT_THRESHOLDS, fresh({
+      lastCapturedAtMs: T + 500_000,
+      nowMs: T,
+    }));
+    expect(rule(report, 'snapshot_stale')).toMatchObject({ firing: false, observed: 0 });
+  });
+
+  it('ALERT_SNAPSHOT_STALE_AFTER_SEC override replaces the 2x derivation', () => {
+    const snap200 = fresh({ lastCapturedAtMs: T - 200_000, nowMs: T });
+    // Default (derived 600): quiet at 200s old...
+    expect(rule(evaluateAlerts(snap(999999), DEFAULT_ALERT_THRESHOLDS, snap200), 'snapshot_stale').firing).toBe(false);
+    // ...tightened to 120 by env: the SAME observation fires and reports the tight ceiling.
+    const strict = evaluateAlerts(
+      snap(999999),
+      { ...DEFAULT_ALERT_THRESHOLDS, snapshotStaleAfterSec: 120 },
+      snap200,
+    );
+    expect(rule(strict, 'snapshot_stale')).toMatchObject({ firing: true, threshold: 120, observed: 200 });
+  });
+
+  it('zero rows respect an uptime grace (boot has not reached its first tick)', () => {
+    const young = evaluateAlerts(snap(50), DEFAULT_ALERT_THRESHOLDS, fresh({ intervalSec: 300 }));
+    expect(rule(young, 'snapshot_stale')).toMatchObject({ firing: false, observed: 50 });
+    expect(rule(young, 'snapshot_stale').detail).toMatch(/first write due/);
+
+    const old = evaluateAlerts(snap(700), DEFAULT_ALERT_THRESHOLDS, fresh({ intervalSec: 300 }));
+    const s = rule(old, 'snapshot_stale');
+    expect(s.firing).toBe(true);
+    expect(s.detail).toMatch(/no snapshot row within the 600s grace/);
+    expect(old.firingRules).toEqual(['snapshot_stale']);
+  });
+
+  it('UNREADABLE store reports honestly as unreadable (and fires past the grace)', () => {
+    const report = evaluateAlerts(snap(700), DEFAULT_ALERT_THRESHOLDS, fresh({ storeError: true }));
+    const s = rule(report, 'snapshot_stale');
+    expect(s.firing).toBe(true);
+    expect(s.detail).toMatch(/UNREADABLE/);
+    expect(s.detail).not.toMatch(/no rows/);
+  });
+
+  it('summarizeAlerts carries the firing rule into the fold-line verdict shape', () => {
+    const report = evaluateAlerts(snap(700), DEFAULT_ALERT_THRESHOLDS, fresh({ intervalSec: 300 }));
+    expect(summarizeAlerts(report)).toEqual({ status: 'alerting', firing: ['snapshot_stale'] });
+  });
+});
+
 describe('evaluateAlerts — combinations', () => {
   it('multiple simultaneous breaches list every firing rule in rule order', () => {
     const reg = new RequestMetricsRegistry(3);
     for (const p of ['/a', '/b', '/c', '/d']) reg.record(`GET ${p}`, 500, 3000);
     // min sample 1: this is a tiny synthetic registry, the budget rule is
     // otherwise (correctly) gated for n=4.
-    const report = evaluateAlerts(reg.snapshot(), { fiveXxRatePctMax: 0.5, p95MsMax: 1000, minRequests: 1 });
+    const report = evaluateAlerts(reg.snapshot(), { fiveXxRatePctMax: 0.5, p95MsMax: 1000, minRequests: 1, snapshotStaleAfterSec: null });
     expect(report.status).toBe('alerting');
     expect(report.firingRules).toEqual(['error_budget', 'p95_latency', 'route_key_overflow']);
-    expect(report.rules).toHaveLength(3);
+    expect(report.rules).toHaveLength(4);
     expect(summarizeAlerts(report)).toEqual({
       status: 'alerting',
       firing: ['error_budget', 'p95_latency', 'route_key_overflow'],
     });
+  });
+
+  it('all FOUR rules can fire and the list stays in rule order', () => {
+    const reg = new RequestMetricsRegistry(3);
+    for (const p of ['/a', '/b', '/c', '/d']) reg.record(`GET ${p}`, 500, 3000);
+    const report = evaluateAlerts(
+      { ...reg.snapshot(), uptimeSec: 999999 },
+      { fiveXxRatePctMax: 0.5, p95MsMax: 1000, minRequests: 1, snapshotStaleAfterSec: null },
+      { enabled: true, intervalSec: 300, lastCapturedAtMs: null },
+    );
+    expect(report.firingRules).toEqual([
+      'error_budget',
+      'p95_latency',
+      'route_key_overflow',
+      'snapshot_stale',
+    ]);
   });
 
   it('report echoes snapshot identity + resolved thresholds for auditors', () => {

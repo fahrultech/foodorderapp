@@ -16,6 +16,8 @@ import { AdminService } from './admin.service';
 import { RequestMetricsService } from '../common/metrics/request-metrics.service';
 import { MetricsPersistenceService } from '../common/metrics/metrics-persistence.service';
 import { MetricsSnapshotRow } from '../common/metrics/metrics-snapshot.entity';
+import { RequestMetricsRegistry } from '../common/metrics/request-metrics';
+import { DEFAULT_ALERT_THRESHOLDS, evaluateAlerts } from '../ops/alerts';
 
 const JWT_TEST = 'admin-controller-http-test-key';
 
@@ -331,13 +333,21 @@ describe('AdminController HTTP', () => {
   // --- GET /admin/alerts (ops/alerts rule engine route, session 86) ---
 
   // Mirrors AlertReport from src/ops/alerts.ts EXACTLY — same round-trip
-  // contract style as METRICS_FIXTURE above.
+  // contract style as METRICS_FIXTURE above. Session 109 added the 4th
+  // rule (snapshot_stale) and the thresholds.snapshotStaleAfterSec field;
+  // the mirror pin below re-derives rule ids + threshold keys from the
+  // REAL engine so the fixture cannot silently lag a rename.
   const ALERTS_FIXTURE = {
     generatedAt: '2026-11-13T06:00:00.000Z',
     uptimeSec: 3600,
     status: 'alerting',
     firingRules: ['error_budget'],
-    thresholds: { fiveXxRatePctMax: 0.5, p95MsMax: 1000, minRequests: 50 },
+    thresholds: {
+      fiveXxRatePctMax: 0.5,
+      p95MsMax: 1000,
+      minRequests: 50,
+      snapshotStaleAfterSec: null,
+    },
     rules: [
       {
         id: 'error_budget',
@@ -363,8 +373,30 @@ describe('AdminController HTTP', () => {
         threshold: 250,
         detail: '12 distinct route keys, cap 250',
       },
+      {
+        id: 'snapshot_stale',
+        firing: false,
+        severity: 'warning',
+        observed: 30,
+        threshold: 600,
+        detail: 'newest snapshot row 30s old within the 600s ceiling (writer every 300s)',
+      },
     ],
   };
+
+  it('fixture mirrors the REAL engine: rule ids in order + thresholds keys', () => {
+    const live = new RequestMetricsRegistry().snapshot();
+    const real = evaluateAlerts(live, DEFAULT_ALERT_THRESHOLDS, {
+      enabled: true,
+      intervalSec: 300,
+      lastCapturedAtMs: Date.now() - 30_000,
+    });
+    expect(ALERTS_FIXTURE.rules.map((r) => r.id)).toEqual(real.rules.map((r) => r.id));
+    expect(Object.keys(ALERTS_FIXTURE.thresholds).sort()).toEqual(
+      Object.keys(DEFAULT_ALERT_THRESHOLDS).sort(),
+    );
+    expect(real.rules.map((r) => r.severity)).toEqual(ALERTS_FIXTURE.rules.map((r) => r.severity));
+  });
 
   it('rejects anonymous + non-admin callers of /admin/alerts before the evaluator', async () => {
     const anon = await get(undefined, '/api/admin/alerts');
@@ -382,5 +414,13 @@ describe('AdminController HTTP', () => {
     expect(res.status).toBe(200);
     expect(res.body).toEqual(ALERTS_FIXTURE);
     expect(alerts).toHaveBeenCalledTimes(1);
+    // Session 109 wiring: the route supplies the DB-backed freshness
+    // observation (BASE_ROW via the real persistence service) — without
+    // this pin the snapshot_stale rule could silently un-wire itself.
+    expect(alerts).toHaveBeenCalledWith({
+      enabled: true,
+      intervalSec: 300,
+      lastCapturedAtMs: BASE_ROW.capturedAt.getTime(),
+    });
   });
 });

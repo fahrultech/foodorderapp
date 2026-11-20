@@ -206,6 +206,13 @@ export class EnvVars {
   @IsString()
   ALERT_MIN_REQUESTS?: string;
 
+  // snapshot_stale ceiling in seconds (session 109). Unset/garbage/0 means
+  // "derive 2x METRICS_SNAPSHOT_INTERVAL_SEC at evaluation time" — this
+  // knob only OVERRIDES the multiplier, it can never disable the rule.
+  @IsOptional()
+  @IsString()
+  ALERT_SNAPSHOT_STALE_AFTER_SEC?: string;
+
   // ── Rate limiting (all optional) ─────────────────────────────────────────
   @IsOptional()
   @IsString()

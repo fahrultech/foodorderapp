@@ -73,6 +73,16 @@ describe('runScan — exit-code classification', () => {
     expect(outcome.report!.firingRules).toEqual(['error_budget', 'p95_latency']);
   });
 
+  it('snapshot_stale rides the SAME exit-1 contract (session 109): scan inherits the new rule with zero script logic changes', async () => {
+    const { fn } = stubFetch([
+      ok({ access_token: 'tok-1' }),
+      ok({ status: 'alerting', firingRules: ['snapshot_stale'] }),
+    ]);
+    const outcome = await runScan(CFG, fn as never);
+    expect(outcome.exitCode).toBe(1);
+    expect(outcome.report!.firingRules).toEqual(['snapshot_stale']);
+  });
+
   it('2 (never 1!) when login fails — broken creds are not an outage', async () => {
     const { fn } = stubFetch([{ ok: false, status: 401, json: async () => ({ error: { code: 'UNAUTHORIZED' } }) }]);
     const outcome = await runScan(CFG, fn as never);

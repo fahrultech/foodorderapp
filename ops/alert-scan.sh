@@ -6,7 +6,8 @@
 # verdict into scheduler exit codes:
 #
 #   0 = healthy      — cron stays silent
-#   1 = ALERTING     — error_budget / p95_latency / route_key_overflow fired;
+#   1 = ALERTING     — error_budget / p95_latency / route_key_overflow /
+#                      snapshot_stale fired;
 #                      cron MAILTO (or systemd's OnFailure= unit) notifies
 #   2 = scan broken  — API unreachable, bad credentials, unexpected shape
 #
