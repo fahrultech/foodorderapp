@@ -260,11 +260,34 @@ jobs:
           # a non-production ephemeral key for the throwaway CI database only.
           export JWT_SECRET=ci-e2e-ephemeral-key-not-for-production
           npx playwright test
-      - name: Fetch fixture-timing history (best effort)
-        # Session 110: merge up to 5 prior runs' published history records
-        # so the gate can print run-over-run trends. The script NEVER fails
-        # the job — zero history simply means "first run".
+      - name: Pick latest prior history artifact
+        # Session 110 gen 2: the anonymous artifact listing (works
+        # unauthenticated on a public repo) chooses which prior run's
+        # history to chain onto. The DOWNLOAD then uses the OFFICIAL
+        # download action: its SDK rides the runner's system auth, immune
+        # to the two custom-REST dead ends proven locally (job-token
+        # scope, undici header-strip on the cross-origin 302).
+        id: prevhist
         working-directory: e2e
+        run: |
+          export GH_REPO="${{ github.repository }}"
+          node list-prior-history.mjs
+      - name: Download prior history artifact (official SDK)
+        if: steps.prevhist.outputs.found == '1'
+        uses: actions/download-artifact@v4
+        with:
+          name: fixture-timing-history
+          run-id: ${{ steps.prevhist.outputs.run_id }}
+          path: e2e/prior-history
+      - name: Merge fixture-timing history (dir first, REST fallback)
+        # Prior-dir lines merged -> REST skipped entirely. Missing/empty
+        # dir (listing said no prior, or the download step failed) ->
+        # REST fallback runs and its fixed-120B sentinels keep the
+        # published-artifact-size self-attestation informative. The
+        # script NEVER fails the job (best-effort contract unchanged).
+        working-directory: e2e
+        env:
+          FIXTURE_TIMING_PRIOR_DIR: prior-history
         run: |
           export GH_REPO="${{ github.repository }}"
           export FX_REF="${{ github.token }}"

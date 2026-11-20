@@ -13,7 +13,7 @@
  * anonymous listing works on public repos; zip download needs auth),
  * GITHUB_RUN_ID (this run's own artifact, if any, is excluded).
  */
-import { writeFileSync, appendFileSync, mkdtempSync } from 'node:fs';
+import { writeFileSync, appendFileSync, mkdtempSync, existsSync, readdirSync, readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 
 const repo = process.env.GH_REPO || 'fahrultech/foodorderapp';
@@ -54,6 +54,43 @@ async function downloadZip(id) {
 
 writeFileSync(OUT, '');
 let merged = 0;
+let dirLines = 0;
+const seenRunIds = new Set([THIS_RUN]);
+
+// GEN-2 PRIMARY PATH (session 110, after two REST-download dead ends): the
+// CI job downloads the newest prior history artifact with the OFFICIAL
+// actions/download-artifact@v4 step (its SDK rides the runner's system
+// auth — immune to both the job-token actions-scope question and undici
+// stripping Authorization on the cross-origin 302 hop, each proven
+// locally; the history is a rolling chain so one prior file suffices) and
+// hands us the directory. If it produced any valid lines, skip the custom
+// REST path entirely; otherwise fall through (a missing dir = listing said
+// "no prior" = legitimate first run; a REST attempt there still stamps
+// sentinels and keeps the public-size self-attestation honest).
+const PRIOR_DIR = process.env.FIXTURE_TIMING_PRIOR_DIR || '';
+if (PRIOR_DIR && existsSync(PRIOR_DIR)) {
+  for (const f of readdirSync(PRIOR_DIR).filter((n) => n.endsWith('.jsonl')).sort()) {
+    for (const line of readFileSync(`${PRIOR_DIR}/${f}`, 'utf8').split('\n')) {
+      const t = line.trim();
+      if (!t) continue;
+      let rec;
+      try { rec = JSON.parse(t); } catch { continue; }
+      const rid = String(rec?.runId ?? `anon-${dirLines}`);
+      if (seenRunIds.has(rid)) continue;
+      seenRunIds.add(rid);
+      appendFileSync(OUT, `${t}\n`);
+      dirLines += 1;
+    }
+  }
+  if (dirLines > 0) {
+    merged = 1;
+    console.log(`history fetch: merged ${dirLines} line(s) from prior artifact dir ${PRIOR_DIR}`);
+  } else {
+    console.log(`history fetch: prior dir ${PRIOR_DIR} had no valid lines (falling back to REST)`);
+  }
+}
+
+if (dirLines === 0) {
 const seenRuns = new Set([THIS_RUN]);
 // Anonymous-diagnostic protocol (session 110): a download/extraction
 // failure appends a FIXED-WIDTH sentinel record (exactly 120 bytes incl.
@@ -137,6 +174,7 @@ outer: for (let page = 1; page <= 2; page++) {
       }
       if (good > 0) {
         merged += 1;
+        dirLines += good;
         console.log(`history fetch: merged artifact ${a.id} (${good} record line(s))`);
       } else {
         appendFileSync(OUT, failLine("ENTRY", a.id, "u"));
@@ -148,5 +186,8 @@ outer: for (let page = 1; page <= 2; page++) {
     }
   }
 }
+}
 
-console.log(`history fetch: ${merged} prior run(s) in ${OUT}`);
+console.log(
+  `history fetch: ${dirLines > 0 ? `chain ready - ${dirLines} merged prior line(s)` : `${merged} prior run(s)`} in ${OUT}`,
+);
