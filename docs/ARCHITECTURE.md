@@ -257,7 +257,12 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   optional `goto`), its direct-API fixture legs stamp `fixture-timing`
   annotations, and `e2e/check-fixture-timings.mjs` turns those into a ceiling
   that fails the e2e CI job (defaults 15s work / 90s documented limiter
-  wait; a zero-leg report fails too, so the gate cannot rot silently). Only
+  wait; a zero-leg report fails too, so the gate cannot rot silently). Since
+  session 110 the gate is also the TREND surface: it merges a run-over-run
+  JSONL history published as a CI artifact, stamps `::warning` at 60% of the
+  ceiling and `::error` on violations, and appends the slowest-legs-per-label
+  table to the job summary — trend plumbing is cosmetic and can never change
+  the verdict. Only
   the specs that OWN the login surface keep their own sequences:
   login-redirect-race, zz-login-abort, storefront-i18n-auth-id,
   storefront-i18n-account-id. `e2e/tests/zz-login-abort.spec.ts`

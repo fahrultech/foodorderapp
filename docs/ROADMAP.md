@@ -200,11 +200,18 @@
   smoke 32/32 three boot arms — healthy/exit-0, DROP-TABLE dead writer firing
   with the REAL scan exit 1, disabled exemption + knob echo exit-0; all 4
   smoke FAILs were harness bugs.)
-- [ ] Test: fixture-timing trend visibility — the ceiling fails CI but the
+- [x] Test: fixture-timing trend visibility — the ceiling fails CI but the
   distribution is invisible: have check-fixture-timings.mjs also emit a
   GitHub job summary table (slowest legs by label + run-over-run counts) and
   a ::warning annotation at 60% of the ceiling, so a crawling leg is caught
   BEFORE it crosses (from the Test loop).
+  (2026-11-20, session 110; per-label aggregation + bounded 20-run JSONL
+  history transported via CI artifact publish/best-effort refetch, summary
+  table with historical + last-5 maxes, ::warning strictly above 60%
+  (knob) / ::error on violations, legacy exit codes untouched; 11
+  browser-free node:test selftests run first in the gate step; local proof:
+  full e2e 106/106 real report, gate x2 with merged history, fetch script
+  live against the real API anonymous.)
 
 ## Completed
 - 2026-10-17 — Phase 0: monorepo scaffold, NestJS API (auth, restaurants, menu, orders, status machine, health), Next.js storefront (browse, detail, cart, checkout, order page), docker compose + Dockerfiles, seed data, jest unit tests, CI-ready scripts.

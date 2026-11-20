@@ -3,6 +3,72 @@
 Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
+## 2026-11-20 13:40 — Session 110 — fixture-timing trend visibility: job summary + ::warning at 60% of ceiling (Test, Phase 10)
+
+**Built:**
+
+- Phase 10 Test item; API + web product delta 0. The session-106 ceiling
+  gate was binary: a leg could crawl to 99% run after run and stay green.
+  `e2e/check-fixture-timings.mjs` now aggregates legs per label (count +
+  max), merges a run-over-run JSONL history, and publishes three trend
+  surfaces: (1) a markdown job-summary table — slowest legs per label
+  sorted by % of their own ceiling, with legs-this-run, prior-runs-seen,
+  historical max and the last 5 prior maxima; (2) `::warning` annotations
+  once a label's max is STRICTLY above 60% of its ceiling
+  (`FIXTURE_TIMING_WARN_FRACTION`, default 0.6, garbage falls back to 0.6)
+  and `::error` annotations for violating legs — the legacy console lines,
+  exit codes and zero-leg instrumentation guard are UNCHANGED; (3) a
+  bounded 20-record history file rewritten BEFORE the exit decision, so a
+  violating slow run still lands in the trend, idempotent per
+  GITHUB_RUN_ID (a re-invocation replaces its own record). Trend plumbing
+  is cosmetic by contract: summary/history write failures print and never
+  move the verdict.
+- History transport in CI (`ci.yml` e2e job, between the suite and the
+  gate): `e2e/fetch-fixture-timing-history.mjs` lists the repo's recent
+  `fixture-timing-history` artifacts over the REST API (token via
+  runtime-assembled header fragments; the export line uses the split-key
+  YAML idiom — the sanitizer corrupted the naive adjacency and the repair
+  is codepoint-verified), downloads up to 5 prior runs' zips, keeps only
+  valid JSONL lines, and exits 0 on EVERY failure path — zero history
+  simply means "first run". The gate then republishes the rewritten file
+  via upload-artifact `if: always()` (90-day retention), so even a failing
+  gate run still publishes its record.
+- `e2e/check-fixture-timings.test.mjs`: 11 browser-free node:test
+  selftests (legacy OK/violation contract, ::error stamp, warning band
+  boundary 9000 vs 9001, limiter-wait ceiling class, zero-leg x
+  ALLOW_ZERO x history-untouched, history merge + same-run dedupe,
+  malformed-line tolerance, cross-class summary sort, WARN_FRACTION
+  override + garbage default). The CI gate step runs them FIRST, so a
+  corrupted trend path fails loudly instead of silently skipping.
+
+**Verified:**
+
+- node:test 11/11 (Node 22); `node --check` clean on both scripts; ci.yml
+  `yaml.safe_load` OK with the 11-step e2e job in order; on-disk
+  codepoint scan (base64 read-back) clean of U+2026 and sanitizer masks
+  for all four touched surfaces + the exact fetch filename matches the
+  workflow line.
+- FULL local e2e suite 106/106 green (3.1m) producing the REAL report:
+  51 legs / 14 labels; live gate run A (empty history) exit 0 — "0 prior
+  run(s) merged", 14-row summary table, 1 history record written; run B
+  exit 0 — "1 prior run(s) merged", table shows the historical-max and
+  recent-max columns. The 11 s limiter-wait leg correctly sits at 12% of
+  its own ceiling with no warning.
+- fetch script proven LIVE against the real GitHub API anonymously
+  (listing HTTP 200, zero matching artifacts yet, exit 0, empty history).
+- API suite: product code untouched — session 109's 96/1241 stands as the
+  baseline; no lockfile touched (no CI npm risk).
+
+**Left for next session:**
+
+- This push's CI run is the FIRST publishing history (its fetch leg
+  legitimately finds nothing); the NEXT e2e run proves the artifact
+  download round-trip for real — re-check the fetch output then.
+- Watch the first real `::warning`s: if a label legitimately lives above
+  60% (e.g. seeded limiter backoffs), tune the ceiling or fraction rather
+  than silencing the annotation.
+
+---
 ## 2026-11-20 10:05 — Session 109 — snapshot_stale alert rule: catching the silently dead durability writer (API/Ops, Phase 10)
 
 **Built:**

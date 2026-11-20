@@ -46,6 +46,18 @@ browser download.
   ceiling via the `.limiter-wait` suffix; a ZERO-leg report also fails, so
   the gate cannot rot silently — `FIXTURE_TIMING_ALLOW_ZERO=1` for local
   subset loops).
+- Session 110 trend visibility: the same gate aggregates per label and
+  merges a run-over-run JSONL history (`FIXTURE_TIMING_HISTORY`, default
+  `fixture-timing-history.jsonl`) that each CI e2e run publishes as the
+  `fixture-timing-history` artifact (best-effort refetch via
+  `fetch-fixture-timing-history.mjs` before the gate runs). A label whose
+  max crosses 60% of its ceiling (`FIXTURE_TIMING_WARN_FRACTION`) gets a
+  `::warning` annotation — a crawling leg is caught BEFORE it crosses;
+  violations additionally stamp `::error`. The run's job summary gains a
+  markdown table: slowest legs per label with this-run counts, prior-runs
+  seen, historical max and the last 5 prior maxima.
+  Selftests: `node --test check-fixture-timings.test.mjs` (CI runs them
+  before the real gate; they must stay browser-free).
 
 ## What the suite asserts
 
