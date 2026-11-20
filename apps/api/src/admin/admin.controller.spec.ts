@@ -16,6 +16,8 @@ import { AdminService } from './admin.service';
 import { RequestMetricsService } from '../common/metrics/request-metrics.service';
 import { MetricsPersistenceService } from '../common/metrics/metrics-persistence.service';
 import { MetricsSnapshotRow } from '../common/metrics/metrics-snapshot.entity';
+import { AlertVerdictRow } from '../common/metrics/alert-verdict.entity';
+import { AlertVerdictsService } from '../common/metrics/alert-verdicts.service';
 import { RequestMetricsRegistry } from '../common/metrics/request-metrics';
 import { DEFAULT_ALERT_THRESHOLDS, evaluateAlerts } from '../ops/alerts';
 
@@ -40,6 +42,13 @@ describe('AdminController HTTP', () => {
     find: jest.fn(async () => [] as unknown[]),
     count: jest.fn(async () => 0 as number),
   };
+  // Fake `alert_verdicts` store (Phase 11): history()'s repo reads land here.
+  const verdictRepo = {
+    create: jest.fn((p: Record<string, unknown>) => p),
+    save: jest.fn(async (r: Record<string, unknown>) => r),
+    createQueryBuilder: jest.fn(),
+    find: jest.fn(async (_q?: Record<string, unknown>) => [] as unknown[]),
+  };
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({
@@ -52,8 +61,13 @@ describe('AdminController HTTP', () => {
           useValue: { snapshot, alerts, registry: { bootStartedAtMs: BOOT_MS } },
         },
         { provide: getRepositoryToken(MetricsSnapshotRow), useValue: repo },
+        // Fake ALERT series store — the real AlertVerdictsService runs over
+        // it, so history's window/streak arithmetic is PRODUCTION code
+        // (same fake-store style as the metrics repo above).
+        { provide: getRepositoryToken(AlertVerdictRow), useValue: verdictRepo },
         { provide: ConfigService, useValue: { get: () => undefined } }, // defaults: interval 300, retention 24h
         MetricsPersistenceService,
+        AlertVerdictsService,
         JwtAuthGuard,
         RolesGuard,
         Reflector,
@@ -80,6 +94,9 @@ describe('AdminController HTTP', () => {
     // metrics fixtures) — individual tests override as needed.
     repo.find.mockImplementation(async () => [BASE_ROW]);
     repo.count.mockResolvedValue(2);
+    // Default: EMPTY verdict series (no persisted rows) — history tests
+    // override per case.
+    verdictRepo.find.mockResolvedValue([]);
   });
 
   const token = (role: UserRole) =>
@@ -421,6 +438,92 @@ describe('AdminController HTTP', () => {
       enabled: true,
       intervalSec: 300,
       lastCapturedAtMs: BASE_ROW.capturedAt.getTime(),
+    });
+  });
+
+  // --- GET /admin/alerts/history (Phase 11 Ops: the persisted series) ---
+
+  function verdictRow(minutesAgo: number, status: 'ok' | 'alerting') {
+    return {
+      id: `v-${minutesAgo}`,
+      capturedAt: new Date(Date.now() - minutesAgo * 60_000),
+      status,
+      firingRules: status === 'alerting' ? ['error_budget'] : [],
+      // Stored verbatim from the engine — the round-trip below proves the
+      // route never reshapes history rows.
+      report: { ...ALERTS_FIXTURE, status, firingRules: status === 'alerting' ? ['error_budget'] : [] },
+    };
+  }
+
+  it('rejects anonymous + non-admin callers of /admin/alerts/history before the store', async () => {
+    const anon = await get(undefined, '/api/admin/alerts/history');
+    expect(anon.status).toBe(401);
+    expect(anon.body.error.code).toBe('UNAUTHORIZED');
+
+    const customer = await get(`Bearer ${token(UserRole.CUSTOMER)}`, '/api/admin/alerts/history');
+    expect(customer.status).toBe(403);
+    expect(customer.body.error.code).toBe('FORBIDDEN');
+    expect(verdictRepo.find).not.toHaveBeenCalled();
+    expect(alerts).not.toHaveBeenCalled();
+  });
+
+  it('answers 400 for out-of-range / non-integer params — the store is never touched', async () => {
+    const admin = `Bearer ${token(UserRole.ADMIN)}`;
+    for (const q of ['windowSec=5', 'windowSec=abc', 'windowSec=99999999', 'limit=1.5', 'limit=99999']) {
+      const res = await get(admin, `/api/admin/alerts/history?${q}`);
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('BAD_REQUEST');
+    }
+    expect(verdictRepo.find).not.toHaveBeenCalled();
+  });
+
+  it('blank params mean the DEFAULTS (unset, not the minimum — the DTO Transform owns it)', async () => {
+    const admin = `Bearer ${token(UserRole.ADMIN)}`;
+    const res = await get(admin, '/api/admin/alerts/history?windowSec=&limit=');
+    expect(res.status).toBe(200);
+    expect(res.body.window.windowSec).toBe(86_400);
+    const findArg = verdictRepo.find.mock.calls[0][0] as Record<string, any>;
+    expect(findArg.take).toBe(288);
+    expect(findArg.order).toEqual({ capturedAt: 'DESC' });
+    expect(findArg.where.capturedAt._type).toBe('moreThanOrEqual');
+  });
+
+  it('serves the windowed series oldest-first with the streak counting this read\'s live verdict', async () => {
+    const admin = `Bearer ${token(UserRole.ADMIN)}`;
+    // DESC store order: newest first — alerting 1m ago, ok 2m ago, alerting 3m ago.
+    const rows = [verdictRow(1, 'alerting'), verdictRow(2, 'ok'), verdictRow(3, 'alerting')];
+    verdictRepo.find.mockResolvedValue(rows);
+    const res = await get(admin, '/api/admin/alerts/history?limit=10');
+    expect(res.status).toBe(200);
+    const body = res.body;
+
+    expect((verdictRepo.find.mock.calls[0][0] as Record<string, any>).take).toBe(10);
+    expect(body.enabled).toBe(true);
+    expect(body.snapshotIntervalSec).toBe(300);
+    expect(body.retentionSec).toBe(86_400);
+    expect(body.window.windowSec).toBe(86_400);
+    expect(Date.parse(body.window.to) - Date.parse(body.window.from)).toBe(86_400_000);
+    expect(body.returned).toBe(3);
+    expect(body.truncated).toBe(false);
+    expect(body.error).toBe(false);
+    expect(body.lastCapturedAt).toBe(rows[0].capturedAt.toISOString());
+
+    // Oldest-first out; stored reports ride VERBATIM (contract round-trip).
+    expect(body.items.map((i: { status: string }) => i.status)).toEqual([
+      'alerting',
+      'ok',
+      'alerting',
+    ]);
+    expect(body.items[2].report).toEqual(rows[0].report);
+
+    // Streak: persisted run from the newest = 1 (stops at the ok row);
+    // the LIVE ALERTS_FIXTURE verdict is 'alerting' => +1 => 2 consecutive
+    // alerting evaluations. trailingCapped false (3 rows < limit 10).
+    expect(body.streak).toEqual({
+      persistedTrailingAlerting: 1,
+      trailingCapped: false,
+      currentStatus: 'alerting',
+      alerting: 2,
     });
   });
 });

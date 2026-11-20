@@ -23,6 +23,17 @@ import 'dotenv/config';
  *   ALERT_SCAN_EMAIL         ADMIN account email (required)
  *   ALERT_SCAN_PASSWORD      ADMIN account password (required)
  *   ALERT_SCAN_TIMEOUT_MS    per-request timeout (default 10000)
+ *   ALERT_SCAN_ESCALATE_AFTER  consecutive alerting evaluations (persisted
+ *     trailing streak + THIS scan's live verdict) that bump the page note
+ *     (default 3; a warning line on stderr + escalated=true in the stdout
+ *     JSON. Exit codes stay the 0/1/2 contract — a chronic fire pages
+ *     louder, it never changes class.)
+ *
+ * Escalation reads GET /admin/alerts/history (Phase 11 Ops: the persisted
+ * verdict series) ONLY when the live verdict is alerting — a healthy poll
+ * costs exactly two requests as before. A failed/garbled history read never
+ * changes the exit code: escalation stays UNKNOWN (streakError in the
+ * stdout JSON) — a fire never reads as healthy because a side-read broke.
  *
  * NOTE on the two string-split property keys below: the dev transcript
  * sanitizer rewrites `password:` / `Authorization:` key adjacencies in
@@ -36,10 +47,20 @@ export interface ScanConfig {
   email: string;
   secret: string;
   timeoutMs: number;
+  /** Consecutive alerting evaluations needed to bump the page note. */
+  escalateAfter: number;
 }
 
 export const DEFAULT_SCAN_BASE_URL = 'http://localhost:4000/api';
 export const DEFAULT_SCAN_TIMEOUT_MS = 10_000;
+// ">=3 consecutive alerting evals bumps the page note" (Phase 11 item).
+// 1 or 2 are legal (a noisy operator wants every fire flagged; 2 escalates
+// from the SECOND alerting scan), so the floor is 1.
+export const DEFAULT_ESCALATE_AFTER = 3;
+// The escalation side-read window: one day of history, first 64 rows —
+// generous vs the threshold while keeping the extra request small.
+const HISTORY_WINDOW_SEC = 86_400;
+const HISTORY_LIMIT = 64;
 
 function positiveInt(raw: string | undefined, fallback: number): number {
   if (raw === undefined || raw.trim() === '') return fallback;
@@ -59,13 +80,25 @@ export function resolveScanConfig(env: NodeJS.ProcessEnv): ScanConfig | { error:
     };
   }
   const base = (env.ALERT_SCAN_BASE_URL ?? DEFAULT_SCAN_BASE_URL).trim().replace(/\/+$/, '');
-  return { base, email, secret, timeoutMs: positiveInt(env.ALERT_SCAN_TIMEOUT_MS, DEFAULT_SCAN_TIMEOUT_MS) };
+  return {
+    base,
+    email,
+    secret,
+    timeoutMs: positiveInt(env.ALERT_SCAN_TIMEOUT_MS, DEFAULT_SCAN_TIMEOUT_MS),
+    escalateAfter: positiveInt(env.ALERT_SCAN_ESCALATE_AFTER, DEFAULT_ESCALATE_AFTER),
+  };
 }
 
 export interface ScanOutcome {
   exitCode: 0 | 1 | 2;
   /** The parsed GET /admin/alerts report when exitCode is 0 or 1. */
   report?: { status: string; firingRules: string[] };
+  /** Consecutive alerting evaluations incl. this scan (alerting branch only). */
+  streakAlerting?: number | null;
+  /** True when streakAlerting reached cfg.escalateAfter. */
+  escalated?: boolean;
+  /** Why escalation is UNKNOWN (history side-read failed) — never an exit-code change. */
+  streakError?: string;
   /** Human-readable failure (missing env, HTTP status, transport, shape). */
   error?: string;
 }
@@ -146,7 +179,43 @@ export async function runScan(cfg: ScanConfig, fetchFn: FetchLike = fetch as unk
     }
     const shaped = { status: report.status, firingRules: report.firingRules as string[] };
     if (shaped.status === 'ok') return { exitCode: 0, report: shaped };
-    if (shaped.status === 'alerting') return { exitCode: 1, report: shaped };
+    if (shaped.status === 'alerting') {
+      // Escalation side-read (Phase 11): the persisted verdict series tells
+      // a first fire from a chronic one. NEVER an exit-code change — a
+      // broken history read means escalation is UNKNOWN, the fire stands.
+      let streakAlerting: number | null = null;
+      let streakError: string | undefined;
+      try {
+        const histRes = await attempt((signal) =>
+          fetchFn(`${cfg.base}/admin/alerts/history?windowSec=${HISTORY_WINDOW_SEC}&limit=${HISTORY_LIMIT}`, {
+            method: 'GET',
+            headers: { ['Autho' + 'riz' + 'ation']: `Bearer ${accessToken}` },
+            signal,
+          }),
+        );
+        if (!histRes.ok) {
+          streakError = `history answered HTTP ${histRes.status}`;
+        } else {
+          const hist = (await histRes.json()) as { streak?: { alerting?: unknown } };
+          const n = hist.streak?.alerting;
+          if (typeof n === 'number' && Number.isFinite(n) && n >= 0) {
+            streakAlerting = n;
+          } else {
+            streakError = 'history response carried no numeric streak.alerting';
+          }
+        }
+      } catch (err) {
+        streakError = `history request failed: ${err instanceof Error ? err.message : err}`;
+      }
+      const escalated = streakAlerting !== null && streakAlerting >= cfg.escalateAfter;
+      return {
+        exitCode: 1,
+        report: shaped,
+        streakAlerting,
+        escalated,
+        ...(streakError ? { streakError } : {}),
+      };
+    }
     return { exitCode: 2, error: `alert-scan: unknown status "${shaped.status}" in alert report` };
   } catch (err) {
     return { exitCode: 2, error: `alert-scan: alerts request failed: ${err instanceof Error ? err.message : err}` };
@@ -163,15 +232,28 @@ async function main(): Promise<void> {
   const outcome = await runScan(cfg);
   if (outcome.report) {
     // Machine-parsable one-line summary on stdout (same contract style as
-    // the stale-sweep / repair runners). No credentials in it, ever.
+    // the stale-sweep / repair runners). No credentials in it, ever. The
+    // streak fields only appear on the alerting branch (Phase 11 escalation).
     console.log(
       JSON.stringify({
         checkedAt: new Date().toISOString(),
         base: cfg.base,
         status: outcome.report.status,
         firingRules: outcome.report.firingRules,
+        ...(outcome.streakAlerting !== undefined
+          ? { streakAlerting: outcome.streakAlerting, escalated: outcome.escalated === true }
+          : {}),
+        ...(outcome.streakError ? { streakError: outcome.streakError } : {}),
       }),
     );
+    if (outcome.escalated) {
+      // The bumped page note: cron/systemd mail transports capture stderr —
+      // a chronic fire now names its own length next to every other line.
+      console.error(
+        `alert-scan: ESCALATION — alerting for ${outcome.streakAlerting} consecutive ` +
+          `evaluations (threshold ${cfg.escalateAfter})`,
+      );
+    }
   }
   if (outcome.error) {
     console.error(outcome.error);

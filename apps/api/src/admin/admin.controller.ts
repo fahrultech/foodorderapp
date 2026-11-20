@@ -1,4 +1,4 @@
-import { Controller, Get, UseGuards } from '@nestjs/common';
+import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiOkResponse,
@@ -11,11 +11,13 @@ import { Roles } from '../common/roles.decorator';
 import { RolesGuard } from '../common/roles.guard';
 import { UserRole } from '../users/user.entity';
 import { AdminMetricsSnapshotResponse } from './admin-metrics.response';
-import { AdminAlertsReportResponse } from './admin-alerts.response';
+import { AdminAlertsReportResponse, AdminAlertsHistoryResponse } from './admin-alerts.response';
+import { AlertsHistoryQueryDto } from './dto/alerts-history-query.dto';
 import { AdminOverviewResponse } from './admin.response';
 import { AdminService } from './admin.service';
 import { RequestMetricsService } from '../common/metrics/request-metrics.service';
 import { MetricsPersistenceService } from '../common/metrics/metrics-persistence.service';
+import { AlertVerdictsService } from '../common/metrics/alert-verdicts.service';
 
 @Controller('admin')
 @ApiTags('admin')
@@ -24,6 +26,7 @@ export class AdminController {
     private readonly service: AdminService,
     private readonly metrics: RequestMetricsService,
     private readonly persistence: MetricsPersistenceService,
+    private readonly verdicts: AlertVerdictsService,
   ) {}
 
   @Get('overview')
@@ -86,5 +89,28 @@ export class AdminController {
   @ApiError(403, 'Valid token but role is not ADMIN.')
   async alerts() {
     return this.metrics.alerts(await this.persistence.freshnessInput());
+  }
+
+  @Get('alerts/history')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Alert verdict history (time series)',
+    description:
+      'The persisted alert_verdicts series written by the metrics-snapshot tick (same ' +
+      'METRICS_SNAPSHOT_INTERVAL_SEC / _RETENTION_SEC knobs — Phase 11 Ops): windowed rows ' +
+      '(oldest-first, full stored report incl. per-rule observed/threshold/detail) plus the ' +
+      'consecutive-alerting STREAK that also counts this read\'s LIVE verdict, which the ' +
+      'alert-scan escalation gate consumes. Reads NEVER write (observer-exemption): polling ' +
+      'cannot change the history. With durability disabled the series is honestly empty and ' +
+      'the streak covers the live verdict alone. ADMIN only.',
+  })
+  @ApiOkResponse({ type: AdminAlertsHistoryResponse })
+  @ApiError(400, 'windowSec/limit not integer or out of range.')
+  @ApiError(401, 'Missing/invalid/expired access token.')
+  @ApiError(403, 'Valid token but role is not ADMIN.')
+  async alertsHistory(@Query() query: AlertsHistoryQueryDto) {
+    return this.verdicts.history(query);
   }
 }

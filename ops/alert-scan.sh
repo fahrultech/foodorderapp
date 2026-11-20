@@ -26,6 +26,11 @@
 #   ALERT_SCAN_EMAIL       ADMIN account email        (required)
 #   ALERT_SCAN_PASSWORD    ADMIN account password     (required)
 #   ALERT_SCAN_TIMEOUT_MS  per-request timeout        (default 10000)
+#   ALERT_SCAN_ESCALATE_AFTER  consecutive alerting evaluations (persisted
+#     streak + this scan) that bump the page note    (default 3)
+#     (Phase 11: on alerting the scan also reads GET /api/admin/alerts/
+#     history; >= threshold appends an "ESCALATION" stderr line and
+#     escalated=true in the stdout JSON. Exit codes unchanged.)
 #
 # Usage:
 #   ops/alert-scan.sh                       # scan the local API

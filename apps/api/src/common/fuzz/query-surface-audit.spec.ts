@@ -309,6 +309,35 @@ const REGISTRY: Record<string, RegistryEntry> = {
       },
     ],
   },
+
+  // ADMIN alert-verdict history (Phase 11, session 112) — DTO-validated
+  // wire (integer, closed range, blank->unset Transform per the session-87
+  // Number()-coercion truth) + the shared clamp AGAIN at the service for
+  // direct callers. Both params end up in one bound timestamptz comparison
+  // (`capturedAt >= :from`) and an integer `take:` — never string SQL.
+  'AdminController.alertsHistory': {
+    params: [{ literal: null, dto: 'AlertsHistoryQueryDto' }],
+    disposition: 'AlertsHistoryQueryDto completeness + service-level closed-range clamp',
+    checks: [
+      {
+        kind: 'dto-validated',
+        file: 'admin/dto/alerts-history-query.dto.ts',
+        className: 'AlertsHistoryQueryDto',
+      },
+      {
+        kind: 'count',
+        file: 'common/metrics/alert-verdicts.service.ts',
+        regex: 'clampToIntRange\\(',
+        times: 2,
+        why: 'windowSec + limit land on closed int ranges before any query',
+      },
+      {
+        kind: 'must',
+        file: 'common/metrics/alert-verdicts.service.ts',
+        regexes: [['blankToUndefined\\(query\\.windowSec\\)', 'empty wire means DEFAULT, never 0']],
+      },
+    ],
+  },
 };
 
 // ------------------------------------------------------------- checks ----

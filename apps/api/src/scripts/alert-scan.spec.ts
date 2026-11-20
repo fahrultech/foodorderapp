@@ -1,10 +1,17 @@
-import { DEFAULT_SCAN_TIMEOUT_MS, resolveScanConfig, runScan, ScanConfig } from './alert-scan';
+import {
+  DEFAULT_ESCALATE_AFTER,
+  DEFAULT_SCAN_TIMEOUT_MS,
+  resolveScanConfig,
+  runScan,
+  ScanConfig,
+} from './alert-scan';
 
 const CFG: ScanConfig = {
   base: 'http://api.test/api',
   email: 'ops@foodorder.app',
   secret: 'unit-scan-secret',
   timeoutMs: 1000,
+  escalateAfter: 3,
 };
 
 /** Stub server: records calls, replays canned responses in order. */
@@ -29,7 +36,7 @@ describe('resolveScanConfig', () => {
     expect(resolveScanConfig({ ALERT_SCAN_PASSWORD: 'x' })).toMatchObject({ error: expect.any(String) });
   });
 
-  it('defaults base + timeout, trims trailing slashes', () => {
+  it('defaults base + timeout + escalate-after, trims trailing slashes', () => {
     const cfg = resolveScanConfig({
       ALERT_SCAN_EMAIL: ' ops@foodorder.app ',
       ALERT_SCAN_PASSWORD: 'x',
@@ -40,6 +47,21 @@ describe('resolveScanConfig', () => {
       base: 'https://app.example/api',
       email: 'ops@foodorder.app',
       timeoutMs: DEFAULT_SCAN_TIMEOUT_MS,
+      escalateAfter: DEFAULT_ESCALATE_AFTER,
+    });
+  });
+
+  it('ALERT_SCAN_ESCALATE_AFTER: integers pass, garbage/negative/zero fall back to 3', () => {
+    const base = { ALERT_SCAN_EMAIL: 'a@b.c', ALERT_SCAN_PASSWORD: 'x' };
+    expect(resolveScanConfig({ ...base, ALERT_SCAN_ESCALATE_AFTER: '2' })).toMatchObject({ escalateAfter: 2 });
+    expect(resolveScanConfig({ ...base, ALERT_SCAN_ESCALATE_AFTER: 'garbage' })).toMatchObject({
+      escalateAfter: DEFAULT_ESCALATE_AFTER,
+    });
+    expect(resolveScanConfig({ ...base, ALERT_SCAN_ESCALATE_AFTER: '0' })).toMatchObject({
+      escalateAfter: DEFAULT_ESCALATE_AFTER,
+    });
+    expect(resolveScanConfig({ ...base, ALERT_SCAN_ESCALATE_AFTER: '-4' })).toMatchObject({
+      escalateAfter: DEFAULT_ESCALATE_AFTER,
     });
   });
 });
@@ -63,24 +85,95 @@ describe('runScan — exit-code classification', () => {
     expect(calls[1].headers['Autho' + 'riz' + 'ation']).toBe('Bearer tok-1');
   });
 
-  it('1 when the report says alerting — rule names ride along', async () => {
-    const { fn } = stubFetch([
+  it('1 when the report says alerting — rule names ride along, escalation is a NOTE only', async () => {
+    const { calls, fn } = stubFetch([
       ok({ access_token: 'tok-1' }),
       ok({ status: 'alerting', firingRules: ['error_budget', 'p95_latency'] }),
+      ok({ streak: { alerting: 2, currentStatus: 'alerting' } }),
     ]);
     const outcome = await runScan(CFG, fn as never);
     expect(outcome.exitCode).toBe(1);
     expect(outcome.report!.firingRules).toEqual(['error_budget', 'p95_latency']);
+    // streak 2 < threshold 3: fires, does NOT escalate.
+    expect(outcome.streakAlerting).toBe(2);
+    expect(outcome.escalated).toBe(false);
+    // The history side-read rides the bearer header + window/limit query.
+    expect(calls[2].url).toBe('http://api.test/api/admin/alerts/history?windowSec=86400&limit=64');
+    expect(calls[2].headers['Autho' + 'riz' + 'ation']).toBe('Bearer tok-1');
   });
 
   it('snapshot_stale rides the SAME exit-1 contract (session 109): scan inherits the new rule with zero script logic changes', async () => {
     const { fn } = stubFetch([
       ok({ access_token: 'tok-1' }),
       ok({ status: 'alerting', firingRules: ['snapshot_stale'] }),
+      ok({ streak: { alerting: 1, currentStatus: 'alerting' } }),
     ]);
     const outcome = await runScan(CFG, fn as never);
     expect(outcome.exitCode).toBe(1);
     expect(outcome.report!.firingRules).toEqual(['snapshot_stale']);
+    expect(outcome.streakAlerting).toBe(1);
+    expect(outcome.escalated).toBe(false);
+  });
+
+  // --- Phase 11: repeated-fire escalation (">=3 consecutive bumps the note") ---
+
+  it('escalates at the streak threshold — exit code STAYS 1 (a chronic fire pages louder, never changes class)', async () => {
+    const { fn } = stubFetch([
+      ok({ access_token: 'tok-1' }),
+      ok({ status: 'alerting', firingRules: ['error_budget'] }),
+      ok({ streak: { alerting: 3, currentStatus: 'alerting' } }),
+    ]);
+    const outcome = await runScan(CFG, fn as never);
+    expect(outcome.exitCode).toBe(1);
+    expect(outcome.streakAlerting).toBe(3);
+    expect(outcome.escalated).toBe(true);
+  });
+
+  it('ALERT_SCAN_ESCALATE_AFTER is honored (cfg-driven, no hardcode)', async () => {
+    const { fn } = stubFetch([
+      ok({ access_token: 'tok-1' }),
+      ok({ status: 'alerting', firingRules: ['p95_latency'] }),
+      ok({ streak: { alerting: 2, currentStatus: 'alerting' } }),
+    ]);
+    const outcome = await runScan({ ...CFG, escalateAfter: 2 }, fn as never);
+    expect(outcome.escalated).toBe(true);
+  });
+
+  it('a BROKEN history side-read never changes the verdict: exit 1 stays, escalation UNKNOWN', async () => {
+    const { fn } = stubFetch([
+      ok({ access_token: 'tok-1' }),
+      ok({ status: 'alerting', firingRules: ['error_budget'] }),
+      { ok: false, status: 500, json: async () => ({}) },
+    ]);
+    const outcome = await runScan(CFG, fn as never);
+    expect(outcome.exitCode).toBe(1);
+    expect(outcome.streakAlerting).toBeNull();
+    expect(outcome.escalated).toBe(false);
+    expect(outcome.streakError).toMatch(/HTTP 500/);
+  });
+
+  it('a garbled history shape (no numeric streak.alerting) is UNKNOWN, not zero', async () => {
+    const { fn } = stubFetch([
+      ok({ access_token: 'tok-1' }),
+      ok({ status: 'alerting', firingRules: ['error_budget'] }),
+      ok({ streak: { alerting: 'three' } }),
+    ]);
+    const outcome = await runScan(CFG, fn as never);
+    expect(outcome.exitCode).toBe(1);
+    expect(outcome.streakAlerting).toBeNull();
+    expect(outcome.escalated).toBe(false);
+    expect(outcome.streakError).toMatch(/streak\.alerting/);
+  });
+
+  it('a HEALTHY verdict costs exactly two requests — no history side-read', async () => {
+    const { calls, fn } = stubFetch([
+      ok({ access_token: 'tok-1' }),
+      ok({ status: 'ok', firingRules: [] }),
+    ]);
+    const outcome = await runScan(CFG, fn as never);
+    expect(outcome.exitCode).toBe(0);
+    expect(calls).toHaveLength(2);
+    expect(outcome.streakAlerting).toBeUndefined();
   });
 
   it('2 (never 1!) when login fails — broken creds are not an outage', async () => {

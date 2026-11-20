@@ -102,3 +102,115 @@ export class AdminAlertsReportResponse {
   @ApiProperty({ type: AlertRuleResultResponse, isArray: true })
   rules: AlertRuleResultResponse[];
 }
+
+/**
+ * Phase 11 (Ops): GET /admin/alerts/history — the persisted verdict series +
+ * the consecutive-alerting streak. Shapes mirror AlertHistoryView /
+ * AlertVerdictRecord / AlertStreak in src/common/metrics/alert-verdicts.service.ts
+ * EXACTLY (same round-trip pin style as the report above).
+ */
+export class AlertHistoryWindowResponse {
+  @ApiProperty({ type: 'integer', description: 'Requested window in seconds (clamped 60..2592000).' })
+  windowSec: number;
+
+  @ApiProperty({ type: 'string', description: 'ISO lower bound of the window.' })
+  from: string;
+
+  @ApiProperty({ type: 'string', description: 'ISO upper bound of the window (read time).' })
+  to: string;
+}
+
+export class AlertVerdictRecordResponse {
+  @ApiProperty({ type: 'string', description: 'ISO timestamp of the persisted evaluation (oldest-first in items).' })
+  capturedAt: string;
+
+  @ApiProperty({ type: 'string', enum: ['ok', 'alerting'] })
+  status: string;
+
+  @ApiProperty({ type: 'string', isArray: true, description: 'Firing rule ids at that evaluation.' })
+  firingRules: string[];
+
+  @ApiProperty({
+    type: AdminAlertsReportResponse,
+    description: 'The FULL report stored for that tick — forensic detail strings included.',
+  })
+  report: AdminAlertsReportResponse;
+}
+
+export class AlertStreakResponse {
+  @ApiProperty({
+    type: 'integer',
+    description: 'Run of consecutive persisted alerting rows counting back from the newest.',
+  })
+  persistedTrailingAlerting: number;
+
+  @ApiProperty({
+    type: 'boolean',
+    description:
+      'True when the run reached the returned-row cap — the persisted count is then a LOWER BOUND.',
+  })
+  trailingCapped: boolean;
+
+  @ApiProperty({
+    type: 'string',
+    enum: ['ok', 'alerting'],
+    description: 'The LIVE engine verdict at read time (same evaluation as GET /admin/alerts).',
+  })
+  currentStatus: string;
+
+  @ApiProperty({
+    type: 'integer',
+    description:
+      'Consecutive alerting evaluations INCLUDING this read: persisted trailing run + 1 while the ' +
+      'live verdict is alerting, 0 once it is ok. The alert-scan escalation gate consumes this.',
+  })
+  alerting: number;
+}
+
+export class AdminAlertsHistoryResponse {
+  @ApiProperty({ type: 'string', description: 'ISO timestamp of the read.' })
+  generatedAt: string;
+
+  @ApiProperty({
+    type: 'boolean',
+    description: 'Durability writer enabled (shared METRICS_SNAPSHOT_INTERVAL_SEC knob).',
+  })
+  enabled: boolean;
+
+  @ApiProperty({ type: 'integer', description: 'Configured snapshot tick in seconds.' })
+  snapshotIntervalSec: number;
+
+  @ApiProperty({ type: 'integer', description: 'Configured retention in seconds.' })
+  retentionSec: number;
+
+  @ApiProperty({ type: AlertHistoryWindowResponse })
+  window: AlertHistoryWindowResponse;
+
+  @ApiProperty({ type: 'integer', description: 'Rows returned (<= limit).' })
+  returned: number;
+
+  @ApiProperty({
+    type: 'boolean',
+    description: 'True when the limit capped the window — more rows exist inside it.',
+  })
+  truncated: boolean;
+
+  @ApiProperty({
+    type: 'string',
+    nullable: true,
+    description: 'Newest persisted verdict timestamp; null when off / empty / unreadable.',
+  })
+  lastCapturedAt: string | null;
+
+  @ApiProperty({
+    type: 'boolean',
+    description: 'The series read itself FAILED — items are empty, the live streak is still honest.',
+  })
+  error: boolean;
+
+  @ApiProperty({ type: AlertVerdictRecordResponse, isArray: true, description: 'Oldest-first.' })
+  items: AlertVerdictRecordResponse[];
+
+  @ApiProperty({ type: AlertStreakResponse })
+  streak: AlertStreakResponse;
+}

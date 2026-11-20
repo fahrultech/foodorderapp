@@ -52,6 +52,7 @@ import { AdminController } from '../admin/admin.controller';
 import { AdminService } from '../admin/admin.service';
 import { RequestMetricsService } from '../common/metrics/request-metrics.service';
 import { MetricsPersistenceService } from '../common/metrics/metrics-persistence.service';
+import { AlertVerdictsService } from '../common/metrics/alert-verdicts.service';
 import { SearchController } from '../search/search.controller';
 import { SearchService } from '../search/search.service';
 
@@ -110,6 +111,7 @@ const mockedProviders = [
   { provide: AdminService, useValue: empty() },
   { provide: RequestMetricsService, useValue: { snapshot: () => ({}) } },
   { provide: MetricsPersistenceService, useValue: { decorate: async (s) => s } },
+  { provide: AlertVerdictsService, useValue: empty() },
   { provide: SearchService, useValue: empty() },
   { provide: DataSource, useValue: { query: async () => [] } },
   { provide: JwtService, useValue: empty() },
@@ -230,6 +232,7 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['/admin/overview', 'get'],
       ['/admin/metrics', 'get'],
       ['/admin/alerts', 'get'],
+      ['/admin/alerts/history', 'get'],
       ['/admin/promos', 'get'],
       ['/admin/promos', 'post'],
       ['/admin/promos/{id}', 'patch'],
@@ -283,6 +286,7 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['/admin/overview', 'get'],
       ['/admin/metrics', 'get'],
       ['/admin/alerts', 'get'],
+      ['/admin/alerts/history', 'get'],
       ['/admin/promos', 'get'],
       ['/admin/promos', 'post'],
       ['/admin/promos/{id}', 'patch'],
@@ -444,13 +448,14 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['/admin/overview', 'get', 200, 'ref:AdminOverviewResponse'],
       ['/admin/metrics', 'get', 200, 'ref:AdminMetricsSnapshotResponse'],
       ['/admin/alerts', 'get', 200, 'ref:AdminAlertsReportResponse'],
+      ['/admin/alerts/history', 'get', 200, 'ref:AdminAlertsHistoryResponse'],
       ['/admin/promos', 'get', 200, 'ref:AdminPromoListResponse'],
       ['/admin/promos', 'post', 201, 'ref:AdminPromoResponse'],
       ['/admin/promos/{id}', 'patch', 200, 'ref:AdminPromoResponse'],
       ['/admin/promos/{id}/usages', 'get', 200, 'ref:PromoUsageListResponse'],
       ['/search', 'get', 200, 'ref:SearchResultsResponse'],
     ];
-    expect(SUCCESS.length).toBe(77);
+    expect(SUCCESS.length).toBe(78);
     for (const [path, method, code, kind] of SUCCESS) {
       const res = doc.paths[P(path)]?.[method]?.responses?.[String(code)];
       if (!res) throw new Error(`${method} ${path}: no ${code} response documented`);
@@ -542,6 +547,7 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['/admin/overview', 'get', [401, 403]],
       ['/admin/metrics', 'get', [401, 403]],
       ['/admin/alerts', 'get', [401, 403]],
+      ['/admin/alerts/history', 'get', [400, 401, 403]],
       ['/admin/promos', 'get', [401, 403]],
       ['/admin/promos', 'post', [400, 401, 403, 409]],
       ['/admin/promos/{id}', 'patch', [400, 401, 403, 404, 409]],
