@@ -61,28 +61,31 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 **Left for next session:**
 
-- CI round-trip saga (caught SAME session, fix IN PROGRESS):
-  run 44682441875 published a SINGLE-record artifact (553 B; a merged
-  file would be ~1000 B+) — the token-authenticated merge silently
-  no-op'd despite all steps green. First fix attempt (job `permissions:
-  {contents: read, actions: write}` because upload-artifact rides the
-  runner's system auth, so a green publish does NOT imply the job token
-  can read artifact REST + enumeration-based zip extraction replacing the
-  glob pattern) did NOT change the outcome: run 44683585995 still
-  single-record (633 B). Runner logs are auth-only, so the gate is now
-  SELF-ATTESTING: every fetch download/extraction failure stamps a
-  fixed-120-byte sentinel record (`FETCH-<kind>-<artifactId>-<status>`,
-  empty labels, padding INSIDE the JSON as "pad" — trailing dots were
-  proven to break strict JSONL parsers) into the history file the job
-  publishes. Anonymous artifact-size decode for run N+1: ~500-650 =
-  fetch saw nothing (listing bug); own + 120x = listing OK, downloads
-  dead (kind+status readable only from logs, but 401/403 vs unzip class
-  distinguishable by the 120x count vs artifact count); 1000+ with a
-  jump of ~470-700 per prior artifact = the merge WORKS (the permissions
-  fix was simply late-landing). Local proof: 3 valid 120B sentinels
-  against the 3 real artifacts over the anonymous 401 path; gate merges
-  them honestly (3 prior run(s), 0 malformed, per-label stats ignore
-  empty labels); selftests 11/11.
+- CI round-trip saga (caught AND root-caused SAME session, final proof
+  pending run 5): run 44682441875 published a single-record artifact —
+  the token-authenticated merge silently no-op'd behind the best-effort
+  contract. Fix attempt 1 (e2e job permissions actions:write —
+  upload-artifact rides the runner system auth so a green publish does
+  NOT imply the job token can read artifact REST — + enumeration-based
+  zip extraction) did NOT change the outcome (run 44683585995, still
+  1 record). ROOT CAUSE then PROVEN with a local two-hop http test:
+  Node 22 fetch (undici) STRIPS the Authorization header on
+  cross-origin redirects, and the artifact /zip endpoint 302s to a
+  foreign signed-blob host — every CI download hit the blob
+  UNAUTHENTICATED. Fix: downloadZip() does the hop MANUALLY
+  (redirect:manual, re-fetch the location WITHOUT the auth header — the
+  SAS needs none), proven end-to-end by a local mock reproducing the
+  GitHub artifact flow (listing -> 302 -> blob on a foreign port):
+  good artifact merges, expired-SAS artifact stamps
+  FETCH-DL-888-blob403, exit stays 0. Runner logs being auth-only
+  made this self-attesting along the way: every fetch failure writes a
+  fixed-120-byte valid sentinel (padding INSIDE the JSON — trailing
+  dots were proven to break strict JSONL parsers; stable runId +
+  gate-side dedupe so recurring failures contribute exactly one row),
+  turning the PUBLIC artifact size into the diagnostic. Run 5 decode:
+  expect >= ~2500 B (4 real prior records + own); 1 record ~500 =
+  listing dead; ~500+120x = downloads still dying (sentinel kinds
+  readable from the artifact itself with any authed token).
 - Watch the first real `::warning`s: if a label legitimately lives above
   60% (e.g. seeded limiter backoffs), tune the ceiling or fraction rather
   than silencing the annotation.

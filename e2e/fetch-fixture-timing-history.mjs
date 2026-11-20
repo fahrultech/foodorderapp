@@ -27,10 +27,29 @@ const OUT = 'fixture-timing-history.jsonl';
 // runtime-assembled header token (sanitizer-adjacency idiom)
 const AUTH_KEY = ['Author', 'ization'].join('');
 
-async function api(path) {
+async function api(path, init = {}) {
   const headers = { accept: 'application/vnd.github+json', 'user-agent': 'foodorder-ci' };
   if (token) headers[AUTH_KEY] = ['Bearer', token].join(' ');
-  return fetch(`${API}${path}`, { headers });
+  return fetch(`${API}${path}`, { headers, ...init });
+}
+
+// Artifact zips 302 to a foreign signed blob host, and undici (Node fetch)
+// STRIPS Authorization on cross-origin redirects — proven locally in
+// session 110, which is exactly why every CI download arrived
+// unauthenticated and the merge no-op'd behind the "never fails" skip.
+// So: manual hop, second request WITHOUT the auth header (the SAS URL
+// needs none). Same-origin 4xx still surfaces its real status.
+async function downloadZip(id) {
+  const meta = await api(`/repos/${repo}/actions/artifacts/${id}/zip`, { redirect: 'manual' });
+  if (meta.status >= 300 && meta.status < 400) {
+    const loc = meta.headers.get('location');
+    if (!loc) return { ok: false, status: `${meta.status}no-loc` };
+    const blob = await fetch(loc, { headers: { 'user-agent': 'foodorder-ci' } });
+    return blob.ok ? { ok: true, buf: Buffer.from(await blob.arrayBuffer()) }
+                   : { ok: false, status: `blob${blob.status}` };
+  }
+  if (!meta.ok) return { ok: false, status: String(meta.status) };
+  return { ok: true, buf: Buffer.from(await meta.arrayBuffer()) };
 }
 
 writeFileSync(OUT, '');
@@ -46,16 +65,15 @@ const seenRuns = new Set([THIS_RUN]);
 // a VALID record with empty labels (padding lives INSIDE the JSON as a
 // "pad" string — dots after the closing brace were proven to break
 // strict JSONL parsers) — the gate's per-label trend math ignores
-// them; only its prior-run count sees them, honestly. runId stays unique
-// (kind+artifact+status) so re-merged sentinels dedupe against nothing
-// but themselves on a same-run re-invocation.
+// them; only its prior-run count sees them, honestly. runId is stable
+// (kind+artifact+status) and the gate dedupes records by runId, so a
+// persistently-failing artifact contributes exactly ONE sentinel row,
+// not one per run.
 function failLine(kind, id, status) {
-  const skel = (pad) => JSON.stringify({
-    v: 1, runId: `FETCH-${kind}-${id}-${status}`,
-    at: new Date().toISOString(), labels: {}, pad,
-  });
+  const runId = `FETCH-${kind}-${String(id)}-${String(status).slice(0, 12)}`;
+  const skel = (pad) => JSON.stringify({ v: 1, runId, labels: {}, pad });
   const line = skel("x".repeat(Math.max(0, 119 - skel("").length)));
-  if (line.length !== 119) throw new Error(`sentinel width ${line.length}`); // kinds/statuses are bounded
+  if (line.length !== 119) throw new Error(`sentinel width ${line.length}`);
   return line + "\n";
 }
 
@@ -79,13 +97,13 @@ outer: for (let page = 1; page <= 2; page++) {
     if (merged >= MAX_RUNS) break outer;
     seenRuns.add(String(a.workflow_run?.id ?? ''));
     try {
-      const dl = await api(`/repos/${repo}/actions/artifacts/${a.id}/zip`);
+      const dl = await downloadZip(a.id);
       if (!dl.ok) {
         appendFileSync(OUT, failLine("DL", a.id, dl.status));
-        console.log(`history fetch: artifact ${a.id} download -> HTTP ${dl.status} (sentinel stamped)`);
+        console.log(`history fetch: artifact ${a.id} download -> ${dl.status} (sentinel stamped)`);
         continue;
       }
-      const buf = Buffer.from(await dl.arrayBuffer());
+      const buf = dl.buf;
       const dir = mkdtempSync('/tmp/fth-');
       const zip = `${dir}/a.zip`;
       writeFileSync(zip, buf);

@@ -156,6 +156,31 @@ test('summary rows sort by % of ceiling across ceiling classes', () => {
   assert.ok(wi < wt, '67%-of-15000 must precede 22%-of-90000');
 });
 
+test('sentinel records from the fetch script are valid, ignored by label stats, and deduped', () => {
+  // 120-byte fixed-width FETCH- sentinels (session 110 self-attestation)
+  const sentinel = (kind, id, status) => {
+    const runId = `FETCH-${kind}-${id}-${status}`;
+    const skel = (pad) => JSON.stringify({ v: 1, runId, labels: {}, pad });
+    const line = skel('x'.repeat(Math.max(0, 119 - skel('').length)));
+    assert.equal(line.length, 119);
+    return line;
+  };
+  const s1 = sentinel('DL', 111, 403);
+  const history = [
+    sentinel('DL', 222, 'blob401'), s1,
+    rec('r-real', '2026-11-03T00:00:00.000Z', { a: { n: 1, max: 50 } }),
+    s1, // same failing artifact re-merged from a prior run's file
+  ].join('\n') + '\n';
+  const { code, out, hist, summary } = runGate([['a', 100]], { historyContent: history });
+  assert.equal(code, 0);
+  assert.match(out, /3 prior run\(s\) merged/);
+  assert.doesNotMatch(out, /malformed/);
+  // empty-labels sentinel rows must not fake per-label prior stats
+  assert.match(summary, /\| `a` \| 100 \| 1% \| 15000 \| 1 \| 1 \| 50 \| 50 \|/);
+  // dedupe: the doubled sentinel collapsed -> 3 priors + this run = 4 lines
+  assert.equal(hist.trim().split('\n').length, 4);
+});
+
 test('WARN_FRACTION override moves the warning line', () => {
   const hi = runGate([['a', 13_000]], { env: { FIXTURE_TIMING_WARN_FRACTION: '0.9' } });
   assert.equal(hi.code, 0);

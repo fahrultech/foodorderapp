@@ -127,7 +127,17 @@ if (existsSync(HISTORY)) {
 }
 const runId = process.env.GITHUB_RUN_ID || `local-${new Date().toISOString()}`;
 // GITHUB_RUN_ID is constant within a run, so a re-invocation of the gate in
-// one job replaces its own record instead of double-counting.
+// one job replaces its own record instead of double-counting. The same
+// dedupe by runId keeps recurring FETCH- sentinels (same kind+artifact+
+// status across runs) to exactly one row.
+{
+  const byRun = new Map();
+  for (const r of prior) {
+    const key = r.runId === undefined || r.runId === null ? `anon-${Math.random()}` : String(r.runId);
+    byRun.set(key, r);
+  }
+  prior = [...byRun.values()];
+}
 prior = prior
   .filter((r) => r.runId !== runId)
   .sort((a, b) => String(a.at ?? '').localeCompare(String(b.at ?? '')))
