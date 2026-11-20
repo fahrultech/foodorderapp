@@ -56,6 +56,10 @@ browser download.
   `token`; without it v4 searches the CURRENT run and always "fails";
   fixed + proven in ci.yml), and `fetch-fixture-timing-history.mjs`
   merges the directory, falling back to custom REST when the dir is empty.
+  Round trip PROVEN (run 134, sha 11f1642): the download-artifact step's
+  "Artifact not found" ::error annotation is GONE and the published
+  artifact steps one real record per run (887, 952, 1018 B on runs
+  132→134; a sentinel-only run would show ~+12 B steps).
   The REST fallback is the PROVEN workhorse: live artifact sizes
   467→553→633→721→761→827→887 B across runs 125→132 equal one ~700 B
   real record line per run (sentinel lines would add only ~12 B), so

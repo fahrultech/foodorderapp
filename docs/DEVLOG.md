@@ -3,6 +3,75 @@
 Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
+## 2026-11-20 15:30 — Session 111 — fixture-timing round trip VERIFIED + the transport's real bug found and fixed (Test, Phase 11)
+
+**Built:**
+
+- Phase 11 Test item; API + web product delta 0. Verification was done
+  entirely through ANONYMOUS public surfaces (no token on this host):
+  the runs/jobs/artifacts REST listings, the run pages' annotation lists,
+  and a local zip-size simulator fed the on-disk record format.
+- VERDICT (all three clauses): (1) the fetch step merges >=1 prior run —
+  proven since run 126, see the size decode below; (2) the gate's
+  historical-max/recent-maxes columns therefore reflect real CI-side leg
+  records (prior lines carry the full 14-label map; sentinels would carry
+  empty labels); (3) history bounded: 9 lines now, gate slice(-20) pinned
+  by selftests — cap not yet reachable live. LISTING ORDER: anonymous
+  artifacts listing proved consistently created_at-desc (3 fetches,
+  identical order) and BOTH scripts sort explicitly client-side anyway —
+  the run-id-sort contingency from the item did NOT trigger (no change).
+- SIZE DECODE (the decisive evidence): fixture-timing-history zips grew
+  467, 553, 633, 721, 761, -, 827, 887, 952, 1018 B across runs
+  125→134 — monotonic +60..+88 per run. A local deflate simulation of
+  the exact gate record shape (e2e/fixture-timing-history.jsonl + real
+  runIds) shows one REAL ~700 B record line costs +52..+90 B compressed
+  while a fixed-120 B sentinel (105 x-padding) costs ~+12 B. So every
+  published file since 126 contains the accumulated REAL prior records —
+  zero sentinels ever shipped. Session 110's "merge silently no-op'd"
+  saga was a misread: the job-token REST download works (302 to the SAS
+  blob needs NO auth — the undici header-strip is harmless), the
+  auth-strip/root-cause theory and the job-token-scope theory were both
+  wrong. Comments in fetch/list scripts corrected accordingly.
+- THE ACTUAL DEFECT, found and fixed: the official
+  download-artifact@v4 step STAMPED "Artifact not found for name:
+  fixture-timing-history" on EVERY run (visible as the job's only ::error
+  annotation on runs 131/132/133). Cause (read from action.yml + dist):
+  v4's cross-run REST search (options.findBy) is built ONLY when the
+  `github-token` INPUT is set — without it the SDK searches the CURRENT
+  run (whose history isn't published yet) and errors; `continue-on-error`
+  kept it green. Fix: `github-token: ${{ github.token }}` on the step.
+  Intermediate honest note: the first attempt passed input `token:` —
+  run 133 PROVED it ignored (same error annotation, chain still advanced
+  via REST fallback), action.yml names it `github-token`; renamed.
+
+**Verified:**
+
+- ci.yml `yaml.safe_load` OK — the step's `with` keys are exactly
+  [github-token, name, path, run-id] with the value `${{ github.token }}`
+  read back from disk by python (display-may-lie rule).
+- `node --check` clean on both touched scripts; gate selftests 12/12
+  (node:test, browser-free).
+- LIVE PROOF (public annotations, no auth): run 134 (sha 11f1642, the
+  renamed input) — "Annotations: 5 warnings", the download-artifact
+  ::error is GONE (runs 131/132/133 all showed "1 error and 5-6
+  warnings"), and all five chain steps success. Artifact 1018 B = +66
+  over run 133 = exactly one real record line. The chain now runs
+  SDK-download primary with REST as genuine fallback.
+- Added-line sanitizer scan CLEAN (U+2026 / *** / literal-\u); no product
+  code touched, no lockfile touched (API/web builds unchanged since
+  session 109's 96/1241 and the local 106/106 e2e).
+
+**Left for next session:**
+
+- Watch ~run 145 for the first bounded trim (>20 records) and a real CI
+  green gate with zero prior merges ONLY on the first run after any
+  artifact retention loss. If a future run's artifact delta drops to
+  ~+12 B lines or regresses in size, that decodes as sentinels returning
+  — inspect the SDK step's annotation FIRST.
+- The size-decode simulator lives nowhere in-repo; if it earns its keep
+  again, promote it to e2e/tests as a pure node script.
+
+---
 ## 2026-11-20 13:40 — Session 110 — fixture-timing trend visibility: job summary + ::warning at 60% of ceiling (Test, Phase 10)
 
 **Built:**

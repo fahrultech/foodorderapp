@@ -215,12 +215,17 @@
 
 ## Phase 11 — Alert history, delivery ETAs & budget gates (opened 2026-11-20, Phase 10 exhausted; from the Test / Ops / Product / Perf / UX evergreen loops)
 
-- [ ] Test: verify the fixture-timing trend round trip — over the next two
+- [x] Test: verify the fixture-timing trend round trip — over the next two
   CI runs after 57020d7 confirm the fetch step merges >=1 prior run, the
   summary's historical-max column reflects CI-side legs, and history stays
   bounded (~20 records); if the anonymous artifacts listing proves
   unordered, switch the fetch script to sort by workflow-run id and note
   it in e2e/README.md. Record the outcome in the DEVLOG either way.
+  (2026-11-20, session 111 — VERIFIED via artifact-size decode (real
+  records merge since run 126; zero sentinels shipped; listing proved
+  ordered so no sort change) AND the one genuine bug it exposed fixed:
+  download-artifact@v4 needs `github-token:` for cross-run search —
+  run 134 is the first with zero error annotations.)
 - [ ] Ops: persist alert verdicts — capture the alerts engine's evaluation
   (verdict, firingRules, ages) into a small time series alongside the
   session-89 metrics snapshots (reuse the writer pattern + a migration),
