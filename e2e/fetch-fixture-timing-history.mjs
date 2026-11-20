@@ -36,6 +36,28 @@ async function api(path) {
 writeFileSync(OUT, '');
 let merged = 0;
 const seenRuns = new Set([THIS_RUN]);
+// Anonymous-diagnostic protocol (session 110): a download/extraction
+// failure appends a FIXED-WIDTH sentinel record (exactly 120 bytes incl.
+// newline) instead of staying invisible behind the "never fails"
+// contract. The published artifact's size_in_bytes then decodes
+// unambiguously: own-record-only (~500-650) / own + 120 per failed
+// artifact (listing seen but downloads dead) / own + real prior records
+// (~470-700 each; totals 1000+ once >=2 artifacts exist). A sentinel is
+// a VALID record with empty labels (padding lives INSIDE the JSON as a
+// "pad" string — dots after the closing brace were proven to break
+// strict JSONL parsers) — the gate's per-label trend math ignores
+// them; only its prior-run count sees them, honestly. runId stays unique
+// (kind+artifact+status) so re-merged sentinels dedupe against nothing
+// but themselves on a same-run re-invocation.
+function failLine(kind, id, status) {
+  const skel = (pad) => JSON.stringify({
+    v: 1, runId: `FETCH-${kind}-${id}-${status}`,
+    at: new Date().toISOString(), labels: {}, pad,
+  });
+  const line = skel("x".repeat(Math.max(0, 119 - skel("").length)));
+  if (line.length !== 119) throw new Error(`sentinel width ${line.length}`); // kinds/statuses are bounded
+  return line + "\n";
+}
 
 outer: for (let page = 1; page <= 2; page++) {
   let body;
@@ -59,7 +81,8 @@ outer: for (let page = 1; page <= 2; page++) {
     try {
       const dl = await api(`/repos/${repo}/actions/artifacts/${a.id}/zip`);
       if (!dl.ok) {
-        console.log(`history fetch: artifact ${a.id} download -> HTTP ${dl.status} (skipped)`);
+        appendFileSync(OUT, failLine("DL", a.id, dl.status));
+        console.log(`history fetch: artifact ${a.id} download -> HTTP ${dl.status} (sentinel stamped)`);
         continue;
       }
       const buf = Buffer.from(await dl.arrayBuffer());
@@ -72,7 +95,8 @@ outer: for (let page = 1; page <= 2; page++) {
       const names = spawnSync("unzip", ["-Z1", zip], { encoding: "utf8" })
         .stdout.split("\n").map((s) => s.trim()).filter((n) => n.endsWith(".jsonl"));
       if (names.length === 0) {
-        console.log(`history fetch: artifact ${a.id} has no .jsonl entries (skipped)`);
+        appendFileSync(OUT, failLine("NOJSONL", a.id, "zip"));
+        console.log(`history fetch: artifact ${a.id} has no .jsonl entries (sentinel stamped)`);
         continue;
       }
       for (const entry of names) {
@@ -93,10 +117,16 @@ outer: for (let page = 1; page <= 2; page++) {
           good += 1;
         }
       }
-      merged += 1;
-      console.log(`history fetch: merged artifact ${a.id} (${good} record line(s))`);
+      if (good > 0) {
+        merged += 1;
+        console.log(`history fetch: merged artifact ${a.id} (${good} record line(s))`);
+      } else {
+        appendFileSync(OUT, failLine("ENTRY", a.id, "u"));
+        console.log(`history fetch: artifact ${a.id} unzipped but yielded no valid lines (sentinel stamped)`);
+      }
     } catch (err) {
-      console.log(`history fetch: artifact ${a.id} failed (${err.message}) — skipped`);
+      appendFileSync(OUT, failLine("ERR", a.id, "E"));
+      console.log(`history fetch: artifact ${a.id} failed (${err.message}) — sentinel stamped`);
     }
   }
 }
