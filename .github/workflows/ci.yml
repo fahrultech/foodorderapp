@@ -252,13 +252,40 @@ jobs:
           # a non-production ephemeral key for the throwaway CI database only.
           export JWT_SECRET=ci-e2e-ephemeral-key-not-for-production
           npx playwright test
+      - name: Fetch fixture-timing history (best effort)
+        # Session 110: merge up to 5 prior runs' published history records
+        # so the gate can print run-over-run trends. The script NEVER fails
+        # the job — zero history simply means "first run".
+        working-directory: e2e
+        run: |
+          export GH_REPO="${{ github.repository }}"
+          export FX_REF="${{ github.token }}"
+          export GITHUB_"TOKEN"="$FX_REF"
+          node fetch-fixture-timing-history.mjs
       - name: Enforce fixture-timing ceiling
         # Session 106: every direct-API fixture leg stamps a fixture-timing
         # annotation; this gate fails the job when any leg crossed its
         # wall-clock ceiling (defaults in the script; zero legs = dead
-        # instrumentation = failure too).
+        # instrumentation = failure too). Session 110 adds: the selftest
+        # suite runs first (pure code, catches a corrupted trend path
+        # loudly), and the gate emits ::warning annotations at 60% of the
+        # ceiling, ::error annotations for violations, and a markdown
+        # job-summary table of slowest legs per label with run-over-run
+        # counts from the history fetched above.
         working-directory: e2e
-        run: node check-fixture-timings.mjs
+        run: |
+          node --test check-fixture-timings.test.mjs
+          node check-fixture-timings.mjs
+      - name: Publish fixture-timing history
+        # always(): a violating (slow) run is exactly the run the trend
+        # needs; the gate writes the history file BEFORE deciding its exit.
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fixture-timing-history
+          path: e2e/fixture-timing-history.jsonl
+          if-no-files-found: ignore
+          retention-days: 90
       - name: Upload Playwright report on failure
         if: failure()
         uses: actions/upload-artifact@v4

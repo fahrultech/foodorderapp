@@ -12,6 +12,7 @@ pgdata/
 *.tsbuildinfo
 test-results/
 playwright-report/
+e2e/fixture-timing-history.jsonl
 
 # database backups (pg_dump archives + checksums)
 ops/backups/
