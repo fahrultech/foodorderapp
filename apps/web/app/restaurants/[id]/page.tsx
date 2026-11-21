@@ -157,7 +157,28 @@ export default async function RestaurantPage({
             {hasSchedule && !today && (
               <span className="rounded-full bg-stone-100 px-3 py-1">🕐 {t('closedToday')}</span>
             )}
-            <span className="rounded-full bg-stone-100 px-3 py-1">⏱ ~{common('minutes', { count: restaurant.avgPrepMinutes })}</span>
+            {/*
+              Delivery ETA honesty (session 113): the observed pill rides the
+              server-derived median; 'estimate' (and a failed aggregate read,
+              null) keeps the curated "~N min" line BYTE-IDENTICAL to the
+              pre-ETA markup — existing EN e2e pins stay valid untouched.
+              Non-plural ICU params pass String(n) per the session-95 doctrine.
+            */}
+            {restaurant.deliveryEta?.source === 'observed' ? (
+              <span
+                className="rounded-full bg-emerald-100 px-3 py-1 font-bold text-emerald-800"
+                data-testid="eta-observed"
+                title={t('etaObservedTitle', { count: restaurant.deliveryEta.sampleCount })}
+              >
+                ⏱ {t('etaUsually', {
+                  minutes: String(Math.max(1, Math.round(restaurant.deliveryEta.seconds / 60))),
+                })}
+              </span>
+            ) : (
+              <span className="rounded-full bg-stone-100 px-3 py-1" data-testid="eta-estimate">
+                ⏱ ~{common('minutes', { count: restaurant.avgPrepMinutes })}
+              </span>
+            )}
             <span className="rounded-full bg-stone-100 px-3 py-1">
               🛵 {common('delivery', { price: formatPrice(restaurant.deliveryFeeCents) })}
             </span>

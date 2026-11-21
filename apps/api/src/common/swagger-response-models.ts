@@ -316,6 +316,33 @@ export class RestaurantHoursViewResponse {
   isOpenNow: boolean;
 }
 
+/**
+ * Delivery ETA honesty (session 113, Phase 11). Read-time derivation; NEVER
+ * a stored or client-writable field. Attached on `GET /restaurants/:id` only.
+ */
+export class DeliveryEtaResponse {
+  @ApiProperty({
+    enum: ['observed', 'estimate'],
+    description:
+      "'observed' = median of the newest <=20 eligible completed orders (confirmed->completed, both stamps, positive duration); 'estimate' = the curated avgPrepMinutes below the 5-sample floor (also the garbage-median fallback).",
+  })
+  source: 'observed' | 'estimate';
+
+  @ApiProperty({
+    type: 'integer',
+    description: 'Estimated delivery duration in INTEGER SECONDS (durations never leave the API as floats).',
+    example: 1500,
+  })
+  seconds: number;
+
+  @ApiProperty({
+    type: 'integer',
+    description:
+      'Eligible completed orders behind the derivation (the FULL count, not the 20-row median window). <5 always answers source=estimate.',
+  })
+  sampleCount: number;
+}
+
 export class RestaurantResponse {
   @ApiProperty({ type: 'string', format: 'uuid' })
   id: string;
@@ -376,6 +403,15 @@ export class RestaurantResponse {
 
   @ApiProperty({ type: 'integer', description: 'Average prep time, minutes.' })
   avgPrepMinutes: number;
+
+  @ApiProperty({
+    type: DeliveryEtaResponse,
+    nullable: true,
+    required: false,
+    description:
+      'Delivery ETA honesty (session 113): attached ONLY by GET /restaurants/:id (list/search rows and owner routes never carry it); null means the orders aggregate read failed on this request and the storefront falls back to the curated estimate.',
+  })
+  deliveryEta?: DeliveryEtaResponse | null;
 
   @ApiProperty({ description: 'LEGACY manual toggle. Derived `isOpenNow` takes over once a weekly open-hours schedule has rows.' })
   isOpen: boolean;

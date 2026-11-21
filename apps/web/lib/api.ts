@@ -3,6 +3,14 @@ import type { PaymentAttempt } from './payments-types';
 /** Re-exported so pages/components keep `@/lib/api` as the single client surface. */
 export type { PaymentAttempt, PaymentStatus } from './payments-types';
 
+/** Delivery ETA honesty view (session 113) — see Restaurant.deliveryEta. */
+export interface DeliveryEta {
+  source: 'observed' | 'estimate';
+  /** INTEGER seconds; durations never ride the wire as floats. */
+  seconds: number;
+  sampleCount: number;
+}
+
 export interface Restaurant {
   id: string;
   slug: string;
@@ -18,6 +26,13 @@ export interface Restaurant {
   deliveryFeeCents: number;
   minOrderCents: number;
   avgPrepMinutes: number;
+  /**
+   * Delivery ETA honesty (session 113): median confirmed→completed seconds
+   * of the newest <=20 completed orders, or the curated estimate below 5
+   * samples. Attached by GET /restaurants/:id only; null = the aggregate
+   * read failed on this request (render the estimate, claim nothing).
+   */
+  deliveryEta?: DeliveryEta | null;
   isOpen: boolean;
   /** Map pin (WGS84 decimal degrees); null = the restaurant is off the storefront map. */
   latitude?: number | null;

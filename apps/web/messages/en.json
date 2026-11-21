@@ -77,7 +77,9 @@
     "openNow": "Open now",
     "closedNow": "Closed right now",
     "todayHours": "Today {opensAt}\u2013{closesAt}",
-    "closedToday": "Closed today"
+    "closedToday": "Closed today",
+    "etaUsually": "Usually ~{minutes} min",
+    "etaObservedTitle": "{count, plural, one {Based on # recent completed delivery} other {Based on # recent completed deliveries}}"
   },
   "Menu": {
     "fallbackCategory": "Menu",
@@ -525,7 +527,9 @@
     "checkingPromo": "Checking\u2026",
     "promoCheckError": "Could not check the promo code right now.",
     "orderError": "Could not place the order",
-    "pageTitle": "Checkout \u2014 FoodOrder"
+    "pageTitle": "Checkout \u2014 FoodOrder",
+    "etaLabel": "Delivery time",
+    "etaUsually": "usually ~{minutes} min"
   },
   "Order": {
     "notFoundTitle": "Order not found",

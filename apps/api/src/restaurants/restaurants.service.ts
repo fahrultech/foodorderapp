@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
   Optional,
 } from '@nestjs/common';
@@ -9,6 +10,12 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Brackets, In, Repository } from 'typeorm';
 import { Restaurant } from './restaurant.entity';
 import { RestaurantHours } from './restaurant-hours.entity';
+import { Order } from '../orders/order.entity';
+import {
+  DELIVERY_ETA_SQL,
+  EtaSqlRow,
+  buildDeliveryEta,
+} from './delivery-eta';
 import { CreateRestaurantDto, UpdateRestaurantDto } from './dto/restaurant.dto';
 import { UpdateRestaurantHoursDto } from './dto/restaurant-hours.dto';
 import { isOpenAt, isValidTimeZone, serverTimeZone, TIME_RE } from './open-hours';
@@ -59,7 +66,45 @@ export class RestaurantsService {
     @Optional()
     @InjectRepository(RestaurantHours)
     private readonly hours?: Repository<RestaurantHours>,
+    // Session 113: delivery ETA honesty — the Order repo is used ONLY for
+    // the raw batched aggregate read (never an entity write, no OrdersModule
+    // import, no DI cycle; same cross-module read-only precedent as session
+    // 42's payments existence probe and session 54's analytics aggregates).
+    @Optional()
+    @InjectRepository(Order)
+    private readonly orders?: Repository<Order>,
   ) {}
+
+  private readonly logger = new Logger(RestaurantsService.name);
+
+  /**
+   * Batch-attach `deliveryEta` to restaurant rows (session 113, Phase 11
+   * "delivery ETA honesty"): median of each restaurant's newest <=20 real
+   * confirmed->completed durations, curated `avgPrepMinutes` estimate below
+   * 5 samples. ONE parameterized statement for the whole rows set. Called
+   * ONLY from `findOne` (the storefront detail read) — list/search rows stay
+   * byte-unchanged, keeping session 79's 3-statement list contract intact.
+   * A failing orders read degrades to `deliveryEta: null` (never a 500 on a
+   * browse path — the session-89 "extras degrade, route stays 200" doctrine)
+   * and the storefront renders the curated estimate without claiming a
+   * derivation.
+   */
+  async attachEta<T extends Restaurant>(rows: T[]): Promise<T[]> {
+    if (!rows.length || !this.orders) return rows;
+    const ids = [...new Set(rows.map((r) => r.id))];
+    let byId: Map<string, EtaSqlRow> | null = null;
+    try {
+      const raw = (await this.orders.query(DELIVERY_ETA_SQL, [ids])) as EtaSqlRow[];
+      byId = new Map((Array.isArray(raw) ? raw : []).map((row) => [String(row.rid), row]));
+    } catch (err) {
+      this.logger.warn(`delivery ETA aggregate read failed: ${(err as Error).message}`);
+    }
+    for (const r of rows) {
+      (r as any).deliveryEta =
+        byId === null ? null : buildDeliveryEta(byId.get(r.id), r.avgPrepMinutes);
+    }
+    return rows;
+  }
 
   /**
    * Batch-attach `hours` + `isOpenNow` to restaurant rows.
@@ -177,6 +222,10 @@ export class RestaurantsService {
       restaurant.menuItems = await this.menu.attachOptionGroups(restaurant.menuItems);
     }
     if (restaurant) await this.attachHours([restaurant]);
+    // Session 113: the ETA rides the DETAIL read only (list/search rows stay
+    // the session-79 3-statement contract; the storefront surfaces —
+    // restaurant page and checkout — both consume this route).
+    if (restaurant) await this.attachEta([restaurant]);
     return restaurant;
   }
 

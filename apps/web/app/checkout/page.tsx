@@ -446,6 +446,19 @@ export default function CheckoutPage() {
                     : formatPrice(deliveryFeeCents)}
             </span>
           </div>
+          {/* Delivery ETA honesty (session 113): the observed row appears ONLY
+              on a server-derived median; estimate/null add nothing today
+              beyond the restaurant page's curated line. */}
+          {restaurant?.deliveryEta?.source === 'observed' && (
+            <div className="mt-1 flex justify-between text-stone-500" data-testid="checkout-eta">
+              <span>{t('etaLabel')}</span>
+              <span>
+                {t('etaUsually', {
+                  minutes: String(Math.max(1, Math.round(restaurant.deliveryEta.seconds / 60))),
+                })}
+              </span>
+            </div>
+          )}
           {minOrderCents !== null && (
             <div className="mt-1 flex justify-between text-stone-500">
               <span>{t('minOrderRow')}</span>

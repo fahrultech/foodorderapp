@@ -77,7 +77,9 @@
     "openNow": "Buka sekarang",
     "closedNow": "Sedang tutup",
     "todayHours": "Hari ini {opensAt}\u2013{closesAt}",
-    "closedToday": "Tutup hari ini"
+    "closedToday": "Tutup hari ini",
+    "etaUsually": "Biasanya ~{minutes} mnt",
+    "etaObservedTitle": "{count, plural, other {Berdasarkan # pengiriman selesai terbaru}}"
   },
   "Menu": {
     "fallbackCategory": "Menu",
@@ -525,7 +527,9 @@
     "checkingPromo": "Memeriksa\u2026",
     "promoCheckError": "Kode promo belum bisa diperiksa saat ini.",
     "orderError": "Pesanan gagal dibuat",
-    "pageTitle": "Checkout \u2014 FoodOrder"
+    "pageTitle": "Checkout \u2014 FoodOrder",
+    "etaLabel": "Waktu pengiriman",
+    "etaUsually": "biasanya ~{minutes} mnt"
   },
   "Order": {
     "notFoundTitle": "Pesanan tidak ditemukan",
