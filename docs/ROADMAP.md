@@ -279,11 +279,21 @@
   4→5→6-sample ladder and 26-vs-20 windowing proof, e2e 110/110 green ×2
   fresh-seed with 4 new tests incl. a REAL paid+owner-ladder observed flip
   + ID locale shapes.)
-- [ ] Perf: First Load JS budget gate — a zero-dep node script reads the
+- [x] Perf: First Load JS budget gate — a zero-dep node script reads the
   gzip chunk sums (session-90 method) from apps/web/.next and FAILS the
   CI web job when a core storefront route exceeds a committed baseline
   table (docs/PERFORMANCE.md, measured at ship). Include a deliberate
   over-budget negative test like the drift gate does.
+  (2026-11-21, session 115; `apps/web/scripts/check-bundle-budget.mjs` —
+  exact gzip-9 manifest-entry sums proven to reproduce Next's table
+  arithmetic at kB rounding; 7-route baseline committed in
+  PERFORMANCE.md between BUNDLE-BASELINE markers, zero tolerance with a
+  documented `--print` re-measure ritual; dead-gate guards on manifest/
+  table/stale-route/missing-chunk; CI web job = selftests (13 browser-free
+  node:test cases incl. the 1-byte-over negative) BEFORE the real gate;
+  live negative on the real build: 1-byte baselines -> exit 1 naming all
+  7 routes, missing table -> marker-not-found exit 1; cold build green,
+  gate +0 B margin on every route; API delta 0, web app-code delta 0.)
 - [ ] UX: focus-visibility + skip-link audit — every portal control gets a
   visible `:focus-visible` state, storefront gains a skip-to-content link,
   and the keyboard-driven spec pattern (portal-a11y) pins both; EN/ID

@@ -3,6 +3,67 @@
 Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
+## 2026-11-21 16:16 — Session 115 — First Load JS budget gate in the CI web job (Phase 11 perf item)
+
+**Built:**
+
+- `apps/web/scripts/check-bundle-budget.mjs` — zero-dep node gate. Exact
+  First Load JS per route = gzip-9 sum of every `.js` chunk listed for the
+  route's OWN entry in `.next/app-build-manifest.json` (the session-90
+  method; CSS excluded — the metric is JS). Arithmetic validated against
+  Next's own build table at its kB rounding for every route
+  (`/` 106,963 B -> "107 kB", `/checkout` 127,545 -> "128 kB",
+  `/orders/[id]` 145,064 -> "145 kB") — the table rounds and HIDES small
+  deltas (session 90's lesson), the gate sees bytes.
+- Committed baseline: new section in `docs/PERFORMANCE.md` with the table
+  between `BUNDLE-BASELINE` markers — 7 core storefront routes (home,
+  restaurant detail, cart, checkout, map, receipt, order history),
+  measured at ship on a COLD `rm -rf .next && next build` of this tree.
+  ZERO tolerance by design (drift-gate doctrine): growth is shrunk back or
+  re-measured deliberately via the new `--print` mode
+  (`npm run budget:print` prints ready markdown rows for the same route
+  set — numbers only, never silent route additions).
+- Dead-gate guards (session-106 doctrine), all exit 1: missing manifest,
+  missing/empty/duplicate-row/non-integer baseline table, a BASELINE route
+  absent from the build (a renamed/deleted route would otherwise freeze
+  the table silently), and a listed chunk missing on disk.
+- `scripts/check-bundle-budget.test.mjs` — 13 browser-free node:test
+  cases against synthetic rigs (env knobs `BUNDLE_NEXT_DIR` /
+  `BUNDLE_BASELINE_FILE`), including the roadmap-requested DELIBERATE
+  over-budget negative test (1 B over -> exit 1 naming the route), the
+  at-budget margin-0 pass, CSS-exclusion, comma-formatted bytes, stale
+  route, dead manifest, and `--print` behavior.
+- CI `web` job: `next build` -> `node --test` selftests -> real gate
+  (selftests first so a corrupted gate fails loudly instead of silently
+  skipping). Convenience scripts `budget` / `budget:print` in
+  apps/web/package.json. No dependency, no lockfile churn; API untouched;
+  no web app-code touched (e2e suite unaffected — the build IS the web
+  verification gate).
+
+**Verified:**
+
+- Cold web build green (Compiled successfully 15.1 s). Live gate on the
+  real `.next` + committed table: exit 0, margin +0 B on all 7 routes.
+- node --test 13/13 (twice — before and after an ASCII sweep of my own
+  comment prose).
+- LIVE negative proofs on the REAL build: absurd 1-byte baselines ->
+  FAILED (7 route(s)), exit 1, each route named with its over-bytes; and
+  against the docs file BEFORE the table existed -> marker-not-found
+  exit 1 (the dead-gate path firing for real).
+- Sanitizer scan: first pass caught 3 U+2026 — all prose ellipses in MY
+  comments, rewritten ASCII and re-swept clean (no `***`, no literal
+  `\u` on added lines); `git diff --check` clean; ci.yml + package.json
+  lint-valid.
+
+**Left for next sessions:**
+
+- Portal routes (`/admin`, `/dashboard`, `/driver`, `/kitchen`) are NOT
+  budgeted yet — adding a row + `npm run budget:print` number is the
+  whole procedure whenever the team wants them pinned.
+- CI proof owed: confirm the web job's two new steps green on the push
+  from this session (anonymous poll per the CI skill).
+
+---
 ## 2026-11-21 14:55 — Session 114 — alert-history panel on /admin consuming the persisted verdict series (Phase 11 web item)
 
 **Built:**
