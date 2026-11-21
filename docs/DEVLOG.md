@@ -3,6 +3,85 @@
 Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
+## 2026-11-21 20:10 — Session 117 — focus-visibility + skip-link audit: ONE global :focus-visible contract, keyboard-pinned (Phase 11 UX item, closes the phase)
+
+**Built:**
+
+- `app/globals.css` now owns the whole keyboard focus contract: one
+  trailing `:focus-visible { outline: 2px solid var(--focus-ring);
+  outline-offset: 2px }` (+ `#main-content:focus { outline: none }`).
+  Declared AFTER `@tailwind utilities` it ties-and-wins against
+  Tailwind's bare `.outline-none` (both (0,1,0), source order decides):
+  text inputs keep their soft `focus:` border/ring paint for MOUSE
+  focus while keyboard focus additionally gets the honest 2px brand
+  ring. `--focus-ring` theme-switches (light brand-600 rgb(234,88,12),
+  dark brand-500 rgb(249,115,22)) for >=3:1 non-text contrast on both
+  canvases. ONE rule is what makes EVERY portal control focus-visible —
+  the audit found exactly one real suppressor outlier besides it.
+- The outlier: `ReviewReplyComposer`'s textarea carried the ONLY
+  `focus:outline-none` VARIANT (specificity (0,2,0) — it would have
+  beaten the contract on keyboard focus). Rewritten to the app-wide
+  idiom (bare `outline-none` + `focus:border/ring`).
+- New `SkipLink` client component wired as the FIRST focusable element
+  in the root layout: sr-only until focused (`focus:not-sr-only` chip),
+  label `Common.skipToContent` EN "Skip to content" / ID "Lewati ke
+  konten" — the ONE genuinely new key pair (the roadmap said "existing
+  keys"; none covered the skip affordance, message JSONs edited via
+  surgical anchored inserts with count==1 + EN/ID Common parity
+  asserts). Enter preventDefaults and moves DOCUMENT focus to
+  `<main id="main-content" tabIndex={-1}>` programmatically —
+  fragment-navigation focus transfer is browser-dependent; `.focus()`
+  on a tabindex -1 target is not, and it made the e2e contract
+  deterministic.
+- `data-testid="kitchen-refresh"` / `"driver-refresh"` added so the
+  ring pins target stable CSS selectors, not localized button text.
+- New `e2e/tests/focus-skip-a11y.spec.ts` (6 tests): EVERY ring
+  assertion is earned by REAL Tab presses walking the tab order until
+  the target is `document.activeElement` (never `.focus()` —
+  programmatic focus does not reliably match `:focus-visible`), then
+  an EXACT computed-style equality on {solid, 2px, rgb(234, 88, 12),
+  offset 2px}: skip link discovery + reveal + its own ring + the main
+  target wearing NO ring + Enter focus hand-off (EN), ID locale label,
+  owner dashboard (header button, restaurant switcher select, roving
+  ARIA tab), kitchen board, driver portal, admin. Read-only/seed-safe:
+  sign-ins + navigation only, creates no orders.
+
+**Why:** session 77 audited storefront a11y only; since then every
+portal surface grew controls with NO focus styling at all (UA default
+rings, washed out on the dark canvas) while the inputs shipped a soft
+border-color swap as their only keyboard signal — and keyboard/SR
+users had no way to jump the header chrome. Phase 11 demanded both,
+pinned the portal-a11y keyboard way.
+
+**Verified:**
+
+- `apps/web npm run build` green (x2 — the second build fed the suite).
+- Bundle-budget honest A/B, IN-PATH (stash -> clean build -> --print ->
+  pop -> clean build): HEAD and this tree print the committed table
+  EXACTLY — gate margins all +0, gate OK. Root cause of the zero delta
+  discovered while proving it: the gate sums each route's OWN
+  app-build-manifest chunks, and the root LAYOUT chunk (which grew
+  +209 B gz carrying SkipLink) is not listed for any pinned page — a
+  real methodology undercount, filed as Phase 12 item 1 instead of
+  being papered over. (A first A/B in a git worktree printed a phantom
+  -84 B across the board — absolute gzip sums are path-sensitive;
+  in-place builds are the doctrine.)
+- targeted `focus-skip-a11y` 6/6 first run; FULL e2e 114 -> 120 green
+  x2 CONSECUTIVE on fresh seeds (3.3 min each); session-106
+  fixture-timing gate OK (max work leg 92 ms, limiter waits
+  classified).
+- API delta 0: `npm run build` clean, jest 98 suites / 1294 tests —
+  byte-identical suite/test counts to session 116's claim.
+- Sanitizer scan: 0 U+2026 / `***` / literal backslash-u sequences
+  across added diff
+  lines and both new files; `git diff --check` clean; message JSONs
+  re-parsed (EN/ID key parity asserted).
+
+**Left for next sessions:** Phase 12 opened (backlog never empties) —
+the bundle-gate layout undercount fix FIRST, then the dark-canvas ring
+pin + mobile bottom-bar focus pass, the tracking delivery polish, and
+the k6 write profile.
+
 ## 2026-11-21 18:05 — Session 116 — Per-restaurant durability: persisted restaurant dimension + OWNER windowed deltas (Phase 8 🔒 item)
 
 **Built:**

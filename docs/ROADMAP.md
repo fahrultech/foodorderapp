@@ -297,10 +297,47 @@
   a local .env.local-polluted baseline (+39 B on 5 routes -> re-measured
   CI-clean, doctrine now written into PERFORMANCE.md); API delta 0, web
   app-code delta 0.)
-- [ ] UX: focus-visibility + skip-link audit — every portal control gets a
+- [x] UX: focus-visibility + skip-link audit — every portal control gets a
   visible `:focus-visible` state, storefront gains a skip-to-content link,
   and the keyboard-driven spec pattern (portal-a11y) pins both; EN/ID
-  chrome covered via existing message keys.
+  chrome covered via existing message keys. (2026-11-21, session 117; ONE
+  global `:focus-visible` contract in globals.css (2px solid brand ring +
+  2px offset, theme-switched --focus-ring) — declared after
+  @tailwind utilities so it ties-and-wins against bare `.outline-none`;
+  the only suppressor outlier (ReviewReplyComposer's `focus:outline-none`)
+  normalized; SkipLink sr-only-until-focused with programmatic #main-content
+  focus hand-off (1 genuinely new key Common.skipToContent EN/ID — every
+  other ring needed no copy); kitchen/driver refresh testids for locale-
+  proof pins; 6 new e2e tests that earn EVERY ring via real Tab-walks +
+  exact computed-style equality (never .focus()); web build green, full
+  e2e 114→120 green ×2 fresh-seed, timing gate OK, API delta 0 (98/1294);
+  bundle gate proven unaffected via IN-PATH HEAD-vs-tree A/B — and the
+  reason (layout chunks invisible to per-route sums) filed as Phase 12 #1.)
+
+## Phase 12 — Bundle truth, tracking polish & dark-ring verification (opened 2026-11-21, Phase 11 exhausted; from the Perf / Product / UX / Test evergreen loops)
+
+- [ ] Perf: fix the bundle-gate undercount (session 117 finding) — the gate
+  sums only each route's OWN app-build-manifest chunks, so shared ROOT
+  LAYOUT and CSS chunks are invisible to every pinned budget (SkipLink's
+  +209 B gz landed at margins +0 on all 7 routes). Sum the full ancestor
+  chain (layout + css) per route, re-measure the committed table CI-clean
+  (in-place builds — path-absolute sums are not comparable across
+  worktrees), and prove a layout-only change now trips the gate via a new
+  node:test selftest.
+- [ ] Product: tracking-page delivery polish — once an order is
+  `delivering`, show the assigned driver's first name and a
+  "usually ~N min" remaining estimate derived from session 113's
+  per-restaurant ETA (read-side embed only, no migration; EN/ID + e2e).
+- [ ] UX: dark-theme focus-ring verification + mobile bottom-bar keyboard
+  pass — session 117 pins the ring on the light canvas only; extend the
+  spec to the dark theme cookie (rgb(249,115,22)) and audit the
+  mobile-only compact bottom bar (use-compact-viewport furniture) for
+  focus order and ring visibility.
+- [ ] Test: k6 WRITE profile against the cached+compressed stack — a
+  checkout ladder (auth → create → pay) at modest VUs with
+  HTTP_CACHE_TTL_SEC default and compression ON, asserting
+  statements-per-request and zero 429s in a new docs/PERFORMANCE.md
+  section (session 104's conditional profile never exercised writes).
 
 ## Completed
 - 2026-10-17 — Phase 0: monorepo scaffold, NestJS API (auth, restaurants, menu, orders, status machine, health), Next.js storefront (browse, detail, cart, checkout, order page), docker compose + Dockerfiles, seed data, jest unit tests, CI-ready scripts.
