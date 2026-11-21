@@ -384,6 +384,56 @@ production build on :4100):
   250.74 req/s) is what the B2 row reproduces — the replay-heavy shape is
   stable, and neither arm regressed it.
 
+## First Load JS budget gate — November 21, 2026 (session 115)
+
+Phase 11 roadmap item "Perf: First Load JS budget gate". A zero-dep node
+script, `apps/web/scripts/check-bundle-budget.mjs`, is the CI `web` job's
+build-post step: after `next build` it reads `.next/app-build-manifest.json`
+and FAILS the job when any core storefront route's exact First Load JS
+(gzip-9 sum of every `.js` chunk listed for that route's manifest entry —
+the session-90 method, CSS excluded) exceeds the baseline table below.
+
+Why exact bytes: the route table rounds to 1 kB and hides small deltas
+(session 90 proved a 266 B gz win invisible there). The manifest sum
+reproduces Next's own arithmetic exactly — every number below matches the
+cold-build table at its kB rounding (`/` 106,963 B -> "107 kB",
+`/checkout` 127,545 -> "128 kB", `/orders/[id]` 145,064 -> "145 kB").
+
+Baseline measured at ship on a cold `rm -rf .next && next build` of this
+tree (lockfile-pinned, so CI rebuilds reproduce these bytes modulo toolchain
+upgrades). Tolerance is ZERO by design — like the schema-drift gate, growth
+is either shrunk back or re-measured deliberately: run
+`node scripts/check-bundle-budget.mjs --print` after your cold build and
+commit the new numbers WITH the change that grew the bundle.
+
+Route set = the core storefront funnel (home, restaurant detail, cart,
+checkout, map, receipt, order history). Portal routes (`/admin`,
+`/dashboard`, `/driver`) are not budgeted yet — session 90/114 covered
+their split decisions separately.
+
+<!-- BUNDLE-BASELINE-START -->
+| Route | Baseline First Load JS (B) |
+|---|---|
+| `/` | 106963 |
+| `/restaurants/[id]` | 124962 |
+| `/cart` | 124685 |
+| `/checkout` | 127545 |
+| `/map` | 104817 |
+| `/orders/[id]` | 145064 |
+| `/orders/my` | 129691 |
+<!-- BUNDLE-BASELINE-END -->
+
+The gate is dead-gate-proofed (session-106 doctrine): it fails on a missing
+manifest, missing/empty/duplicate-row/unparseable baseline table, a baseline
+route absent from the build (renamed/deleted route would otherwise freeze
+the table silently), and a listed chunk absent on disk. The full decision
+table lives in `scripts/check-bundle-budget.test.mjs` (13 node:test cases,
+browser-free, spawned via the `BUNDLE_NEXT_DIR`/`BUNDLE_BASELINE_FILE`
+knobs), INCLUDING the deliberate over-budget negative test (1 B over ->
+exit 1 naming the route) the roadmap asked for; the CI web job runs
+`node --test` before the real gate, and the ship run additionally proved
+the negative live on the real `.next` with deliberately 1-byte baselines.
+
 ## Query-plan findings and tuning decisions (November 4 baseline, historical)
 
 `EXPLAIN (ANALYZE, BUFFERS)` on the same seed showed:

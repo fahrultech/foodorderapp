@@ -3,6 +3,9 @@
 #   api          nest build + jest unit suite (382 tests; proven DB-free —
 #                the whole suite passes with an unreachable DATABASE_URL)
 #   web          next production build (passes with no API running, verified)
+#                + session-115 First Load JS budget gate: selftests, then
+#                exact gzip-9 manifest sums vs the docs/PERFORMANCE.md
+#                baseline table (zero tolerance, session-90 method)
 #   e2e          full Playwright smoke suite (4 tests) against a live API+web
 #                pair on a freshly seeded empty Postgres 16 (lockfile resolved
 #                URLs rewritten to registry.npmjs.org — mirror-safe).
@@ -67,6 +70,16 @@ jobs:
         run: npm ci
       - name: Build
         run: npm run build
+      - name: Bundle-budget gate selftests (browser-free, synthetic rigs)
+        # Session 115: run the gate's own decision table FIRST — a
+        # corrupted gate must fail the job loudly instead of silently
+        # skipping the budget check (session-106 doctrine).
+        run: node --test scripts/check-bundle-budget.test.mjs
+      - name: First Load JS budget gate
+        # Exact gzip-9 manifest sums vs the committed baseline in
+        # docs/PERFORMANCE.md (session-90 method). Zero tolerance; re-run
+        # with --print and commit new numbers when growth is intended.
+        run: node scripts/check-bundle-budget.mjs
 
   db-bootstrap:
     name: "Fresh Postgres ${{ matrix.pg }} — migrate, seed, drift check"

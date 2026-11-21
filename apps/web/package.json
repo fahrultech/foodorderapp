@@ -6,6 +6,8 @@
     "dev": "next dev -p ${WEB_PORT:-3000}",
     "build": "next build",
     "start": "next start -p 3000",
+    "budget": "node scripts/check-bundle-budget.mjs",
+    "budget:print": "node scripts/check-bundle-budget.mjs --print",
     "lint": "next lint"
   },
   "dependencies": {
