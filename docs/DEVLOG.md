@@ -3,6 +3,82 @@
 Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
+## 2026-11-21 14:55 — Session 114 — alert-history panel on /admin consuming the persisted verdict series (Phase 11 web item)
+
+**Built:**
+
+- Phase 11's 🔒 Web sub-item (session 112 shipped the API side). Purely
+  web-side: 1 new component + 1 new e2e spec + 3 edited (`lib/api.ts`,
+  `/admin` page, EN/ID bundles). API delta 0.
+- `lib/api.ts` — `AlertsHistory`/`AlertVerdictRecord`/`AlertStreakView`/
+  `AlertRuleResultView` contract types mirroring
+  `admin-alerts.response.ts` field-for-field, plus
+  `api.adminAlertsHistory(token, {windowSec?, limit?})` (params optional;
+  the panel calls the defaults).
+- `components/AlertsHistoryPanel.tsx` — error-budget-style sibling of
+  TrafficPanel. Four cards: CURRENT VERDICT (the payload's
+  `streak.currentStatus` live engine verdict), ALERTING STREAK (the
+  `streak.alerting` incl.-this-read number; when `trailingCapped` the
+  value renders with a ≥ prefix + lower-bound detail — never a false
+  exact), PERSISTED VERDICTS (row count + alerting %; honest writer-off /
+  series-unreadable detail branches), LAST VERDICT (newest capture time).
+  Below: a per-tick RAIL (one colored cell per row, oldest-first per the
+  server contract, `data-status` + title with the firing rule ids), the
+  `truncated` honesty note, and a NEWEST-FIRST firing-rule table (cap 15)
+  showing raw rule ids as chips + the stored report's fired-detail
+  strings verbatim — rule ids stay untranslated ops-contract tokens.
+  Rail/table render ONLY when the series is usable
+  (`enabled && !error`) — a read failure shows a role=alert degrade
+  banner instead of the empty-series copy (session-105 lie rule).
+- `/admin` page: THIRD parallel `authedCall` (`adminAlertsHistory`) in
+  the existing Promise.all; a history-only failure degrades ONLY its own
+  card (`alerts-history-load-error`), never the tables or the traffic
+  section. Same bundle-trim idiom as TrafficPanel: module-scope
+  `dynamic()` + `ssr:false` + render-gate-is-the-code-split-gate, tiny
+  named skeleton component for the localized aria-label (session-93 rule).
+- 29 new Portal keys × EN/ID (ICU params passed String()-wrapped;
+  `OK`/`ALERTING` status words and rule ids stay raw both locales),
+  merged by the canonical ensure_ascii dump after a byte-exact
+  round-trip proof of both bundles.
+
+**Verified:**
+
+- `cd apps/web && npm run build` green. API untouched:
+  `npm run build` + jest 98 suites / 1279 tests — byte-identical to
+  session 113 (delta 0).
+- Live curl on the dev DB: `GET /api/admin/alerts/history` 200 with the
+  full shape (window 86400, enabled true, 1 persisted row, streak
+  `{persistedTrailingAlerting:1, currentStatus:'alerting', alerting:2}`
+  — live read correctly counted on top of the persisted tail);
+  `?windowSec=5` → 400 `BAD_REQUEST` envelope; unauthenticated → 401.
+- New e2e `admin-alerts-history` 4 tests: LIVE payload cross-check
+  (waitForResponse per the session-85 doctrine — cards/rail/table bound
+  to the payload the page itself received, both alerting and
+  cold-series/empty branches handled shape-wise, never absolutes);
+  a deterministic INTERCEPTED alerting payload (route only the history
+  URL; session-91 portal-interception recipe) pinning the ≥ lower-bound
+  render, 67% alerting math, truncated note, rail cell count/order via
+  `data-status`, firing-table chip + stored-detail strings, and
+  independent degradation (traffic cards from the REAL metrics call
+  still render); the intercepted `error:true` read proving the honest
+  degrade banner and that the live verdict card still works; ID-locale
+  chrome. Full suite 110→114 green ×2 consecutive on fresh seeds
+  (~3.2 min each), fixture-timing gate OK (16 labels, 3 prior runs
+  merged, limiter waits classified).
+- Sanitizer scans: the 14 added-line `lit-\u` hits are ALL the
+  messages-JSON canonical ensure_ascii escapes (matching the pre-existing
+  bundle style — session-101 note); the TSX/spec files are clean. The
+  component's first draft carried `\u2265`/`\u00b7` escapes + one comment
+  U+2026 — rewritten to real characters and re-verified by codepoint
+  readback. `git diff --check` clean.
+
+**Left for next sessions:**
+
+- No window/limit selector on the panel (the page uses the API defaults
+  24h/288 rows) — a UI ask if evergreens want range control.
+- Phase 11's remaining open items: First Load JS budget gate,
+  focus-visibility/skip-link audit.
+---
 ## 2026-11-21 12:35 — Session 113 — delivery ETA honesty: derived median on the detail read + storefront surfaces (Product, Phase 11)
 
 **Built:**

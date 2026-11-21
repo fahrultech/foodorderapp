@@ -248,11 +248,21 @@
   29-migration from-empty DB across two boot arms incl. SIGSTOP-frozen
   API↔SQL exact cross-checks and the REAL scan escalating on a chronic
   fire; web delta 0.)
-  - [ ] 🔒 Web: error-budget-style alert-history panel on `/admin`
+  - [x] 🔒 Web: error-budget-style alert-history panel on `/admin`
     consuming `GET /admin/alerts/history` — streak + firingRules over
     time, degrade-on-metrics-failure parity with TrafficPanel, e2e via
     the session-85 waitForResponse cross-check (absolute streak numbers
-    are boot-dependent, pin shapes). EN/ID.
+    are boot-dependent, pin shapes). EN/ID. (2026-11-21, session 114;
+    four cards incl. the ≥ lower-bound streak honesty + per-tick rail +
+    newest-first firing-rule table with RAW rule ids; rail/table render
+    ONLY on a usable series — an `error:true` read shows the honest
+    degrade banner, never the empty-list lie; history-only failure
+    degrades ONLY its section, traffic cards independent; dynamic()-
+    behind-success code-split parity with TrafficPanel; 29 Portal keys
+    × EN/ID; live curl ladder 200/400/401; e2e 110→114 green ×2
+    fresh-seed — 1 live payload cross-check + 2 deterministic
+    intercepted branches (alerting render, error degrade) + ID locale;
+    API delta 0 98/1279.)
 - [x] Product: delivery ETA honesty — compute per-restaurant recent real
   duration (confirmed→completed, median of last 20, fallback to the
   seeded estimate when <5 samples), expose it on the restaurant payload,
