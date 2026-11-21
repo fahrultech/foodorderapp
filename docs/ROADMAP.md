@@ -293,7 +293,10 @@
   node:test cases incl. the 1-byte-over negative) BEFORE the real gate;
   live negative on the real build: 1-byte baselines -> exit 1 naming all
   7 routes, missing table -> marker-not-found exit 1; cold build green,
-  gate +0 B margin on every route; API delta 0, web app-code delta 0.)
+  gate +0 B margin on every route; the FIRST CI run went RED and caught
+  a local .env.local-polluted baseline (+39 B on 5 routes -> re-measured
+  CI-clean, doctrine now written into PERFORMANCE.md); API delta 0, web
+  app-code delta 0.)
 - [ ] UX: focus-visibility + skip-link audit — every portal control gets a
   visible `:focus-visible` state, storefront gains a skip-to-content link,
   and the keyboard-driven spec pattern (portal-a11y) pins both; EN/ID

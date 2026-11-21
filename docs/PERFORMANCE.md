@@ -397,14 +397,19 @@ Why exact bytes: the route table rounds to 1 kB and hides small deltas
 (session 90 proved a 266 B gz win invisible there). The manifest sum
 reproduces Next's own arithmetic exactly — every number below matches the
 cold-build table at its kB rounding (`/` 106,963 B -> "107 kB",
-`/checkout` 127,545 -> "128 kB", `/orders/[id]` 145,064 -> "145 kB").
+`/checkout` 127,584 -> "128 kB", `/orders/[id]` 145,103 -> "145 kB").
 
-Baseline measured at ship on a cold `rm -rf .next && next build` of this
-tree (lockfile-pinned, so CI rebuilds reproduce these bytes modulo toolchain
-upgrades). Tolerance is ZERO by design — like the schema-drift gate, growth
-is either shrunk back or re-measured deliberately: run
-`node scripts/check-bundle-budget.mjs --print` after your cold build and
-commit the new numbers WITH the change that grew the bundle.
+Baseline measured at ship on a cold `rm -rf .next && next build` from a
+CI-CLEAN checkout — no gitignored `apps/web/.env.local`: a defined
+`NEXT_PUBLIC_API_URL` inlines into the client chunks and moved five
+route sums +39 B (the first CI run of this gate failed RED precisely
+because the baseline had been taken with the local .env.local present —
+the gate caught its own measurement discipline, exactly as intended).
+Lockfile-pinned, so CI rebuilds reproduce these bytes modulo toolchain
+upgrades. Tolerance is ZERO by design — like the schema-drift gate, growth
+is either shrunk back or re-measured deliberately (clean checkout!) via
+`node scripts/check-bundle-budget.mjs --print`, committing the new numbers
+WITH the change that grew the bundle.
 
 Route set = the core storefront funnel (home, restaurant detail, cart,
 checkout, map, receipt, order history). Portal routes (`/admin`,
@@ -415,12 +420,12 @@ their split decisions separately.
 | Route | Baseline First Load JS (B) |
 |---|---|
 | `/` | 106963 |
-| `/restaurants/[id]` | 124962 |
-| `/cart` | 124685 |
-| `/checkout` | 127545 |
+| `/restaurants/[id]` | 125001 |
+| `/cart` | 124724 |
+| `/checkout` | 127584 |
 | `/map` | 104817 |
-| `/orders/[id]` | 145064 |
-| `/orders/my` | 129691 |
+| `/orders/[id]` | 145103 |
+| `/orders/my` | 129730 |
 <!-- BUNDLE-BASELINE-END -->
 
 The gate is dead-gate-proofed (session-106 doctrine): it fails on a missing

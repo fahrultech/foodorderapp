@@ -42,14 +42,26 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 **Verified:**
 
-- Cold web build green (Compiled successfully 15.1 s). Live gate on the
-  real `.next` + committed table: exit 0, margin +0 B on all 7 routes.
+- Cold web build green (Compiled successfully). Live gate on the real
+  `.next` + committed table: exit 0, margin +0 B on all 7 routes.
 - node --test 13/13 (twice — before and after an ASCII sweep of my own
   comment prose).
 - LIVE negative proofs on the REAL build: absurd 1-byte baselines ->
   FAILED (7 route(s)), exit 1, each route named with its over-bytes; and
   against the docs file BEFORE the table existed -> marker-not-found
   exit 1 (the dead-gate path firing for real).
+- FIRST CI RUN OF THE GATE WENT RED — and it caught a real measurement
+  error, MINE: run 44885031356 web job selftests 13/13 green, real gate
+  FAILED on 5 routes, each exactly +39 B over. Root cause: my baseline
+  build ran with the gitignored `apps/web/.env.local` present — a defined
+  `NEXT_PUBLIC_API_URL` is INLINED into the client chunks, while CI's
+  clean checkout bundles the process.env path instead. The gate, run on
+  the runner against a local-polluted table, correctly refused. Fix in
+  the follow-up commit: cold re-measure with .env.local stashed (CI-clean
+  = exactly what the runner builds), table updated (5 rows +39 B, `/` and
+  `/map` byte-identical — the honest signature of an env-diff, not
+  zlib drift), and the CI-CLEAN measurement doctrine recorded in
+  docs/PERFORMANCE.md.
 - Sanitizer scan: first pass caught 3 U+2026 — all prose ellipses in MY
   comments, rewritten ASCII and re-swept clean (no `***`, no literal
   `\u` on added lines); `git diff --check` clean; ci.yml + package.json
@@ -60,8 +72,9 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 - Portal routes (`/admin`, `/dashboard`, `/driver`, `/kitchen`) are NOT
   budgeted yet — adding a row + `npm run budget:print` number is the
   whole procedure whenever the team wants them pinned.
-- CI proof owed: confirm the web job's two new steps green on the push
-  from this session (anonymous poll per the CI skill).
+- CI proof owed: confirm the web job's gate step GREEN on the follow-up
+  (baseline re-measure) push — the first push's web-job RED was the
+  expected pollution catch, documented above.
 
 ---
 ## 2026-11-21 14:55 — Session 114 — alert-history panel on /admin consuming the persisted verdict series (Phase 11 web item)
