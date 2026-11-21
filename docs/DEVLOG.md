@@ -3,6 +3,88 @@
 Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
+## 2026-11-21 12:35 — Session 113 — delivery ETA honesty: derived median on the detail read + storefront surfaces (Product, Phase 11)
+
+**Built:**
+
+- Phase 11 Product item. 3 new files (`delivery-eta.ts`, its spec,
+  `zz-restaurant-eta.spec.ts`) + 8 edited (service/module/swagger-models +
+  lib/api types + restaurant page + checkout page + EN/ID messages).
+- `src/restaurants/delivery-eta.ts` — DI-free derivation module: constants
+  (5-sample floor, 20-row median window), ONE batched parameterized SQL
+  (window-ranked eligible orders -> `percentile_cont` over the newest 20,
+  `MAX(samples)` carrying the FULL eligible count) and the pure builder
+  implementing the ladder: no/filtered rows -> `estimate`
+  (`avgPrepMinutes*60`, 0->garbage->30-min default), <5 samples ->
+  `estimate` (sampleCount still honest), >=5 -> `observed` integer seconds
+  (`Math.max(1, round(median))`), garbage median -> `estimate`. Eligibility
+  = `completed` status + BOTH stamps + positive duration, so inverted/
+  un-stamped rows are excluded from count AND median.
+- `RestaurantsService.attachEta` called ONLY from `findOne` (session-79's
+  3-statement list contract intentionally untouched; list/search rows stay
+  byte-unchanged); `@Optional() @InjectRepository(Order)` for the raw
+  read-only aggregate (entity registered in RestaurantsModule forFeature —
+  no OrdersModule import, no DI cycle, session-42 precedent). A failed
+  aggregate read attaches `null` + a warn line, route stays 200
+  (session-89 extras-degrade doctrine). No migration, no new env knobs —
+  backdating timestamps re-derives everything on the next read.
+- Swagger: new `DeliveryEtaResponse` component (enum source, integer
+  seconds/sampleCount) + optional nullable `deliveryEta` on
+  `RestaurantResponse` (detail-attachment rule in the description). Op
+  count UNCHANGED (76) — no new route.
+- Web: restaurant-page pill branches — `observed` renders an emerald
+  `⏱ Usually ~N min` (testid `eta-observed`, `title` names the sample
+  count via ICU plural with numeric `count`, minutes passed as String per
+  session-95); `estimate`/`null` keeps the OLD curated line BYTE-IDENTICAL
+  (zero EN pins touched). Checkout gains a `Delivery time` row rendered
+  ONLY on `observed`. 4 new keys × EN/ID (`Restaurant.etaUsually/
+  etaObservedTitle`, `Checkout.etaLabel/etaUsually`), merged by the
+  canonical ensure_ascii dump — round-trip-proven surgical diff.
+
+**Verified:**
+
+- `cd apps/api && npm run build` green; jest 98 suites / 1279 tests
+  (97/1263 at session 112: +1 suite, +16 tests — 11 pure-builder ladder
+  pins incl. garbage classes, 5 service attach/embed pins incl.
+  dedupe-one-query, degrade-to-null, and the list path calling NO aggregate).
+- `cd apps/web && npm run build` green.
+- Live smoke **18/18** on a 29-migration from-empty scratch DB (seeded
+  baseline warung estimate/sampleCount 3 seconds=avgPrep·60; sushi 0-sample
+  estimate; list rows byte-free of the field; malformed-uuid 400 envelope;
+  SQL-copied exact-duration ladder 4->estimate / 5->observed median 180 /
+  6->even median 210; inverted-duration AND missing-stamp exclusions flip
+  the branch BOTH ways with a restore proving zero-write re-derivation;
+  21-row windowing proof: sampleCount 26 while the median windows only the
+  newest 20 (60s); docs-json registers the enum+integer schema; warung
+  untouched by the sushi ladder; 0 error-level API-log lines).
+- New e2e `zz-restaurant-eta` 4 tests: contract+invariants; REAL paid +
+  owner-ladder completions flip the SSR page to `observed` and the DOM pill
+  is cross-checked against the API payload (shape doctrine — earlier
+  specs may have completed Warung orders, so absolute minutes stay unpinned;
+  serial worker + TTL=0 boot make the two reads provably equal); checkout
+  observed row via client-side interception (session-91 recipe); ID locale
+  pill/title + checkout row byte-shapes. Full suite 110/110 green ×2
+  consecutive fresh-seed runs (106→110), fixture-timing gate OK.
+- First targeted run 3/4: my own spec-side harness bug — the ID-locale
+  Add CTA is `Tambah` (session-95 localized-CTA lesson, re-learned); fixed
+  in the spec, no product change.
+- Added-lines sanitizer scan CLEAN (U+2026/`***`/literal-\u): the two
+  scan hits are PRE-EXISTING HEAD content (an ARCHITECTURE-era lib/api.ts
+  comment; the messages-JSON `\u2014` escape form), verified against
+  `git show HEAD`. `git diff --check` clean.
+
+**Left for next sessions:**
+
+- Search hits (`GET /search` restaurant rows) still embed hours but not
+  the ETA — same batch helper could ride `search.service` with one more
+  aggregate; deliberately scoped out to keep the statement-count sweeps
+  isolated this session.
+- Per-list ETA (cards showing "usually ~N min") would restore session 79's
+  contract ONLY with an explicit statement-shape re-pin — need is a UI ask.
+- Phase 11's remaining open items: admin alert-history panel (🔒),
+  First Load JS budget gate, focus-visibility/skip-link audit.
+
+---
 ## 2026-11-20 19:38 — Session 112 — alert verdicts persisted: time series + history route + scan escalation (Ops, Phase 11)
 
 **Built:**

@@ -253,11 +253,22 @@
     time, degrade-on-metrics-failure parity with TrafficPanel, e2e via
     the session-85 waitForResponse cross-check (absolute streak numbers
     are boot-dependent, pin shapes). EN/ID.
-- [ ] Product: delivery ETA honesty — compute per-restaurant recent real
+- [x] Product: delivery ETA honesty — compute per-restaurant recent real
   duration (confirmed→completed, median of last 20, fallback to the
   seeded estimate when <5 samples), expose it on the restaurant payload,
   and surface it on the restaurant page + checkout ("usually ~25 min"),
   EN/ID + unit + e2e. Money stays integer cents; durations integer seconds.
+  (2026-11-21, session 113; read-time derivation in DI-free
+  `restaurants/delivery-eta.ts` — ONE batched percentile SQL attached ONLY
+  on `GET /restaurants/:id` (list/search keep session 79's shape), garbage
+  exclusion (both stamps + positive duration), full-eligible sampleCount
+  vs newest-20 window, estimate fallback keeps the old pill byte-identical,
+  failed read degrades to null never a 500, no migration/env churn;
+  DeliveryEtaResponse swagger component; 98 suites/1279 tests (+1/+16),
+  live smoke 18/18 on a 29-migration from-empty DB incl. the exact
+  4→5→6-sample ladder and 26-vs-20 windowing proof, e2e 110/110 green ×2
+  fresh-seed with 4 new tests incl. a REAL paid+owner-ladder observed flip
+  + ID locale shapes.)
 - [ ] Perf: First Load JS budget gate — a zero-dep node script reads the
   gzip chunk sums (session-90 method) from apps/web/.next and FAILS the
   CI web job when a core storefront route exceeds a committed baseline

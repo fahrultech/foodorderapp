@@ -68,6 +68,20 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   schedule and hands the signal back to the manual toggle. The web UI never
   recomputes the open/closed signal client-side; it renders the server's
   `isOpenNow` (session 68).
+- **Delivery duration is DERIVED at read time, never stored** —
+  `deliveryEta` on `GET /restaurants/:id` answers `observed` = median of the
+  newest ≤20 eligible completed orders' `confirmedAt→completedAt` durations
+  (INTEGER seconds; a sample requires both stamps and a POSITIVE duration,
+  garbage rows are excluded from count AND median), and falls back to
+  `estimate` (`avgPrepMinutes`, never overwritten) below the 5-sample floor.
+  `sampleCount` is the FULL eligible count, not the 20-row window. ONE
+  batched aggregate query attaches it (`RestaurantsService.attachEta`); the
+  DETAIL read only — list/search rows never carry it (keeps session 79's
+  3-statement list contract) and a failed aggregate read attaches `null`,
+  never a 500. The storefront renders the curated estimate byte-identically
+  for `estimate`/`null`; only `observed` gets the "usually ~N min" pill.
+  Backdating the stamps re-derives the answer on the next request — zero
+  writes, zero repair tooling (session 113).
 - **Map pins are a coordinate PAIR** — `restaurants.latitude/longitude`
   (WGS84 decimal degrees, nullable, DB CHECKs `-90..90` / `-180..180` mirror
   the DTO bounds). The partner rule lives in `RestaurantsService`:
