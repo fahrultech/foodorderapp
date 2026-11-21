@@ -3,6 +3,83 @@
 Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
+## 2026-11-21 18:05 — Session 116 — Per-restaurant durability: persisted restaurant dimension + OWNER windowed deltas (Phase 8 🔒 item)
+
+**Built:**
+
+- `persistNow` now writes `{...global snapshot, restaurants: <entry map>}`
+  into the SAME `metrics_snapshots` jsonb rows — one capture instant per
+  tick serves both dimensions, so NO new table and NO 30th migration.
+  `RequestMetricsRegistry.restaurantEntries()` is the persistence feed
+  (every minted bucket, lowercased-id keys; cap-refused ids are absent by
+  construction, so a stored map can never carry foreign attribution).
+- `metrics-window.ts` widened to a structural `CumulativeSnapshotLike`:
+  `computeWindowDelta`/`isSnapshotShape` now run on BOTH snapshot shapes
+  — one monotonicity rule set (negative pair / vanished key / bounds
+  mismatch → null, never a clamp), no second windowing engine.
+- New `MetricsPersistenceService.describeRestaurant(rid, live)` — the
+  OWNER-rung honesty ladder: same-boot row with entry → exact
+  bucket-internal subtraction; entry ABSENT → the bucket provably minted
+  after the row (rows always carry every minted bucket), so the window
+  rides an honest ZERO baseline anchored at the row instant with
+  `mintedAfterBaseline=true`; cross-boot row → null until this boot's
+  first row (a restart inherits no false baseline); pre-session-116 row
+  (no `restaurants` key) → `restaurantsPersisted=false` + null, never
+  zero-clamped; operator-corrupted entry → null; ANY store failure →
+  `error=true` and the route still 200s with the live bucket.
+- `GET /restaurants/:id/metrics` adds exactly ONE top-level key,
+  `durability`; the window delta is NESTED under `durability.window`
+  because the session-98 contract pins the top-level `window` to the
+  `'since_api_boot'` marker string (additive-only: session 99's e2e byte
+  pins kept). The scoped block DELIBERATELY drops the admin durability's
+  `stored` global row count — the session-85 ADMIN-only rule extends from
+  global traffic to global durability metadata. Swagger contract extended
+  (same op, no count change).
+- Web: `lib/api.ts` mirrors the new fields (`durability`/window views)
+  with the corrected honesty comments; the `TrafficPanel`/dashboard read
+  nothing new. `owner-traffic.spec.ts` key-set pin updated: `durability`
+  rides, its own 10-key set pinned mechanically, `stored` asserted ABSENT,
+  window pinned by SHAPE only (tick-timing differs between fresh and warm
+  servers).
+
+**Verified:**
+
+- API build green; jest 98 suites / **1294 tests** (+15 vs a measured
+  HEAD baseline of 1279 — re-verified by `git stash push -u` + rerun):
+  +10 describeRestaurant ladder cases, +3 restaurantEntries registry
+  cases (incl. cap-refused ids absent), +1 window-engine restaurant-shape
+  case, +1 HTTP durability-passthrough case, and the two legacy key-set
+  pins rewritten.
+- Live scratch-DB smoke **48/48** on a 29-migration from-empty DB,
+  METRICS_SNAPSHOT_INTERVAL_SEC=6 (3 API boots): pre-row honesty; EXACT
+  window = the 2 post-baseline GETs vs the stored entry's 3 tallies
+  (cross-checked in psql jsonb); minted-after-baseline zero anchor for a
+  second restaurant (ADMIN bypass rung); pre-116 row via `payload -
+  'restaurants'` → null-not-clamped; RESTART: prev-boot row refuses a
+  false baseline, 2 distinct boot stamps survive, post-restart re-mint
+  window == live; disabled writer (interval 0) never touches the store;
+  ADMIN rung byte-stable (no `restaurants` key at its top level);
+  observer exemption holds (polls 1/1); 0 error-level log lines. First
+  run 46/48 — both failures were HARNESS bugs (login before boot; a
+  boot-stamp check placed before the new boot's first tick), zero
+  product bugs.
+- Web build green; full e2e **114/114 twice** (fresh seed between runs,
+  Playwright-booted servers on free ports).
+
+**Left for next sessions:**
+
+- Phase 8's last 🔒 item — order-centric attribution (`POST /orders`,
+  payments, receipt reads opt into restaurant buckets service-side).
+  Its window will then extend to those routes automatically, since the
+  persistence feed captures whatever the registry holds.
+- The owner web panel could surface `durability.window` (a "since last
+  snapshot" view beside the cumulative cards) — panel untouched this
+  session; needs a Portal copy pass + e2e.
+- Snapshot payload size now grows with minted buckets × restaurant
+  template rows; worst case is ~250 buckets and bounded retention — fine
+  at defaults, worth a PERFORMANCE.md note if the surface grows.
+
+---
 ## 2026-11-21 16:16 — Session 115 — First Load JS budget gate in the CI web job (Phase 11 perf item)
 
 **Built:**

@@ -621,12 +621,24 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   into a shared `other` (one owner must never be handed another's
   traffic). The metrics read `GET /api/restaurants/:id/metrics` is EXEMPT
   from attribution — polling never inflates its own numbers — and its
-  payload is built exclusively from the requested bucket (no global
-  totals, no durability fields: the session-85 rule that the global
-  snapshot is ADMIN-only is structural, not policy). Restaurant buckets
-  are live-only: the session-89 durability layer persists the GLOBAL
-  snapshot only, so a restart zeroes the per-restaurant view (filed on
-  the roadmap). The web owner panel (`/dashboard/analytics`, session 99)
+  payload is built exclusively from the requested bucket. Session 116
+  closed the dimension's last live-only gap: `persistNow` now writes the
+  FULL restaurant map into the same `metrics_snapshots.payload`
+  (`payload.restaurants` keyed by lowercased id, one capture instant for
+  both dimensions), and the OWNER route adds exactly one key — `durability`
+  — whose `window` (nested, because the top-level `window` key is the
+  session-98 honesty-marker string) subtracts the newest same-boot row's
+  ENTRY from the live bucket. The session-85 ADMIN-only rule now extends
+  from global traffic to global durability METADATA: the scoped block has
+  no `stored` row count. Baseline honesty ladder: previous-boot row ->
+  window null until this boot's first row (no false inherited baseline);
+  pre-session-116 row without the map -> `restaurantsPersisted=false`,
+  window null, NEVER zero-clamped; row whose map lacks this entry -> the
+  bucket provably minted after the capture, so the window rides an honest
+  ZERO baseline anchored at the row instant (`mintedAfterBaseline=true`);
+  operator-corrupted entries -> null. Store errors degrade the block with
+  the route still 200 (a dead smoke detector never 5xxs like a fire).
+  The web owner panel (`/dashboard/analytics`, session 99)
   consumes the route through the SHARED `TrafficPanel`, generalized to a
   structural `TrafficView` Pick — the component only ever reads
   totals/routes/generatedAt/uptimeSec, so a global field cannot ride onto
