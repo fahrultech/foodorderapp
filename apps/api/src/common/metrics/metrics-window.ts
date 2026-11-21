@@ -22,11 +22,27 @@
  */
 import {
   HistogramBucket,
-  MetricsSnapshot,
+  MetricsRouteRow,
   StatusClass,
 } from './request-metrics';
 
 export const STATUS_CLASSES = ['2xx', '3xx', '4xx', '5xx'] as const;
+
+/**
+ * The STRUCTURAL minimum both snapshot shapes satisfy:
+ *  - MetricsSnapshot (global totals + route rows),
+ *  - RestaurantTrafficSnapshot (one bucket, same row shape) — session-116
+ *    per-restaurant durability reuses this exact subtraction for the OWNER
+ *    window, so there is ONE monotonicity rule set, not two.
+ * Anything beyond these four fields (status-class extras, cardinality
+ * tallies, scope markers) is deliberately never read here.
+ */
+export interface CumulativeSnapshotLike {
+  generatedAt: string;
+  boundsMs: number[];
+  totals: { requests: number; byStatus: Record<StatusClass, number> };
+  routes: MetricsRouteRow[];
+}
 
 /** Route rows are capped in the window payload to keep responses bounded. */
 export const WINDOW_TOP_ROUTES = 10;
@@ -86,7 +102,7 @@ const pct3 = (part: number, whole: number): number | null =>
   whole <= 0 ? null : Math.round((part / whole) * 100 * 1000) / 1000;
 
 /** Cheap shape guard: stored jsonb is operator-editable, so never trust it blindly. */
-export function isSnapshotShape(v: unknown): v is MetricsSnapshot {
+export function isSnapshotShape(v: unknown): v is CumulativeSnapshotLike {
   if (typeof v !== 'object' || v === null) return false;
   const s = v as Record<string, unknown>;
   return (
@@ -106,7 +122,7 @@ export function isSnapshotShape(v: unknown): v is MetricsSnapshot {
  * function stays correct across future bound-set changes — a row whose
  * histograms do not match that layout makes the pair inconsistent → null.
  */
-function mergedBuckets(snapshot: MetricsSnapshot): number[] | null {
+function mergedBuckets(snapshot: CumulativeSnapshotLike): number[] | null {
   const size = snapshot.boundsMs.length + 1;
   const merged = new Array<number>(size).fill(0);
   for (const row of snapshot.routes) {
@@ -138,8 +154,8 @@ function percentileFromBuckets(bounds: readonly number[], buckets: number[], cou
  * but the service compares boot stamps BEFORE ever calling here).
  */
 export function computeWindowDelta(
-  previous: MetricsSnapshot,
-  current: MetricsSnapshot,
+  previous: CumulativeSnapshotLike,
+  current: CumulativeSnapshotLike,
 ): MetricsWindowDelta | null {
   if (!isSnapshotShape(previous) || !isSnapshotShape(current)) return null;
   if (previous.boundsMs.join(',') !== current.boundsMs.join(',')) return null;

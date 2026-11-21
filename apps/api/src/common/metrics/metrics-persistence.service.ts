@@ -8,8 +8,9 @@ import {
   isSnapshotShape,
   MetricsDurability,
   MetricsWindowDelta,
+  STATUS_CLASSES,
 } from './metrics-window';
-import { MetricsSnapshot } from './request-metrics';
+import { MetricsSnapshot, PersistedMetricsSnapshot, RestaurantTrafficSnapshot } from './request-metrics';
 import { RequestMetricsService } from './request-metrics.service';
 import { SnapshotFreshnessInput } from '../../ops/alerts';
 
@@ -46,6 +47,38 @@ export function resolveSnapshotRetentionSec(raw: string | undefined | null): num
   const n = Number(raw);
   if (!Number.isFinite(n) || n <= 0) return DEFAULT_METRICS_SNAPSHOT_RETENTION_SEC;
   return Math.floor(n);
+}
+
+/**
+ * The OWNER-rung durability block (session-116 per-restaurant durability).
+ * DELIBERATELY NOT the admin `MetricsDurability`: it carries NO global
+ * traffic fields and NO global row count (`stored`) — the session-85 rule
+ * that global telemetry is ADMIN-only extends to global-scale metadata.
+ * Everything here is either shared boot/infrastructure config or derived
+ * exclusively from THIS restaurant's bucket. The window delta lives nested
+ * under `window` because the top-level `window: 'since_api_boot'` marker
+ * of the restaurant view is taken (the additive-only contract: session
+ * 98/99 e2e pins keep that string byte-identical).
+ */
+export interface RestaurantMetricsDurability {
+  /** False when METRICS_SNAPSHOT_INTERVAL_SEC=0 — nothing written, nothing read. */
+  enabled: boolean;
+  snapshotIntervalSec: number;
+  retentionSec: number;
+  /** ISO timestamp of the LIVE registry boot — rows stamped differently can never form a window. */
+  bootStartedAt: string;
+  /** capturedAt of the newest stored row; null when none / disabled / store error. */
+  lastCapturedAt: string | null;
+  /** True = the newest row was written by THIS boot. False = it predates this boot. null = no rows / disabled / error. */
+  bootAligned: boolean | null;
+  /** False = the baseline row predates restaurant-dimension persistence (window stays null). */
+  restaurantsPersisted: boolean;
+  /** True = THIS restaurant's bucket was minted AFTER the baseline row: the window's bottom is a zero baseline anchored at the row's capture instant, so it honestly covers every sample the bucket ever took. */
+  mintedAfterBaseline: boolean;
+  /** The snapshot store could not be read on this call — the route STILL 200s with the live bucket (a dead smoke detector never 5xxs). */
+  error: boolean;
+  /** Window delta over this restaurant's bucket since the newest same-boot snapshot row; null when not computable. */
+  window: MetricsWindowDelta | null;
 }
 
 /**
@@ -107,7 +140,13 @@ export class MetricsPersistenceService implements OnModuleDestroy {
     if (!this.enabled) return 'disabled';
     try {
       const capturedAt = new Date();
-      const payload = this.metrics.snapshot();
+      // Session-116: the restaurant dimension rides the SAME row, so a
+      // restart preserves BOTH views from one capture instant — the global
+      // window and any restaurant window always share one baseline timestamp.
+      const payload: PersistedMetricsSnapshot = {
+        ...this.metrics.snapshot(),
+        restaurants: this.metrics.restaurantEntries(),
+      };
       const row = this.repo.create({
         capturedAt,
         bootStartedAt: new Date(this.bootStartedAtMs),
@@ -180,6 +219,92 @@ export class MetricsPersistenceService implements OnModuleDestroy {
       );
       durability.error = true;
       return { durability, window: null };
+    }
+  }
+
+  /**
+   * The additive OWNER-rung extras for GET /restaurants/:id/metrics
+   * (session-116). Same baseline selection + boot-alignment doctrine as
+   * describe(), but subtraction happens STRICTLY inside the requested
+   * bucket: the stored per-restaurant entry vs the live restaurant
+   * snapshot. Honesty ladder:
+   *  - disabled / no rows            -> window null (markers tell which);
+   *  - newest row from a previous boot -> window null until THIS boot's
+   *    first row lands (a restart can never inherit a false baseline);
+   *  - row predates restaurant persistence (`restaurants` key absent or
+   *    not an object) -> restaurantsPersisted=false, window null;
+   *  - row has the map but NO entry for this id -> the bucket was minted
+   *    AFTER that capture (every minted bucket rides every later row), so
+   *    the window bottom is an honest zero baseline at the row instant —
+   *    mintedAfterBaseline=true, never a silently-clamped subtraction;
+   *  - stored entry shape-invalid (operator edited jsonb) -> window null;
+   *  - ANY store read failure -> error=true, window null; the route still
+   *    answers 200 with the live bucket.
+   * NEVER throws.
+   */
+  async describeRestaurant(
+    restaurantId: string,
+    live: RestaurantTrafficSnapshot,
+  ): Promise<RestaurantMetricsDurability> {
+    const durability: RestaurantMetricsDurability = {
+      enabled: this.enabled,
+      snapshotIntervalSec: this.snapshotIntervalSec,
+      retentionSec: this.retentionSec,
+      bootStartedAt: new Date(this.bootStartedAtMs).toISOString(),
+      lastCapturedAt: null,
+      bootAligned: null,
+      restaurantsPersisted: false,
+      mintedAfterBaseline: false,
+      error: false,
+      window: null,
+    };
+    if (!this.enabled) return durability;
+
+    try {
+      // find({ order, take: 1 }) NOT findOne({ order }) — session 89 pin.
+      const [row] = await this.repo.find({ order: { capturedAt: 'DESC' }, take: 1 });
+      if (!row) return durability;
+      durability.lastCapturedAt = row.capturedAt.toISOString();
+      const aligned = row.bootStartedAt.getTime() === this.bootStartedAtMs;
+      durability.bootAligned = aligned;
+      if (!aligned || !isSnapshotShape(row.payload)) return durability;
+
+      const restaurants = (row.payload as PersistedMetricsSnapshot).restaurants;
+      if (!restaurants || typeof restaurants !== 'object' || Array.isArray(restaurants)) {
+        return durability; // pre-session-116 row: honest null, never a zero-clamp
+      }
+      durability.restaurantsPersisted = true;
+
+      const entry = restaurants[restaurantId.toLowerCase()] as unknown;
+      if (entry === undefined) {
+        durability.mintedAfterBaseline = true;
+        const zeroByStatus = {} as Record<(typeof STATUS_CLASSES)[number], number>;
+        for (const cls of STATUS_CLASSES) zeroByStatus[cls] = 0;
+        // A persisted row ALWAYS carries every minted bucket, so absence
+        // PROVES the bucket minted after this row's capture instant: the
+        // entire bucket history falls inside the window. Zero baseline is
+        // anchored at the ROW's generatedAt, so spanSec stays honest.
+        durability.window = computeWindowDelta(
+          {
+            generatedAt: row.payload.generatedAt,
+            boundsMs: live.boundsMs,
+            totals: { requests: 0, byStatus: zeroByStatus },
+            routes: [],
+          },
+          live,
+        );
+        return durability;
+      }
+      if (!isSnapshotShape(entry)) return durability; // operator-corrupted entry
+      durability.window = computeWindowDelta(entry, live);
+      return durability;
+    } catch (err) {
+      this.logger.warn(
+        `restaurant metrics durability read failed: ${(err as Error)?.message ?? 'unknown error'}`,
+      );
+      durability.error = true;
+      durability.window = null;
+      return durability;
     }
   }
 

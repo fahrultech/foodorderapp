@@ -77,6 +77,11 @@ export class RequestMetricsService implements OnModuleDestroy {
     return this.registry.restaurantSnapshot(restaurantId);
   }
 
+  /** Every minted restaurant bucket as a snapshot — the persistence feed. */
+  restaurantEntries() {
+    return this.registry.restaurantEntries();
+  }
+
   /**
    * Full alert report over the LIVE snapshot — the GET /admin/alerts route.
    * The optional `freshness` observation (session 109) powers the

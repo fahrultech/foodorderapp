@@ -69,12 +69,16 @@ test('owner traffic cards mirror the live per-restaurant payload', async ({ page
   const payload = await response.json();
 
   // CONTRACT: the OWNER rung answers with the restaurant view ONLY —
-  // exact key-set pin, no global field can ride along (session 98 rule).
+  // exact key-set pin, no global traffic field can ride along (session 98
+  // rule). Session 116 added exactly ONE top-level key: the scoped
+  // `durability` block — its own key set is pinned too, and the global
+  // row count (`stored`) must be ABSENT (session-85 extends to metadata).
   expect(payload.scope).toBe('restaurant');
   expect(payload.window).toBe('since_api_boot');
   expect(payload.restaurantId).toBe(id.toLowerCase());
   expect(Object.keys(payload).sort()).toEqual([
     'boundsMs',
+    'durability',
     'generatedAt',
     'restaurantId',
     'routes',
@@ -83,6 +87,26 @@ test('owner traffic cards mirror the live per-restaurant payload', async ({ page
     'uptimeSec',
     'window',
   ]);
+  expect(Object.keys(payload.durability).sort()).toEqual([
+    'bootAligned',
+    'bootStartedAt',
+    'enabled',
+    'error',
+    'lastCapturedAt',
+    'mintedAfterBaseline',
+    'restaurantsPersisted',
+    'retentionSec',
+    'snapshotIntervalSec',
+    'window',
+  ]);
+  expect(payload.durability).not.toHaveProperty('stored');
+  // The window is tick-timing dependent (server lifetime varies between
+  // fresh Playwright boots and warm reused ones): pin the HONESTY SHAPE,
+  // never remembered numbers — null until a same-boot snapshot row exists,
+  // otherwise a delta object computed inside THIS bucket.
+  expect(
+    payload.durability.window === null || typeof payload.durability.window === 'object',
+  ).toBe(true);
   expect(payload.totals).toHaveProperty('requests');
   expect(Array.isArray(payload.routes)).toBe(true);
 

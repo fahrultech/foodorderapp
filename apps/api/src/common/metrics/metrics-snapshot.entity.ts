@@ -1,5 +1,5 @@
 import { Column, Entity, Index, PrimaryGeneratedColumn } from 'typeorm';
-import { MetricsSnapshot } from './request-metrics';
+import { PersistedMetricsSnapshot } from './request-metrics';
 
 /**
  * Durability row for the in-process metrics registry (Phase 8): the registry
@@ -28,7 +28,12 @@ export class MetricsSnapshotRow {
   @Column({ type: 'timestamptz' })
   bootStartedAt: Date;
 
-  /** The full MetricsSnapshot — same shape GET /admin/metrics has always returned. */
+  /**
+   * The full MetricsSnapshot — same shape GET /admin/metrics has always
+   * returned — plus, since session 116, the `restaurants` map backing
+   * per-restaurant windows (rows written before that lack the key; readers
+   * treat absence as "not persisted yet", never as "no traffic").
+   */
   @Column({ type: 'jsonb' })
-  payload: MetricsSnapshot;
+  payload: PersistedMetricsSnapshot;
 }

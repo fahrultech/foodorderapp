@@ -15,19 +15,26 @@ import { computeWindowDelta } from './metrics-window';
 const BOOT = Date.parse('2026-11-12T02:00:00.000Z');
 const T0 = new Date('2026-11-12T03:50:00.000Z');
 const T1 = new Date('2026-11-12T04:00:00.000Z');
+const RID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+const OTHER_RID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 
 // Real registry output — the persisted payloads and the live snapshot are
 // internally consistent cumulative pairs, exactly what production writes.
-function registryPair(): { previous: MetricsSnapshot; live: MetricsSnapshot } {
+// The restaurant dimension rides the SAME registry so the session-116
+// payload assertions use genuine bucket snapshots, not hand-rolled stubs.
+function registryPair() {
   const reg = new RequestMetricsRegistry();
   reg.record('GET /a', 200, 10);
   reg.record('GET /a', 200, 20);
+  reg.record('GET /api/restaurants/:id', 200, 30, RID);
   const previous = reg.snapshot(T0);
-  return { previous, live: reg.snapshot(T1) };
+  const entriesPrevious = reg.restaurantEntries(T0);
+  const live = reg.snapshot(T1);
+  return { reg, previous, live, entriesPrevious, entriesLive: reg.restaurantEntries(T1) };
 }
 
 function makeFakes(env: Record<string, string> = {}) {
-  const { previous, live } = registryPair();
+  const { reg, previous, live, entriesPrevious, entriesLive } = registryPair();
   const repo = {
     create: jest.fn((partial: Partial<MetricsSnapshotRow>) => ({ id: 'gen', ...partial })),
     save: jest.fn(async (row: MetricsSnapshotRow) => row),
@@ -45,6 +52,7 @@ function makeFakes(env: Record<string, string> = {}) {
   const metrics = {
     registry: { bootStartedAtMs: BOOT },
     snapshot: jest.fn(() => live),
+    restaurantEntries: jest.fn(() => entriesLive),
   } as unknown as RequestMetricsService;
   const config = { get: (key: string) => env[key] } as unknown as ConfigService;
   const svc = new MetricsPersistenceService(
@@ -52,7 +60,7 @@ function makeFakes(env: Record<string, string> = {}) {
     metrics,
     repo as unknown as Repository<MetricsSnapshotRow>,
   );
-  return { svc, repo, metrics, previous, live };
+  return { svc, repo, metrics, reg, previous, live, entriesPrevious, entriesLive };
 }
 
 describe('metrics snapshot env resolution', () => {
@@ -77,13 +85,16 @@ describe('metrics snapshot env resolution', () => {
 });
 
 describe('MetricsPersistenceService.persistNow', () => {
-  it('writes the full snapshot stamped with capturedAt + the LIVE boot, then prunes past retention', async () => {
-    const { svc, repo, live } = makeFakes();
+  it('writes the full snapshot + the restaurant dimension, stamped with capturedAt + the LIVE boot, then prunes past retention', async () => {
+    const { svc, repo, live, entriesLive } = makeFakes();
     const before = Date.now();
     await expect(svc.persistNow()).resolves.toBe('written');
 
     const created = repo.create.mock.calls[0][0];
-    expect(created.payload).toBe(live);
+    // Session 116: BOTH dimensions ride one row from one capture instant.
+    expect(created.payload).toEqual({ ...live, restaurants: entriesLive });
+    expect(created.payload).not.toHaveProperty('requests'); // global totals stay nested
+    expect(Object.keys(created.payload.restaurants)).toEqual([RID]);
     expect(new Date(created.bootStartedAt).getTime()).toBe(BOOT);
     const captured = new Date(created.capturedAt).getTime();
     expect(captured).toBeGreaterThanOrEqual(before - 1);
@@ -261,6 +272,135 @@ describe('MetricsPersistenceService.describe (the additive /admin/metrics fields
     expect(out.totals).toBe(live.totals);
     expect(out.durability.error).toBe(true);
     expect(out.window).toBeNull();
+  });
+});
+
+describe('MetricsPersistenceService.describeRestaurant (OWNER-rung durability, session 116)', () => {
+  function rowFor(payload: unknown, capturedAt = T0, bootMs = BOOT): MetricsSnapshotRow {
+    return {
+      id: 'row-1',
+      capturedAt: new Date(capturedAt),
+      bootStartedAt: new Date(bootMs),
+      payload,
+    } as MetricsSnapshotRow;
+  }
+
+  it('disabled: reports enabled=false and touches NO database', async () => {
+    const { svc, repo, entriesLive } = makeFakes({ METRICS_SNAPSHOT_INTERVAL_SEC: '0' });
+    const d = await svc.describeRestaurant(RID, entriesLive[RID]);
+    expect(d).toEqual({
+      enabled: false,
+      snapshotIntervalSec: 0,
+      retentionSec: DEFAULT_METRICS_SNAPSHOT_RETENTION_SEC,
+      bootStartedAt: new Date(BOOT).toISOString(),
+      lastCapturedAt: null,
+      bootAligned: null,
+      restaurantsPersisted: false,
+      mintedAfterBaseline: false,
+      error: false,
+      window: null,
+    });
+    expect(repo.find).not.toHaveBeenCalled();
+  });
+
+  it('aligned same-boot row with the entry -> window is exact per-bucket subtraction', async () => {
+    const { svc, repo, reg, previous, entriesPrevious } = makeFakes();
+    // Traffic AFTER the baseline row lands in THIS bucket: window must see ONLY it.
+    reg.record('GET /api/restaurants/:id/menu', 201, 40, RID);
+    reg.record('GET /api/restaurants/:id', 200, 10, OTHER_RID); // foreign, must NOT ride in
+    const live = reg.restaurantSnapshot(RID, T1);
+    repo.find.mockResolvedValue([rowFor({ ...previous, restaurants: entriesPrevious })]);
+    const d = await svc.describeRestaurant(RID, live);
+    expect(d.bootAligned).toBe(true);
+    expect(d.restaurantsPersisted).toBe(true);
+    expect(d.mintedAfterBaseline).toBe(false);
+    expect(d.window).toEqual(computeWindowDelta(entriesPrevious[RID], live));
+    expect(d.window!.requests).toBe(1); // the menu POST only — never the foreign sample
+    expect(d.window!.routes.map((r) => r.route)).toEqual(['GET /api/restaurants/:id/menu']);
+    // The OWNER durability block carries NO global row count (session-85 rule):
+    expect(d).not.toHaveProperty('stored');
+  });
+
+  it('case-insensitive id lookup: an uppercase query hits the lowercased bucket', async () => {
+    const { svc, repo, previous, entriesPrevious, entriesLive } = makeFakes();
+    repo.find.mockResolvedValue([rowFor({ ...previous, restaurants: entriesPrevious })]);
+    const d = await svc.describeRestaurant(RID.toUpperCase(), entriesLive[RID]);
+    expect(d.restaurantsPersisted).toBe(true);
+    expect(d.mintedAfterBaseline).toBe(false);
+    expect(d.window!.requests).toBe(0); // baseline IS the live bucket state
+  });
+
+  it('minted AFTER the baseline row: honest zero baseline at the row instant, full bucket inside the window', async () => {
+    const { svc, repo, previous } = makeFakes();
+    // A bucket minted for an id that the shared registry NEVER saw: the
+    // persisted row carries an (empty but valid) restaurants map without
+    // this entry, which PROVES the mint came after the capture instant.
+    const FRESH_RID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+    const reg2 = new RequestMetricsRegistry();
+    reg2.record('GET /api/restaurants/:id', 200, 8, FRESH_RID); // mints
+    reg2.record('GET /api/restaurants/:id', 304, 4, FRESH_RID); // tops up the existing bucket
+    const live = reg2.restaurantSnapshot(FRESH_RID, T1);
+    repo.find.mockResolvedValue([rowFor({ ...previous, restaurants: {} })]);
+    const d = await svc.describeRestaurant(FRESH_RID, live);
+    expect(d.restaurantsPersisted).toBe(true);
+    expect(d.mintedAfterBaseline).toBe(true);
+    expect(d.window).not.toBeNull();
+    expect(d.window!.requests).toBe(live.totals.requests); // every sample the bucket ever took
+    expect(d.window!.fromCapturedAt).toBe(previous.generatedAt); // anchored at the ROW, honest span
+    expect(d.window!.routes.map((r) => r.route)).toEqual(['GET /api/restaurants/:id']);
+  });
+
+  it('pre-session-116 row (no restaurants key): restaurantsPersisted=false, window=null, NO zero-clamp', async () => {
+    const { svc, repo, previous, entriesLive } = makeFakes();
+    repo.find.mockResolvedValue([rowFor(previous)]); // legacy global-only payload
+    const d = await svc.describeRestaurant(RID, entriesLive[RID]);
+    expect(d.bootAligned).toBe(true);
+    expect(d.restaurantsPersisted).toBe(false);
+    expect(d.window).toBeNull();
+  });
+
+  it('restaurants key present but NOT a map (operator garbage): same honest null', async () => {
+    const { svc, repo, previous, entriesLive } = makeFakes();
+    repo.find.mockResolvedValue([rowFor({ ...previous, restaurants: 'nonsense' })]);
+    const d = await svc.describeRestaurant(RID, entriesLive[RID]);
+    expect(d.restaurantsPersisted).toBe(false);
+    expect(d.window).toBeNull();
+  });
+
+  it('entry present but shape-corrupted: restaurantsPersisted=true, window=null', async () => {
+    const { svc, repo, previous, entriesLive } = makeFakes();
+    repo.find.mockResolvedValue([rowFor({ ...previous, restaurants: { [RID]: { totals: 'junk' } } })]);
+    const d = await svc.describeRestaurant(RID, entriesLive[RID]);
+    expect(d.restaurantsPersisted).toBe(true);
+    expect(d.window).toBeNull();
+    expect(d.error).toBe(false);
+  });
+
+  it('previous-BOOT row: bootAligned=false, window=null — a restart inherits no baseline', async () => {
+    const { svc, repo, previous, entriesLive, entriesPrevious } = makeFakes();
+    repo.find.mockResolvedValue([rowFor({ ...previous, restaurants: entriesPrevious }, T1, BOOT - 86_400_000)]);
+    const d = await svc.describeRestaurant(RID, entriesLive[RID]);
+    expect(d.bootAligned).toBe(false);
+    expect(d.restaurantsPersisted).toBe(false); // alignment gates everything downstream
+    expect(d.window).toBeNull();
+  });
+
+  it('empty table: every marker honest-null, window null', async () => {
+    const { svc, entriesLive } = makeFakes(); // repo.find default []
+    const d = await svc.describeRestaurant(RID, entriesLive[RID]);
+    expect(d.lastCapturedAt).toBeNull();
+    expect(d.bootAligned).toBeNull();
+    expect(d.window).toBeNull();
+    expect(d.error).toBe(false);
+  });
+
+  it('store errors NEVER throw: error=true, window=null', async () => {
+    const { svc, repo, entriesLive } = makeFakes();
+    repo.find.mockRejectedValueOnce(new Error('db down'));
+    const d = await svc.describeRestaurant(RID, entriesLive[RID]);
+    expect(d.error).toBe(true);
+    expect(d.window).toBeNull();
+    expect(d.lastCapturedAt).toBeNull();
   });
 });
 

@@ -151,4 +151,31 @@ describe('computeWindowDelta — same-boot cumulative subtraction', () => {
     const snap = reg.snapshot(T0);
     expect(computeWindowDelta({} as unknown as MetricsSnapshot, snap)).toBeNull();
   });
+
+  it('RESTAURANT-shaped snapshots ride the SAME engine (session 116 structural reuse)', () => {
+    const RID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const reg = new RequestMetricsRegistry();
+    reg.record('GET /api/restaurants/:id', 200, 5, RID);
+    const prev = reg.restaurantSnapshot(RID, T0); // NOT a MetricsSnapshot: no global extras
+    reg.record('GET /api/restaurants/:id/orders', 201, 30, RID);
+    reg.record('GET /api/restaurants/:id/orders', 500, 70, RID);
+    const cur = reg.restaurantSnapshot(RID, T1);
+    const win = computeWindowDelta(prev, cur);
+    expect(win).not.toBeNull();
+    expect(win!.requests).toBe(2);
+    expect(win!.byStatus).toEqual({ '2xx': 1, '3xx': 0, '4xx': 0, '5xx': 1 });
+    expect(win!.fiveXxRatePct).toBe(50);
+    expect(win!.routes).toEqual([
+      { route: 'GET /api/restaurants/:id/orders', requests: 2, byStatus: { '2xx': 1, '3xx': 0, '4xx': 0, '5xx': 1 }, avgMs: 50 },
+    ]);
+    expect(isSnapshotShape(prev)).toBe(true);
+    // An EMPTY bucket as baseline behaves exactly like the session-116
+    // minted-after-baseline zero baseline: the delta is the FULL current
+    // totals (3 samples), never a negative and never a clamp.
+    const other = reg.restaurantSnapshot('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', T1);
+    const fromZero = computeWindowDelta(other, cur);
+    expect(fromZero).not.toBeNull();
+    expect(fromZero!.requests).toBe(3);
+    expect(computeWindowDelta(cur, prev)).toBeNull(); // backwards pair refused
+  });
 });

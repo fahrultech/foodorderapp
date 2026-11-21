@@ -8,6 +8,7 @@ import { Reflector } from '@nestjs/core';
 import { RestaurantMetricsController } from './restaurant-metrics.controller';
 import { RestaurantsService } from './restaurants.service';
 import { RequestMetricsService } from '../common/metrics/request-metrics.service';
+import { MetricsPersistenceService } from '../common/metrics/metrics-persistence.service';
 import { ErrorFormatFilter } from '../common/error-format.filter';
 import { createGlobalValidationPipe } from '../common/app-config';
 import { TOKEN_TYPE_ACCESS } from '../common/tokens';
@@ -69,6 +70,26 @@ async function boot(getOwnedImpl?: jest.Mock) {
   } as any);
   metrics.registry.reset();
 
+  // Persistence is stubbed here — its OWN arithmetic is pinned exhaustively
+  // in metrics-persistence.spec; the HTTP surface pins WIRING: the block is
+  // served, its key set is the scoped contract, and the store can never
+  // leak a global field or throw this route into a 5xx.
+  const durabilityStub = {
+    enabled: false,
+    snapshotIntervalSec: 0,
+    retentionSec: 0,
+    bootStartedAt: new Date(0).toISOString(),
+    lastCapturedAt: null,
+    bootAligned: null,
+    restaurantsPersisted: false,
+    mintedAfterBaseline: false,
+    error: false,
+    window: null,
+  };
+  const persistence = {
+    describeRestaurant: jest.fn(async () => ({ ...durabilityStub })),
+  } as unknown as MetricsPersistenceService;
+
   const moduleRef = await Test.createTestingModule({
     imports: [JwtModule.register({ secret: JWT_TEST })],
     controllers: [RestaurantMetricsController],
@@ -78,6 +99,7 @@ async function boot(getOwnedImpl?: jest.Mock) {
       Reflector,
       { provide: RestaurantsService, useValue: svc },
       { provide: RequestMetricsService, useValue: metrics },
+      { provide: MetricsPersistenceService, useValue: persistence },
     ],
   }).compile();
 
@@ -93,7 +115,7 @@ async function boot(getOwnedImpl?: jest.Mock) {
   const custToken = await jwt.signAsync({ sub: CUST_ID, role: UserRole.CUSTOMER, typ: TOKEN_TYPE_ACCESS });
   const driverToken = await jwt.signAsync({ sub: 'd1', role: UserRole.DRIVER, typ: TOKEN_TYPE_ACCESS });
 
-  return { app, svc, getOwned, metrics, ownerToken, adminToken, custToken, driverToken };
+  return { app, svc, getOwned, metrics, persistence, durabilityStub, ownerToken, adminToken, custToken, driverToken };
 }
 
 describe('GET /restaurants/:id/metrics — auth + role ladder', () => {
@@ -174,14 +196,39 @@ describe('GET /restaurants/:id/metrics — scoped payload (no global leak)', () 
       'GET /api/restaurants/:id',
       'GET /api/restaurants/:restaurantId/menu',
     ]);
-    // The session-85 contract, pinned mechanically: NO global fields and
-    // no durability/window extras ride an OWNER response — exact key set.
+    // The session-85 contract, pinned mechanically: the ONLY allowed
+    // addition is the scoped `durability` block (session 116). Its window
+    // is subtracted inside THIS bucket, and its key set carries neither a
+    // global traffic field nor the global `stored` row count.
     expect(Object.keys(body).sort()).toEqual(
-      ['boundsMs', 'generatedAt', 'restaurantId', 'routes', 'scope', 'totals', 'uptimeSec', 'window'].sort(),
+      ['boundsMs', 'durability', 'generatedAt', 'restaurantId', 'routes', 'scope', 'totals', 'uptimeSec', 'window'].sort(),
     );
     expect(Object.keys(body.totals).sort()).toEqual(
       ['avgMs', 'byStatus', 'maxMs', 'p50Ms', 'p95Ms', 'p99Ms', 'requests', 'routeKeys', 'overflowed'].sort(),
     );
+    expect(Object.keys(body.durability).sort()).toEqual(
+      ['bootAligned', 'bootStartedAt', 'enabled', 'error', 'lastCapturedAt', 'mintedAfterBaseline',
+        'restaurantsPersisted', 'retentionSec', 'snapshotIntervalSec', 'window'].sort(),
+    );
+    expect(body.durability).not.toHaveProperty('stored');
+    expect(body.durability.window).toBeNull();
+    await app.close();
+  });
+
+  it('serves the durability block as a strict passthrough of the scoped extras', async () => {
+    const { app, ownerToken, persistence } = await boot();
+    // A computed window must arrive VERBATIM — the controller composes,
+    // it does not reshape. Store-failure swallowing is pinned in
+    // metrics-persistence.spec (describeRestaurant NEVER throws), so this
+    // route can never be 5xx-ed by a broken durability store.
+    const sentinelWindow = { fromCapturedAt: 'x', requests: 3 };
+    (persistence as unknown as { describeRestaurant: jest.Mock }).describeRestaurant =
+      jest.fn(async () => ({ ...durabilityFixture(), window: sentinelWindow, enabled: true, bootAligned: true, restaurantsPersisted: true }));
+    const ok = await httpReq(app, 'GET', `/api/restaurants/${RID}/metrics`, { token: ownerToken });
+    expect(ok.status).toBe(200);
+    expect(ok.json.durability.window).toEqual(sentinelWindow);
+    expect(ok.json.durability.enabled).toBe(true);
+    expect(ok.json.totals.requests).toBe(0); // live bucket stays honest under the stub
     await app.close();
   });
 
@@ -192,6 +239,24 @@ describe('GET /restaurants/:id/metrics — scoped payload (no global leak)', () 
     expect(res.json.totals.requests).toBe(0);
     expect(res.json.totals.routeKeys).toBe(0);
     expect(res.json.routes).toEqual([]);
+    // The extras never gate the view: zero traffic still answers 200 with
+    // the honest zero baseline markers.
+    expect(res.json.durability.window).toBeNull();
     await app.close();
   });
 });
+
+function durabilityFixture() {
+  return {
+    enabled: false,
+    snapshotIntervalSec: 0,
+    retentionSec: 0,
+    bootStartedAt: new Date(0).toISOString(),
+    lastCapturedAt: null,
+    bootAligned: null,
+    restaurantsPersisted: false,
+    mintedAfterBaseline: false,
+    error: false,
+    window: null,
+  };
+}

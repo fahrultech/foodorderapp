@@ -588,14 +588,54 @@ export interface AlertsHistory {
 }
 
 /**
- * Response contract of GET /restaurants/:id/metrics — mirrors
- * RestaurantTrafficSnapshot in apps/api/src/common/metrics/request-metrics.ts
- * EXACTLY (restaurant-metrics-http.spec pins the round-trip). Same totals /
+ * Response contract of GET /restaurants/:id/metrics — mirrors the route
+ * payload (RestaurantTrafficSnapshot in apps/api/src/common/metrics/
+ * request-metrics.ts plus the additive `durability` block) EXACTLY
+ * (restaurant-metrics-http.spec pins the round-trip). Same totals /
  * route-row objects as the ADMIN snapshot, but scoped to ONE restaurant's
- * bucket and with ZERO global fields — the OWNER rung must never surface
- * platform-wide traffic (session 85 decision, shipped session 98).
- * Cumulative since API boot, not persisted per restaurant.
+ * bucket and with ZERO global traffic fields — the OWNER rung must never
+ * surface platform-wide traffic (session 85 decision, shipped session 98,
+ * extended to durability METADATA by session 116: the scoped block has no
+ * `stored` global row count). The top-level `window` string is the
+ * honesty marker; per-restaurant WINDOWED deltas ride nested under
+ * `durability.window` (the restaurant dimension is persisted since
+ * session 116 — a restart no longer silently zeroes the owner view).
  */
+export interface MetricsWindowRouteDeltaView {
+  route: string;
+  requests: number;
+  byStatus: MetricsStatusCounts;
+  avgMs: number | null;
+}
+
+export interface MetricsWindowDeltaView {
+  fromCapturedAt: string;
+  toCapturedAt: string;
+  spanSec: number;
+  requests: number;
+  byStatus: MetricsStatusCounts;
+  fiveXxRatePct: number | null;
+  avgMs: number | null;
+  p50Ms: number | null;
+  p95Ms: number | null;
+  p99Ms: number | null;
+  histogram: Array<{ leMs: number | null; count: number }>;
+  routes: MetricsWindowRouteDeltaView[];
+}
+
+export interface RestaurantMetricsDurabilityView {
+  enabled: boolean;
+  snapshotIntervalSec: number;
+  retentionSec: number;
+  bootStartedAt: string;
+  lastCapturedAt: string | null;
+  bootAligned: boolean | null;
+  restaurantsPersisted: boolean;
+  mintedAfterBaseline: boolean;
+  error: boolean;
+  window: MetricsWindowDeltaView | null;
+}
+
 export interface RestaurantMetricsSnapshot {
   restaurantId: string;
   scope: 'restaurant';
@@ -605,6 +645,7 @@ export interface RestaurantMetricsSnapshot {
   boundsMs: number[];
   totals: MetricsSnapshot['totals'];
   routes: MetricsRouteRow[];
+  durability: RestaurantMetricsDurabilityView;
 }
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api';

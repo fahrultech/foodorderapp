@@ -198,6 +198,16 @@ export interface RestaurantTrafficSnapshot {
   routes: MetricsRouteRow[];
 }
 
+/**
+ * What the durability scheduler STORES per tick: the global snapshot plus
+ * the FULL restaurant dimension (session-116 per-restaurant durability).
+ * Old rows legitimately lack `restaurants` — readers treat absence as
+ * "not persisted yet", never as "no restaurants had traffic".
+ */
+export type PersistedMetricsSnapshot = MetricsSnapshot & {
+  restaurants?: Record<string, RestaurantTrafficSnapshot>;
+};
+
 interface RouteAgg {
   count: number;
   byStatus: Record<StatusClass, number>;
@@ -422,6 +432,20 @@ export class RequestMetricsRegistry {
       },
       routes: rows,
     };
+  }
+
+  /**
+   * Persistence feed (session-116 per-restaurant durability): a snapshot
+   * of EVERY minted restaurant bucket, keyed by lowercased restaurant id.
+   * The durability scheduler stores this alongside the global snapshot so
+   * the restaurant dimension survives restarts exactly like the global
+   * totals do. An empty map means no bucket has been minted this boot —
+   * distinct from an old row that carries no `restaurants` key at all.
+   */
+  restaurantEntries(now: Date = new Date()): Record<string, RestaurantTrafficSnapshot> {
+    const out: Record<string, RestaurantTrafficSnapshot> = {};
+    for (const rid of this.restaurantBuckets.keys()) out[rid] = this.restaurantSnapshot(rid, now);
+    return out;
   }
 
   /** Test-only: return to a pristine state. */

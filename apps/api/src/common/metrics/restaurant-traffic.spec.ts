@@ -159,3 +159,41 @@ describe('RequestMetricsRegistry — restaurant dimension', () => {
     expect(reg.restaurantSnapshot(RID).totals.requests).toBe(0);
   });
 });
+
+describe('restaurantEntries — the persistence feed (session 116)', () => {
+  const T0 = new Date('2026-11-21T00:00:00.000Z');
+  const T1 = new Date('2026-11-21T00:05:00.000Z');
+
+  it('carries EVERY minted bucket keyed by lowercased id, entry === restaurantSnapshot', () => {
+    const reg = new RequestMetricsRegistry();
+    reg.record(KEY, 200, 5, RID);
+    reg.record('GET /api/restaurants/:id/menu', 200, 6, OTHER);
+    // never-attempted id stays absent:
+    const entries = reg.restaurantEntries(T1);
+    expect(Object.keys(entries).sort()).toEqual([RID, OTHER].sort());
+    expect(entries[RID]).toEqual(reg.restaurantSnapshot(RID, T1));
+    expect(entries[OTHER].routes.map((r) => r.route)).toEqual(['GET /api/restaurants/:id/menu']);
+    // an entry is a valid structural window input (totals + rows + bounds):
+    expect(typeof entries[RID].totals.requests).toBe('number');
+    expect(Array.isArray(entries[RID].boundsMs)).toBe(true);
+  });
+
+  it('empty map for a pristine boot — distinct from "no rows" for the reader', () => {
+    const reg = new RequestMetricsRegistry();
+    expect(reg.restaurantEntries(T0)).toEqual({});
+    // probes/404s never mint, so they never appear in the feed either:
+    reg.record(KEY, 404, 2, RID);
+    reg.record(KEY, 304, 2, OTHER);
+    expect(reg.restaurantEntries(T1)).toEqual({});
+  });
+
+  it('past-cap REFUSED ids never enter the feed (owners are never handed foreign buckets)', () => {
+    const reg = new RequestMetricsRegistry(10, 2);
+    reg.record(KEY, 200, 5, RID);
+    reg.record(KEY, 200, 5, OTHER);
+    reg.record(KEY, 200, 5, 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'); // refused at cap
+    const entries = reg.restaurantEntries(T0);
+    expect(Object.keys(entries)).toHaveLength(2);
+    expect(entries['cccccccc-cccc-4ccc-8ccc-cccccccccccc']).toBeUndefined();
+  });
+});
