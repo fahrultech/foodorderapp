@@ -24,7 +24,8 @@
     "loading": "Memuat\u2026",
     "optional": "(opsional)",
     "phonePlaceholder": "+62 812 3456 7890",
-    "retry": "Coba lagi"
+    "retry": "Coba lagi",
+    "skipToContent": "Lewati ke konten"
   },
   "Header": {
     "restaurants": "Restoran",

@@ -24,7 +24,8 @@
     "loading": "Loading\u2026",
     "optional": "(optional)",
     "phonePlaceholder": "+62 812 3456 7890",
-    "retry": "Try again"
+    "retry": "Try again",
+    "skipToContent": "Skip to content"
   },
   "Header": {
     "restaurants": "Restaurants",

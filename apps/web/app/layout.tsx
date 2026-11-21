@@ -9,6 +9,7 @@ import { FavoritesProvider } from '@/lib/favorites';
 import { PushNotificationsProvider } from '@/lib/push-notifications';
 import Header from '@/components/Header';
 import PwaRegistration from '@/components/PwaRegistration';
+import SkipLink from '@/components/SkipLink';
 import type { AppTheme } from '@/components/ThemeSwitcher';
 import type { AppLocale } from '@/i18n/request';
 import { isAppLocale } from '@/i18n/request';
@@ -62,12 +63,13 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             <PushNotificationsProvider>
               <CartProvider>
                 <FavoritesProvider>
+                  <SkipLink />
                   <Header
                     theme={theme}
                     changeLocaleAction={changeLocaleAction}
                     changeThemeAction={changeThemeAction}
                   />
-                  <main className="mx-auto max-w-6xl px-4 pb-24 pt-6">{children}</main>
+                  <main id="main-content" tabIndex={-1} className="mx-auto max-w-6xl px-4 pb-24 pt-6 focus:outline-none">{children}</main>
                   <footer className="border-t border-stone-200 py-8 text-center text-sm text-stone-500">
                     {t('tagline')}
                   </footer>

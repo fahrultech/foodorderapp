@@ -147,3 +147,35 @@ html[data-theme='dark'] [class~='text-orange-800'] {
     transition: none;
   }
 }
+
+/*
+ * Focus-visibility contract (session 117, Phase 11 UX audit).
+ *
+ * ONE global :focus-visible rule instead of per-component focus styling:
+ * every keyboard-reachable control — header links, portal buttons, roving
+ * tabs, selects, dialogs — gets a 2px solid brand ring with a 2px offset.
+ * The ring is declared AFTER @tailwind utilities so it ties-and-wins
+ * against Tailwind's bare `.outline-none` (0,1,0): text inputs keep their
+ * soft `focus:` border/ring paint for mouse focus, and keyboard focus
+ * additionally gets the honest ring. Dark theme swaps to the lighter brand
+ * step so the ring keeps >=3:1 non-text contrast on the dark canvas.
+ */
+:root {
+  --focus-ring: rgb(234 88 12); /* brand-600 on the light canvas */
+}
+
+html[data-theme='dark'] {
+  --focus-ring: rgb(249 115 22); /* brand-500 on the dark canvas */
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* The skip-link's jump target is focused programmatically; it must not
+ * wear the ring itself (`.focus\:outline-none:focus`, specificity (0,2,0),
+ * already wins — this restates the intent next to the contract). */
+#main-content:focus {
+  outline: none;
+}

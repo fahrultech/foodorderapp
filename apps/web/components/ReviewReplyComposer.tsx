@@ -161,7 +161,7 @@ export default function ReviewReplyComposer({
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
             aria-describedby={`reply-hint-${review.id}`}
-            className="mt-1 w-full rounded-xl border border-stone-300 bg-white px-3 py-2 text-base focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-200"
+            className="mt-1 w-full rounded-xl border border-stone-300 bg-white px-3 py-2 text-base outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
           />
           <p id={`reply-hint-${review.id}`} className="mt-1 text-[11px] text-stone-400">
             {t('rvComposerHint', { max: String(REPLY_MAX_LENGTH) })}

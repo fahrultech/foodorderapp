@@ -373,7 +373,7 @@ export default function KitchenDisplayPage() {
           >
             {live ? (wsUp ? tc('pillPush') : tc('pillPolling')) : tc('pillPaused')}
           </button>
-          <button type="button" onClick={() => setReloadKey((key) => key + 1)} className="rounded-xl border border-stone-300 bg-white px-4 py-2 text-sm font-semibold text-stone-700 hover:bg-stone-100">
+          <button type="button" onClick={() => setReloadKey((key) => key + 1)} data-testid="kitchen-refresh" className="rounded-xl border border-stone-300 bg-white px-4 py-2 text-sm font-semibold text-stone-700 hover:bg-stone-100">
             {tc('refresh')}
           </button>
         </div>

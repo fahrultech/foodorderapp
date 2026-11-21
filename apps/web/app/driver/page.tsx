@@ -212,7 +212,7 @@ export default function DriverPage() {
           >
             {live ? (wsUp ? tc('pillPush') : tc('pillPolling')) : tc('pillPaused')}
           </button>
-          <button type="button" onClick={() => void fetchOrders('full')} className="rounded-xl border border-stone-300 bg-white px-4 py-2 text-sm font-semibold text-stone-700 hover:bg-stone-100">{tc('refresh')}</button>
+          <button type="button" onClick={() => void fetchOrders('full')} data-testid="driver-refresh" className="rounded-xl border border-stone-300 bg-white px-4 py-2 text-sm font-semibold text-stone-700 hover:bg-stone-100">{tc('refresh')}</button>
         </div>
       </div>
 
