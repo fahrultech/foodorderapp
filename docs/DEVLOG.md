@@ -72,9 +72,11 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 - Portal routes (`/admin`, `/dashboard`, `/driver`, `/kitchen`) are NOT
   budgeted yet — adding a row + `npm run budget:print` number is the
   whole procedure whenever the team wants them pinned.
-- CI proof owed: confirm the web job's gate step GREEN on the follow-up
-  (baseline re-measure) push — the first push's web-job RED was the
-  expected pollution catch, documented above.
+- CI proof PAID: run 44885551814 — full CI GREEN on the re-measure push,
+  web job's selftests AND the real gate completed success on the runner
+  (zero-tolerance strictness confirmed feasible: runner gzip bytes
+  matched the local CI-clean build exactly). The first push's web-job
+  RED was the expected pollution catch, documented above.
 
 ---
 ## 2026-11-21 14:55 — Session 114 — alert-history panel on /admin consuming the persisted verdict series (Phase 11 web item)
