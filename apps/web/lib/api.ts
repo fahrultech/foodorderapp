@@ -529,6 +529,65 @@ export interface MetricsSnapshot {
 }
 
 /**
+ * Response contract of GET /admin/alerts/history — mirrors
+ * AdminAlertsHistoryResponse in apps/api/src/admin/admin-alerts.response.ts
+ * EXACTLY (the API side pins the round-trip; renamed fields fail there
+ * first). Phase 11 (Ops session 112): the persisted alert_verdicts series
+ * written on the metrics-snapshot tick + the consecutive-alerting streak
+ * that ALSO counts this read's live verdict. Reads never write, so polling
+ * cannot change the history. Items are OLDEST-FIRST for direct charting.
+ */
+export type AlertVerdictStatus = 'ok' | 'alerting';
+
+export interface AlertRuleResultView {
+  id: string;
+  firing: boolean;
+  severity: 'error' | 'warning';
+  observed: number | null;
+  threshold: number;
+  detail: string;
+}
+
+export interface AlertReportView {
+  generatedAt: string;
+  uptimeSec: number;
+  status: AlertVerdictStatus;
+  firingRules: string[];
+  rules: AlertRuleResultView[];
+}
+
+export interface AlertVerdictRecord {
+  capturedAt: string;
+  status: AlertVerdictStatus;
+  firingRules: string[];
+  report: AlertReportView;
+}
+
+export interface AlertStreakView {
+  persistedTrailingAlerting: number;
+  trailingCapped: boolean;
+  currentStatus: AlertVerdictStatus;
+  alerting: number;
+}
+
+export interface AlertsHistory {
+  generatedAt: string;
+  /** Durability writer enabled (shared METRICS_SNAPSHOT_INTERVAL_SEC knob). */
+  enabled: boolean;
+  snapshotIntervalSec: number;
+  retentionSec: number;
+  window: { windowSec: number; from: string; to: string };
+  returned: number;
+  /** True when the row limit capped the window — more rows exist inside it. */
+  truncated: boolean;
+  lastCapturedAt: string | null;
+  /** The persisted series read FAILED — items empty, live streak still honest. */
+  error: boolean;
+  items: AlertVerdictRecord[];
+  streak: AlertStreakView;
+}
+
+/**
  * Response contract of GET /restaurants/:id/metrics — mirrors
  * RestaurantTrafficSnapshot in apps/api/src/common/metrics/request-metrics.ts
  * EXACTLY (restaurant-metrics-http.spec pins the round-trip). Same totals /
@@ -690,6 +749,20 @@ export const api = {
    *  histogram latency). ADMIN only; cumulative since the API process booted. */
   adminMetrics: (accessToken: string) =>
     request<MetricsSnapshot>('/admin/metrics', { headers: bearer(accessToken) }),
+  /** Persisted alert-verdict time series + consecutive-alerting streak
+   *  (GET /admin/alerts/history). ADMIN only; reads never write. */
+  adminAlertsHistory: (
+    accessToken: string,
+    params: { windowSec?: number; limit?: number } = {},
+  ) => {
+    const qs = new URLSearchParams();
+    if (params.windowSec) qs.set('windowSec', String(params.windowSec));
+    if (params.limit) qs.set('limit', String(params.limit));
+    const suffix = qs.toString() ? `?${qs.toString()}` : '';
+    return request<AlertsHistory>(`/admin/alerts/history${suffix}`, {
+      headers: bearer(accessToken),
+    });
+  },
 
   // --- owner portal ---
   /** Restaurants owned by the signed-in owner (GET /restaurants/mine). */

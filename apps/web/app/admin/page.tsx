@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { useAuth } from '@/lib/auth';
 import { authedCall } from '@/lib/authed-call';
-import { AdminOverview, api, formatPrice, MetricsSnapshot } from '@/lib/api';
+import { AdminOverview, AlertsHistory, api, formatPrice, MetricsSnapshot } from '@/lib/api';
 import StatusBadge from '@/components/StatusBadge';
 
 // Bundle trim (Phase 8): the traffic panel is NOT part of the /admin route
@@ -31,6 +31,28 @@ function TrafficPanelSkeleton() {
 const TrafficPanel = dynamic(() => import('@/components/TrafficPanel'), {
   ssr: false,
   loading: () => <TrafficPanelSkeleton />,
+});
+
+// Same bundle-trim + render-gate pattern as TrafficPanel above: the
+// alert-history chunk loads strictly behind a SUCCESSFUL
+// GET /admin/alerts/history round-trip (the render gate doubles as the
+// code-split gate, session-90 rule), so an outage or non-admin never
+// downloads it. Module-scope dynamic() cannot call hooks — tiny component
+// owns the localized skeleton aria-label (Portal.alertsLoadingAria).
+function AlertsHistorySkeleton() {
+  const t = useTranslations('Portal');
+  return (
+    <div
+      className="h-40 animate-pulse rounded-2xl border border-stone-200 bg-stone-50"
+      aria-label={t('alertsLoadingAria')}
+      data-testid="alerts-panel-loading"
+    />
+  );
+}
+
+const AlertsHistoryPanel = dynamic(() => import('@/components/AlertsHistoryPanel'), {
+  ssr: false,
+  loading: () => <AlertsHistorySkeleton />,
 });
 
 function formatDate(iso: string): string {
@@ -70,6 +92,8 @@ export default function AdminPage() {
   const [data, setData] = useState<AdminOverview | null>(null);
   const [metrics, setMetrics] = useState<MetricsSnapshot | null>(null);
   const [metricsError, setMetricsError] = useState<string | null>(null);
+  const [alertsHistory, setAlertsHistory] = useState<AlertsHistory | null>(null);
+  const [alertsHistoryError, setAlertsHistoryError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
@@ -85,18 +109,24 @@ export default function AdminPage() {
     setLoading(true);
     setError(null);
     setMetricsError(null);
+    setAlertsHistoryError(null);
     void (async () => {
       // Overview failure keeps the existing banner semantics; a metrics-only
-      // failure never blanks the tables — it degrades the traffic section.
-      const [overviewResult, metricsResult] = await Promise.all([
+      // or history-only failure never blanks the tables — it degrades just
+      // that section. The history read NEVER writes server-side (session-112
+      // observer-exempt), so polling cannot shift the series under the view.
+      const [overviewResult, metricsResult, historyResult] = await Promise.all([
         authedCall(getAccessToken, logout, (token) => api.adminOverview(token)),
         authedCall(getAccessToken, logout, (token) => api.adminMetrics(token)),
+        authedCall(getAccessToken, logout, (token) => api.adminAlertsHistory(token)),
       ]);
       if (!alive) return;
       if (overviewResult.ok) setData(overviewResult.data);
       else if (overviewResult.kind === 'error') setError(overviewResult.message);
       if (metricsResult.ok) setMetrics(metricsResult.data);
       else if (metricsResult.kind === 'error') setMetricsError(metricsResult.message);
+      if (historyResult.ok) setAlertsHistory(historyResult.data);
+      else if (historyResult.kind === 'error') setAlertsHistoryError(historyResult.message);
       setLoading(false);
     })();
     return () => {
@@ -196,6 +226,20 @@ export default function AdminPage() {
               <div role="alert" className="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-amber-800" data-testid="traffic-load-error">
                 <p className="font-bold">{t('trafficLoadError')}</p>
                 <p className="mt-1 text-sm">{metricsError}</p>
+              </div>
+            ) : null}
+          </div>
+
+          {/* Alert history (Phase 11): degrades independently of the traffic
+              panel — a history-only failure shows its own card, never blanks
+              the tables or the traffic section. */}
+          <div className="mt-10">
+            {alertsHistory ? (
+              <AlertsHistoryPanel history={alertsHistory} />
+            ) : alertsHistoryError ? (
+              <div role="alert" className="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-amber-800" data-testid="alerts-history-load-error">
+                <p className="font-bold">{t('alertsLoadError')}</p>
+                <p className="mt-1 text-sm">{alertsHistoryError}</p>
               </div>
             ) : null}
           </div>
