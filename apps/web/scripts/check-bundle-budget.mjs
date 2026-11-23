@@ -175,6 +175,15 @@ if (process.argv[1] && resolve(process.argv[1]) === resolve(fileURLToPath(import
   if (violations.length) {
     console.error(`\nbundle-budget gate FAILED (${violations.length} route(s)):`);
     for (const v of violations) console.error(`  - ${v}`);
+    // CI observability (session 118): Actions job logs need repo admin, but
+    // check-run annotations are readable anonymously — mirror the full
+    // measured-vs-budget table into ::error annotations when running in CI.
+    if (process.env.GITHUB_ACTIONS === 'true') {
+      for (const { route, baselineBytes } of rows) {
+        const r = firstLoadBytes(pages, route, NEXT_DIR);
+        console.error(`::error title=bundle-budget ${route}::measured=${r.bytes ?? r.error} budget=${baselineBytes}`);
+      }
+    }
     console.error('\nEither shrink the route, or — if the growth is intended — re-measure');
     console.error('(`node scripts/check-bundle-budget.mjs --print` after a cold build), update');
     console.error('the BUNDLE-BASELINE table in docs/PERFORMANCE.md and commit it as part of the change.');
