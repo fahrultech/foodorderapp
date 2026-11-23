@@ -137,6 +137,7 @@ export default function CartPage() {
         >
           <button
             onClick={clear}
+            data-testid="mobile-cart-clear"
             className="inline-flex min-h-11 shrink-0 items-center rounded-lg px-2 text-sm font-medium text-stone-500 hover:text-red-600"
           >
             {t('clearCart')}
