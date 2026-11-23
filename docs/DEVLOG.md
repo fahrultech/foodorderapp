@@ -3,6 +3,79 @@
 Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
+## 2026-11-23 15:45 — Session 120 — Dark-theme focus ring + mobile bottom-bar keyboard audit (Phase 12 UX item)
+
+**Built:**
+
+- e2e: `focus-skip-a11y.spec.ts` grew the two halves the audit named.
+  (1) DARK half: the `theme` cookie is set context-side so even the first
+  navigation SSRs `html[data-theme='dark']`; the skip link and a header
+  button on the storefront, and the dashboard restaurant switcher + the
+  roving `#status-tab-all`, all re-walked by real Tab presses must now
+  read the swapped ring brand-500 rgb(249,115,22) — same style/width/
+  offset contract, exact computed-style equality.
+  (2) MOBILE half: `tabStopsCycle` walks EXACTLY ONE full Tab cycle at
+  360x800 (land on the skip link first, press until focus cycles back to
+  it; headless Chrome inserts a phantom `body` stop at the document edge,
+  which the helper documents and callers filter). On /cart (6-line seed
+  recipe, so the document really scrolls): the bar's clear button and the
+  checkout CTA are the FINAL two stops before the wrap, adjacent, both
+  wearing the light ring, and focusing into the bar never un-sticks it
+  (bottom edge pinned 796..801). On /checkout ($18+$7 cart, no submit
+  pressed): the tail is `checkout-submit -> checkout-promo-input ->
+  mobile-submit-cta` — the sticky handle is the document's last
+  focusable; the empty promo keeps Apply disabled and disabled buttons
+  contribute NO stop; the bar CTA is asserted ENABLED before the walk so
+  a silent `canSubmit` regression could not hide the stop.
+- Web: ONE product-side attribute — `data-testid="mobile-cart-clear"` on
+  the compact bar's clear button (the walk needs a stable identity for it;
+  the desktop duplicate action row was deliberately left untestided so
+  strict testid locators stay compact-bar-only).
+- Docs: ARCHITECTURE.md gained the consolidated **Keyboard focus
+  contract** bullet — session 117's rule had lived only in globals.css
+  comments + DEVLOG; the bullet now also records the theme swap and the
+  compact-bar tab-order tail rule this session proved.
+
+**Audit verdict (honest):** zero product bugs found. The `--focus-ring`
+CSS-var swap works identically under the cookie-rendered dark theme, the
+bg-white/90 bar surface inverts to rgb(41,37,36) (asserted in the walk's
+dark phase), and the compact bars' DOM placement already yields correct
+keyboard order. The session's deliverable is the PINNED contract, not a
+fix. Harness truth learned the hard way (2 FAILs before green): Chrome
+blur()/body focus keeps a sequential-navigation starting point — a Tab
+from `<body>` can resume MID-cycle, so cycle walks must anchor on the
+first stop (the skip link) instead of assuming document-top; and the
+skip link carries its own `data-testid=skip-link`, so element naming must
+check the href pattern BEFORE the testid branch or the wrap sentinel
+never fires.
+
+**Verified:**
+
+- Targeted ladder: focus spec 10/10 (6 pre-existing session-117 tests
+  unchanged and green against the parameterized helpers) + dark-mode
+  spec = 11/11; the two new mobile tests green on first run after the
+  harness fix.
+- Web build green; bundle gate OK — margins +41..+50 B on all 7 routes
+  (/cart absorbed the testid: +41 vs +48-50 elsewhere, CI budget table
+  untouched).
+- Full e2e 126/126 green x2 CONSECUTIVE on fresh seeds (122 + the 4 new
+  tests); fixture-timing gate OK (18 labels, 6 prior runs merged).
+- API delta 0 — no apps/api file touched, no jest run needed (unchanged
+  99/1313 per session 119).
+- Sanitizer scan clean on all added lines (U+2026 masks, asterisk-mask
+  sequences, literal backslash-u escapes); em-dash/arrow prose chars
+  landed as real characters, not escape text.
+
+**Left for next sessions:**
+
+- k6 WRITE profile against the cached+compressed stack (the queue's last
+  open non-locked item).
+- Optional ring follow-up: the focus-skip suite pins storefront + owner
+  dashboard + kitchen/driver/admin rings under LIGHT only for portals;
+  the dark portal pass covers owner — driver/admin dark walks could
+  reuse `setTheme` + one stop each if the evergreen UX loop asks again.
+
+---
 ## 2026-11-23 13:11 — Session 119 — Tracking-page delivery polish: driver first name + honest countdown on the delivering receipt (Phase 12 product item)
 
 **Built:**

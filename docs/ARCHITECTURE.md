@@ -511,6 +511,21 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   URL on click. Unsupported, server-disabled, and browser-blocked states never
   request permission and render a disabled control.
 
+- **Keyboard focus contract** — ONE global CSS rule owns it:
+  `:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px }`
+  declared after `@tailwind utilities` in `app/globals.css` (ties-and-wins vs
+  Tailwind's bare `.outline-none`, loses only to explicit `focus:outline-none`
+  variants). `--focus-ring` theme-switches — brand-600 `rgb(234,88,12)` on the
+  light canvas, brand-500 `rgb(249,115,22)` under `html[data-theme='dark']` —
+  so the ring holds >=3:1 non-text contrast on both. The skip link is the
+  first stop on every page; its `#main-content` target is restyled to show no
+  ring itself. Compact (<640px) sticky cart/checkout bars are rendered by
+  matchMedia (`use-compact-viewport`), never hidden duplicates: they are the
+  FINAL tab stops of their documents (footer ships no focusables), the sticky
+  submit being the document's last focusable after the summary aside. All of
+  it is pinned by real Tab-walks with exact computed-style equality in
+  `e2e/tests/focus-skip-a11y.spec.ts` (sessions 117 + 120).
+
 - **Owner menu manager** — web `/dashboard/menu` does full dish CRUD on the
   existing owner routes (`POST /restaurants/:id/menu`, `PATCH /menu/items/:id`,
   `PATCH /menu/items/:id/availability`, `DELETE /menu/items/:id`, all

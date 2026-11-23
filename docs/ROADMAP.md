@@ -352,11 +352,25 @@
   window; 99 suites/1313 tests (+1/+19), live smoke 26/26, SSR card +
   Order ns 84→89 keys EN/ID, e2e 120→122 green ×2 fresh-seed, bundle
   gate zero client delta.)
-- [ ] UX: dark-theme focus-ring verification + mobile bottom-bar keyboard
+- [x] UX: dark-theme focus-ring verification + mobile bottom-bar keyboard
   pass — session 117 pins the ring on the light canvas only; extend the
   spec to the dark theme cookie (rgb(249,115,22)) and audit the
   mobile-only compact bottom bar (use-compact-viewport furniture) for
-  focus order and ring visibility.
+  focus order and ring visibility. (2026-11-23, session 120; AUDIT VERDICT
+  zero product bugs — dark `theme` cookie swaps the ring exactly to
+  brand-500 on skip link + header + owner dashboard (cookie-anchored SSR
+  walk); one-full-cycle Tab walks at 360x800 pin the compact bars as the
+  FINAL tab stops: /cart clear→CTA adjacent, ringed, still sticky-pinned
+  when focused, surface inverts to rgb(41,37,36) under dark with the
+  swapped ring; /checkout tail `checkout-submit → checkout-promo-input →
+  mobile-submit-cta` with the sticky handle LAST and asserted ENABLED
+  before the walk (disabled buttons contribute no stop); +4 tests, suite
+  122→126 green ×2 fresh-seed, bundle gate OK (+41..50 margins), web
+  delta = one `data-testid="mobile-cart-clear"`; ARCHITECTURE gained the
+  consolidated Keyboard-focus-contract bullet; harness truths: Chrome
+  keeps a sequential-nav start point across blur(), cycle walks must
+  anchor ON the skip link, and the skip link's own testid must lose to
+  its href pattern in element naming.)
 - [ ] Test: k6 WRITE profile against the cached+compressed stack — a
   checkout ladder (auth → create → pay) at modest VUs with
   HTTP_CACHE_TTL_SEC default and compression ON, asserting
