@@ -1,5 +1,7 @@
 /**
  * Session 115 — selftests for apps/web/scripts/check-bundle-budget.mjs.
+ * Session 118 — ancestor-chain method: the CSS rule is REVERSED (css now
+ * counts) and two new tests prove layout chunks are no longer invisible.
  *
  * Pure and browser-free: synthetic app-build-manifest.json trees + tiny
  * chunk files + synthetic baseline markdown in temp dirs, gate spawned as a
@@ -9,7 +11,9 @@
  *
  * The deliberate over-budget negative test (roadmap ask, drift-gate
  * precedent) is `over-budget route fails`: one chunk grows 1 byte past its
- * baseline and the gate must exit 1 naming the route.
+ * baseline and the gate must exit 1 naming the route. Session 118 adds the
+ * LAYOUT-only negative — a chunk that appears ONLY under a layout entry
+ * (the exact SkipLink blind spot) must now trip the gate too.
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -29,8 +33,9 @@ const gz = (buf) => gzipSync(buf, { level: 9 }).length;
  *   nextDir/app-build-manifest.json
  *   nextDir/<chunk files>            real bytes, gz size deterministic
  *   baseline.md                      marker-anchored table
- * chunkSpecs: [{ file, content }] — .css files are written but must be
- * IGNORED by the gate (First Load JS is JS-only).
+ * chunkSpecs: [{ file, content }] — .css files count toward the budget
+ * since session 118 (the metric is First Load JS + CSS over the whole
+ * ancestor chain).
  */
 function makeRig({ routes, chunkSpecs, baselineRows, extraManifestKeys = {} }) {
   const dir = mkdtempSync(join(tmpdir(), 'bbb-'));
@@ -70,6 +75,7 @@ const CSS = 'static/css/style.css';
 const SHARED_GZ = gz(C(4000));
 const A_GZ = gz(C(1000));
 const B_GZ = gz(C(2000));
+const CSS_GZ = gz(C(9000));
 
 const TWO_ROUTES = {
   routes: { '/': [SHARED, A_JS], '/cart': [SHARED, B_JS, CSS] },
@@ -84,7 +90,7 @@ const TWO_ROUTES = {
 test('within budget passes', () => {
   const rig = makeRig({
     ...TWO_ROUTES,
-    baselineRows: [['/', SHARED_GZ + A_GZ], ['/cart', SHARED_GZ + B_GZ]],
+    baselineRows: [['/', SHARED_GZ + A_GZ], ['/cart', SHARED_GZ + B_GZ + CSS_GZ]],
   });
   const r = runGate(rig);
   assert.equal(r.status, 0, r.stderr);
@@ -96,7 +102,7 @@ test('within budget passes', () => {
 test('DELIBERATE over-budget negative test: 1 byte over fails and names the route', () => {
   const rig = makeRig({
     ...TWO_ROUTES,
-    baselineRows: [['/', SHARED_GZ + A_GZ - 1], ['/cart', SHARED_GZ + B_GZ + 500]],
+    baselineRows: [['/', SHARED_GZ + A_GZ - 1], ['/cart', SHARED_GZ + B_GZ + CSS_GZ + 500]],
   });
   const r = runGate(rig);
   assert.equal(r.status, 1);
@@ -116,7 +122,7 @@ test('comma-formatted baselines parse', () => {
 | Route | Baseline First Load JS (B) |
 |---|---|
 | \`/\` | ${(SHARED_GZ + A_GZ).toString().replace(/\d(?=(\d{3})+$)/g, '$&,')} |
-| \`/cart\` | ${(SHARED_GZ + B_GZ + 1).toString().replace(/\d(?=(\d{3})+$)/g, '$&,')} |
+| \`/cart\` | ${(SHARED_GZ + B_GZ + CSS_GZ + 1).toString().replace(/\d(?=(\d{3})+$)/g, '$&,')} |
 <!-- BUNDLE-BASELINE-END -->
 `);
   const r = runGate(rig);
@@ -124,12 +130,82 @@ test('comma-formatted baselines parse', () => {
   rmSync(rig.dir, { recursive: true, force: true });
 });
 
-test('css chunks are excluded from First Load JS', () => {
-  // /cart entry contains a 9 KB css file; a baseline of exactly the JS sum
-  // still passes — had CSS counted, it would be ~2 KB gz OVER.
-  const rig = makeRig({ ...TWO_ROUTES, baselineRows: [['/cart', SHARED_GZ + B_GZ]] });
+test('css chunks COUNT toward the budget (session-118 reversal of the session-115 rule)', () => {
+  // /cart entry contains a 9 KB css file. Under the OLD method a
+  // JS-only baseline passed; now the gate must name /cart OVER by the
+  // CSS chunk's gz size...
+  const negRig = makeRig({ ...TWO_ROUTES, baselineRows: [['/cart', SHARED_GZ + B_GZ]] });
+  const neg = runGate(negRig);
+  assert.equal(neg.status, 1, 'JS-only baseline must now FAIL (CSS counts)');
+  assert.match(neg.stderr, new RegExp(`/cart: \\d+ B > baseline ${SHARED_GZ + B_GZ} B \\(\\+${CSS_GZ} B\\)`));
+  rmSync(negRig.dir, { recursive: true, force: true });
+  // ...and the JS+CSS sum passes at exactly margin +0.
+  const rig = makeRig({ ...TWO_ROUTES, baselineRows: [['/cart', SHARED_GZ + B_GZ + CSS_GZ]] });
+  const pos = runGate(rig);
+  assert.equal(pos.status, 0, pos.stderr);
+  assert.match(pos.stdout, /margin \+0 B/);
+  rmSync(rig.dir, { recursive: true, force: true });
+});
+
+test('LAYOUT-ONLY change trips the gate — the session-117 SkipLink blind spot', () => {
+  // The root layout chunk appears ONLY under the '/layout' manifest key,
+  // never in the page entry. Baseline taken with the OLD own-entry method
+  // (SHARED + A) must now FAIL, naming exactly the layout chunk's bytes;
+  // the chain sum passes at +0.
+  const ROOTLAYOUT_JS = 'static/chunks/app/layout-9.js';
+  const ROOTLAYOUT_GZ = gz(C(1500));
+  const chain = {
+    routes: { '/': [A_JS] },
+    chunkSpecs: [
+      { file: SHARED, content: C(4000) },
+      { file: A_JS, content: C(1000) },
+      { file: ROOTLAYOUT_JS, content: C(1500) },
+    ],
+    extraManifestKeys: { '/layout': [SHARED, ROOTLAYOUT_JS] },
+  };
+  const negRig = makeRig({ ...chain, baselineRows: [['/', SHARED_GZ + A_GZ]] });
+  const neg = runGate(negRig);
+  assert.equal(neg.status, 1, 'layout-only growth must no longer be invisible');
+  assert.match(neg.stderr, new RegExp(`/: \\d+ B > baseline ${SHARED_GZ + A_GZ} B \\(\\+${ROOTLAYOUT_GZ} B\\)`));
+  rmSync(negRig.dir, { recursive: true, force: true });
+  const rig = makeRig({ ...chain, baselineRows: [['/', SHARED_GZ + A_GZ + ROOTLAYOUT_GZ]] });
+  const pos = runGate(rig);
+  assert.equal(pos.status, 0, pos.stderr);
+  assert.match(pos.stdout, /margin \+0 B/);
+  rmSync(rig.dir, { recursive: true, force: true });
+});
+
+test('nested ancestor chain: every layout counts, shared chunks dedupe to one', () => {
+  // /dashboard/kitchen loads root layout + /dashboard/layout + its own
+  // layout + the page. SHARED is listed in ALL FOUR entries and must be
+  // counted exactly ONCE in the route sum.
+  const ROOT_JS = 'static/chunks/app/layout-0.js';
+  const MID_JS = 'static/chunks/app/dashboard/layout-1.js';
+  const OWN_JS = 'static/chunks/app/dashboard/kitchen/layout-2.js';
+  const PAGE_JS = 'static/chunks/app/dashboard/kitchen/page-3.js';
+  const specs = [
+    { file: SHARED, content: C(4000) },
+    { file: ROOT_JS, content: C(300) },
+    { file: MID_JS, content: C(500) },
+    { file: OWN_JS, content: C(700) },
+    { file: PAGE_JS, content: C(900) },
+  ];
+  const sum = SHARED_GZ + gz(C(300)) + gz(C(500)) + gz(C(700)) + gz(C(900));
+  const rig = makeRig({
+    routes: { '/dashboard/kitchen': [SHARED, PAGE_JS] },
+    chunkSpecs: specs,
+    extraManifestKeys: {
+      '/layout': [SHARED, ROOT_JS],
+      '/dashboard/layout': [SHARED, MID_JS],
+      '/dashboard/kitchen/layout': [SHARED, OWN_JS],
+    },
+    baselineRows: [['/dashboard/kitchen', sum]],
+  });
   const r = runGate(rig);
   assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /margin \+0 B/);
+  const p = runGate({ ...rig, args: ['--print'] });
+  assert.ok(p.stdout.includes(`| \`/dashboard/kitchen\` | ${sum} |`), p.stdout);
   rmSync(rig.dir, { recursive: true, force: true });
 });
 

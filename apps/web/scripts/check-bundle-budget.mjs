@@ -1,23 +1,33 @@
 #!/usr/bin/env node
 /**
- * Session 115 — First Load JS budget gate (Phase 11 Perf item).
+ * Session 115 — First Load budget gate (Phase 11 Perf item).
+ * Session 118 — undercount fixed: the FULL ANCESTOR CHAIN is summed.
  *
- * The CI web job FAILS when a core storefront route's exact First Load JS
- * (gzip-9 sum of every .js chunk listed for that route's entry in
- * .next/app-build-manifest.json — the session-90 method) exceeds the
- * committed baseline table in docs/PERFORMANCE.md. Zero tolerance: the
- * build is lockfile-pinned, so a regression is a regression, and lowering
- * a budget is a deliberate documented re-measure (record + update the
- * table + commit — same doctrine as the schema-drift gate).
+ * The CI web job FAILS when a core storefront route's exact first-load
+ * payload exceeds the committed baseline table in docs/PERFORMANCE.md.
+ * Zero tolerance: the build is lockfile-pinned, so a regression is a
+ * regression, and lowering a budget is a deliberate documented re-measure
+ * (record + update the table + commit — same doctrine as the schema-drift
+ * gate).
+ *
+ * Metric (session-118 method): gzip-9 sum of EVERY chunk (.js AND .css)
+ * listed for the route's own manifest entry PLUS every ancestor layout
+ * entry (`/layout` down to `${route}/layout`) in .next/app-build-manifest.json,
+ * deduplicated across those entries. The browser really loads the union of
+ * the whole chain on first paint; the old session-90 method summed only the
+ * route's OWN chunks, which made the root layout chunk and the global CSS
+ * chunk INVISIBLE to every route (session 117 caught it live: the SkipLink
+ * +209 B gz into app/layout-*.js landed at margin +0 on all 7 routes).
+ * First Load JS alone no longer reproduces Next's printed kB table — the
+ * sum is deliberately BROADER than it (that is the point); Next's own
+ * per-page column omits the same chunks, which is why its table hid the
+ * layout growth too.
  *
  * Why exact bytes instead of the route table: `next build` rounds First
  * Load JS to 1 kB and HIDES small deltas (session 90: a 266 B gz win was
- * invisible in the table). The manifest sums reproduce the table's
- * arithmetic EXACTLY (pinned in the selftest doctrine comments; live A/B
- * at ship: `/` 106,936 B -> "107 kB", `/admin` -> "126 kB", `/orders/[id]`
- * -> "145 kB"), so this gate sees what the table cannot.
+ * invisible in the table; session 117: a 209 B layout loss too).
  *
- * A dead gate is worse than no gate (session 106 doctrine), so the script
+ * A dead gate is worse than no gate (session-106 doctrine), so the script
  * fails loudly on: missing manifest, missing/unparseable/empty baseline
  * table, a baseline route with no matching manifest entry (renamed or
  * deleted route — the table would freeze silently otherwise), and a listed
@@ -72,23 +82,51 @@ export function parseBaseline(md) {
 }
 
 /**
- * Exact First Load JS for one route entry: sum of gzip-9 sizes of every .js
- * file listed in app-build-manifest.json for that entry (session-90 method;
- * CSS and non-JS assets excluded — the metric is First Load JS).
+ * Manifest keys of the route's ancestor layout chain, root-first:
+ * `/a/b` -> ['/layout', '/a/layout', '/a/b/layout']. Only keys actually
+ * present in the manifest count (a segment without a layout.tsx simply
+ * contributes nothing). Derived by segment-stripping, never by a listing
+ * heuristic — a layout lives at a URL-path prefix by App Router contract.
+ */
+export function ancestorLayoutKeys(route, pages) {
+  const segs = route.split('/').filter(Boolean);
+  const keys = [];
+  if (pages['/layout']) keys.push('/layout');
+  for (let i = 1; i <= segs.length; i++) {
+    const k = `/${segs.slice(0, i).join('/')}/layout`;
+    if (pages[k]) keys.push(k);
+  }
+  return keys;
+}
+
+/**
+ * Exact first-load payload for one route (session-118 method): gzip-9 sum
+ * of every .js AND .css file listed for the route's own entry plus its
+ * ancestor layout entries, each file counted ONCE (shared chunks appear
+ * in many entries; the browser downloads them once). Non-js/css assets
+ * are excluded — the metric is First Load JS + CSS.
  */
 export function firstLoadBytes(pages, route, nextDir) {
   const key = route === '/' ? '/page' : `${route}/page`;
   const alt = route === '/' ? null : `${route}/route`;
   const entryKey = pages[key] ? key : (alt && pages[alt] ? alt : null);
   if (!entryKey) return { error: `manifest entry for route "${route}" is missing (expected key ${key})` };
+  const layoutKeys = ancestorLayoutKeys(route, pages);
+  const files = new Set();
+  for (const k of [...layoutKeys, entryKey]) for (const f of pages[k]) files.add(f);
   let total = 0;
-  for (const file of pages[entryKey]) {
-    if (!file.endsWith('.js')) continue; // css/fonts are not First Load JS
+  let jsCount = 0;
+  let cssCount = 0;
+  for (const file of files) {
+    const isJs = file.endsWith('.js');
+    const isCss = file.endsWith('.css');
+    if (!isJs && !isCss) continue; // fonts/other assets are not First Load JS+CSS
     const p = join(nextDir, file);
     if (!existsSync(p)) return { error: `chunk ${file} listed for "${route}" does not exist on disk` };
     total += gzipSync(readFileSync(p), { level: 9 }).length;
+    if (isCss) cssCount++; else jsCount++;
   }
-  return { bytes: total, entryKey, chunkCount: pages[entryKey].filter((f) => f.endsWith('.js')).length };
+  return { bytes: total, entryKey, layoutKeys, chunkCount: jsCount + cssCount, jsCount, cssCount };
 }
 
 // ── CLI ────────────────────────────────────────────────────────────────────
@@ -122,7 +160,7 @@ if (process.argv[1] && resolve(process.argv[1]) === resolve(fileURLToPath(import
   }
 
   const violations = [];
-  console.log(`First Load JS budget gate — ${NEXT_DIR} vs ${rows.length} baseline routes (gzip-9 exact, session-90 method)`);
+  console.log(`First Load JS+CSS budget gate — ${NEXT_DIR} vs ${rows.length} baseline routes (gzip-9 exact, full ancestor chain — session-118 method)`);
   for (const { route, baselineBytes } of rows) {
     const r = firstLoadBytes(pages, route, NEXT_DIR);
     if (r.error) { violations.push(`${route}: ${r.error}`); console.log(`  ${route.padEnd(22)} ERROR  ${r.error}`); continue; }
@@ -131,7 +169,7 @@ if (process.argv[1] && resolve(process.argv[1]) === resolve(fileURLToPath(import
     if (!ok) violations.push(`${route}: ${r.bytes} B > baseline ${baselineBytes} B (+${-margin} B)`);
     console.log(
       `  ${route.padEnd(22)} ${String(r.bytes).padStart(7)} B / budget ${String(baselineBytes).padStart(7)} B  ` +
-      `${ok ? `margin +${margin} B` : `OVER by ${-margin} B`}  (${r.chunkCount} chunks)`,
+      `${ok ? `margin +${margin} B` : `OVER by ${-margin} B`}  (${r.jsCount} js + ${r.cssCount} css, chain: ${[...r.layoutKeys, r.entryKey].length} entries)`,
     );
   }
   if (violations.length) {

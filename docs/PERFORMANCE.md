@@ -384,32 +384,46 @@ production build on :4100):
   250.74 req/s) is what the B2 row reproduces — the replay-heavy shape is
   stable, and neither arm regressed it.
 
-## First Load JS budget gate — November 21, 2026 (session 115)
+## First Load JS+CSS budget gate — November 21, 2026 (session 115); ancestor-chain revision November 23, 2026 (session 118)
 
 Phase 11 roadmap item "Perf: First Load JS budget gate". A zero-dep node
 script, `apps/web/scripts/check-bundle-budget.mjs`, is the CI `web` job's
 build-post step: after `next build` it reads `.next/app-build-manifest.json`
-and FAILS the job when any core storefront route's exact First Load JS
-(gzip-9 sum of every `.js` chunk listed for that route's manifest entry —
-the session-90 method, CSS excluded) exceeds the baseline table below.
+and FAILS the job when any core storefront route's exact first-load payload
+exceeds the baseline table below.
+
+Metric, as of session 118: gzip-9 sum of EVERY `.js` AND `.css` chunk
+listed for the route's own manifest entry PLUS every ancestor layout entry
+(`/layout` down to `${route}/layout`), each file counted once. The original
+session-90 method summed only the route's OWN chunks, which session 117
+proved blind: the root layout chunk and the global CSS chunk are not listed
+for ANY pinned page, so SkipLink's real +209 B gz into `app/layout-*.js`
+landed at margin +0 on all seven routes. Next's own printed table shares
+the blind spot (its per-page `First Load JS` is Size + shared, no layout or
+CSS rows) — the chain sum is deliberately broader: it is what the browser
+actually loads on first paint. For `/` that is 135,768 B vs the printed
+"107 kB": +6,749 B CSS, +12,087+2,148+4,117 B of client chunks reachable
+only via the root layout, +3,704 B layout module.
 
 Why exact bytes: the route table rounds to 1 kB and hides small deltas
-(session 90 proved a 266 B gz win invisible there). The manifest sum
-reproduces Next's own arithmetic exactly — every number below matches the
-cold-build table at its kB rounding (`/` 106,963 B -> "107 kB",
-`/checkout` 127,584 -> "128 kB", `/orders/[id]` 145,103 -> "145 kB").
+(session 90 proved a 266 B gz win invisible there; session 117 a 209 B
+layout loss).
 
-Baseline measured at ship on a cold `rm -rf .next && next build` from a
-CI-CLEAN checkout — no gitignored `apps/web/.env.local`: a defined
-`NEXT_PUBLIC_API_URL` inlines into the client chunks and moved five
-route sums +39 B (the first CI run of this gate failed RED precisely
-because the baseline had been taken with the local .env.local present —
-the gate caught its own measurement discipline, exactly as intended).
-Lockfile-pinned, so CI rebuilds reproduce these bytes modulo toolchain
-upgrades. Tolerance is ZERO by design — like the schema-drift gate, growth
-is either shrunk back or re-measured deliberately (clean checkout!) via
-`node scripts/check-bundle-budget.mjs --print`, committing the new numbers
-WITH the change that grew the bundle.
+Baseline re-measured November 23, 2026 (session 118) on a cold
+`rm -rf .next && next build` from a CI-CLEAN checkout — no gitignored
+`apps/web/.env.local`: a defined `NEXT_PUBLIC_API_URL` inlines into the
+client chunks and moved five route sums +39 B (the first CI run of this
+gate failed RED precisely because the baseline had been taken with the
+local .env.local present — the gate caught its own measurement discipline,
+exactly as intended). Reproducibility was proven at re-measure: the OLD-method
+own-entry sums of that same build reproduced the session-115 table byte for
+byte (`/` 106,963, `/orders/[id]` 145,103, ...), so the chain numbers below
+differ from them by exactly the newly-counted layout/CSS bytes, not by
+build drift. Lockfile-pinned, so CI rebuilds reproduce these bytes modulo
+toolchain upgrades. Tolerance is ZERO by design — like the schema-drift
+gate, growth is either shrunk back or re-measured deliberately (clean
+checkout!) via `node scripts/check-bundle-budget.mjs --print`, committing
+the new numbers WITH the change that grew the bundle.
 
 Route set = the core storefront funnel (home, restaurant detail, cart,
 checkout, map, receipt, order history). Portal routes (`/admin`,
@@ -417,25 +431,28 @@ checkout, map, receipt, order history). Portal routes (`/admin`,
 their split decisions separately.
 
 <!-- BUNDLE-BASELINE-START -->
-| Route | Baseline First Load JS (B) |
+| Route | Baseline First Load JS+CSS, full chain (B) |
 |---|---|
-| `/` | 106963 |
-| `/restaurants/[id]` | 125001 |
-| `/cart` | 124724 |
-| `/checkout` | 127584 |
-| `/map` | 104817 |
-| `/orders/[id]` | 145103 |
-| `/orders/my` | 129730 |
+| `/` | 135768 |
+| `/restaurants/[id]` | 138839 |
+| `/cart` | 139294 |
+| `/checkout` | 142327 |
+| `/map` | 137007 |
+| `/orders/[id]` | 159673 |
+| `/orders/my` | 144300 |
 <!-- BUNDLE-BASELINE-END -->
 
 The gate is dead-gate-proofed (session-106 doctrine): it fails on a missing
 manifest, missing/empty/duplicate-row/unparseable baseline table, a baseline
 route absent from the build (renamed/deleted route would otherwise freeze
 the table silently), and a listed chunk absent on disk. The full decision
-table lives in `scripts/check-bundle-budget.test.mjs` (13 node:test cases,
+table lives in `scripts/check-bundle-budget.test.mjs` (15 node:test cases,
 browser-free, spawned via the `BUNDLE_NEXT_DIR`/`BUNDLE_BASELINE_FILE`
 knobs), INCLUDING the deliberate over-budget negative test (1 B over ->
-exit 1 naming the route) the roadmap asked for; the CI web job runs
+exit 1 naming the route) the roadmap asked for, and since session 118 the
+two chain negatives: a chunk listed ONLY under `/layout` tripping the gate
+(the exact SkipLink blind spot) and the nested ancestor chain deduping a
+chunk shared by four entries to one count. The CI web job runs
 `node --test` before the real gate, and the ship run additionally proved
 the negative live on the real `.next` with deliberately 1-byte baselines.
 

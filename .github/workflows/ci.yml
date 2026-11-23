@@ -77,8 +77,10 @@ jobs:
         run: node --test scripts/check-bundle-budget.test.mjs
       - name: First Load JS budget gate
         # Exact gzip-9 manifest sums vs the committed baseline in
-        # docs/PERFORMANCE.md (session-90 method). Zero tolerance; re-run
-        # with --print and commit new numbers when growth is intended.
+        # docs/PERFORMANCE.md (session-118 full-ancestor-chain method:
+        # page entry + every ancestor layout entry, .js AND .css, deduped).
+        # Zero tolerance; re-run with --print and commit new numbers when
+        # growth is intended.
         run: node scripts/check-bundle-budget.mjs
 
   db-bootstrap:
