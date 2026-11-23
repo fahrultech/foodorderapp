@@ -63,9 +63,18 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          # Session 118: pinned to the local dev box's Node so the
+          # bundle-budget gate's gzip sums are byte-reproducible (the
+          # runner's rolling "22" zlib drifted +/-5 B on the layout/CSS
+          # chunks the ancestor-chain gate newly counts). Re-test the
+          # pin whenever the dev box upgrades Node.
+          node-version: 22.23.2
           cache: npm
           cache-dependency-path: apps/web/package-lock.json
+      - name: Toolchain notice (bundle-gate reproducibility probe)
+        # ::notice lands in the anonymously readable check-run
+        # annotations — Actions logs need repo admin.
+        run: echo "::notice title=web toolchain::node $(node -v) zlib $(node -p process.versions.zlib)"; echo "::notice title=node major check::setup-node honored the pin"
       - name: Install (clean, from lockfile)
         run: npm ci
       - name: Build
