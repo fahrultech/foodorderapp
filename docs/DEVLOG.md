@@ -70,6 +70,27 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
   first); fixture-timing gate OK (62 work legs, max 155 ms, 5-run history
   merged). Sanitizer scan clean on all added lines (U+2026 masks,
   asterisk-mask sequences, literal backslash-u escapes).
+- POST-PUSH CI INCIDENT (same session, honest note): the push's CI run
+  45120203711 went RED on the bundle gate alone (e2e/API/PG15/PG16 jobs
+  all green) — every route measured exactly +5 B OVER the committed
+  table. The gate self-report made the postmortem anonymous and
+  per-file: diffing THIS run's `bundle-chain` annotations against run
+  45097501585 (session 118's probe, byte-identical app code, node
+  22.23.2) shows ONE changed chunk — shared 2619-*.js gzip 3385 → 3390 —
+  i.e. the runner image's Node 22.23.2 → 22.23.5 patch drift moved the
+  sums, my change contributed zero (margins uniform across untouched
+  routes too). Session 118's "Node pin irrelevant" verdict is RETRACED
+  (its A/B arms resolved to the same version — the experiment was blind,
+  not the variable). Fix shipped as a follow-up commit: table re-adopted
+  to the CI-measured +5 numbers (node 22.23.5 labeled), the web CI job
+  pinned to 22.23.5 with the annotation-diff evidence in the comment,
+  PERFORMANCE.md doctrine amended (deliberate runner-Node upgrades =
+  re-measure ritual). Verification: the follow-up CI run must be fully
+  green at the pinned 22.23.5 (proving budget >= measured for all 7);
+  the exact +5 for the two truncated routes follows from the per-file
+  diff itself — every OTHER chunk in their chains is byte-identical
+  across the two runs and 2619-*.js rides every chain union exactly
+  once, so their sums cannot have moved by anything but +5.
 
 **Left for next sessions:**
 

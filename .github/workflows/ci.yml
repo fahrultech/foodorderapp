@@ -63,13 +63,18 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          # Session 118 investigated pinning this to the dev box's exact
-          # Node (22.23.2) for bundle-gate byte-reproducibility and the
-          # experiment proved it irrelevant: CI sums were identical under
-          # rolling "22" and the pin. The sums' ONLY environment-sensitive
-          # input is the checkout PATH (module-id embedding in main-app /
-          # app-layout chunks) - stable on runners. See docs/PERFORMANCE.md.
-          node-version: 22
+          # Session 118 concluded the Node pin was irrelevant because
+          # rolling-22 and the pin produced identical sums — but both arms
+          # then RESOLVED TO THE SAME VERSION (22.23.2), so the experiment
+          # could not test a Node delta. It now has: the runner image moved
+          # to 22.23.5 and rebuilt byte-IDENTICAL app code (61272e5) shifted
+          # every route's sum exactly +5 B — the per-file CI annotation
+          # diff (runs 45097501585 vs 45120203711) names the single chunk:
+          # 2619-*.js 3385 -> 3390 (shared, counted once per chain, so the
+          # shift is uniform). Pin the web job to the version the baseline
+          # table was measured on; a deliberate runner-Node upgrade means
+          # re-measuring the table on CI (PERFORMANCE.md doctrine).
+          node-version: 22.23.5
           cache: npm
           cache-dependency-path: apps/web/package-lock.json
       - name: Toolchain notice (bundle-gate postmortem aid)

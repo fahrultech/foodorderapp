@@ -420,8 +420,15 @@ absolute gzip sums are PATH-SENSITIVE — the `main-app-*` and
 box (`/home/...`-short) and the runner (`/home/runner/work/<repo>/<repo>`)
 build those two chunks differently (measured by session 118's live A/B:
 identical files everywhere else, −1/+6 B on exactly the two, under byte-
-identical Node 22.23.2 + zlib 1.3.1-e00f703 on both sides; the Node pin
-was tested and explicitly NOT the cause). The old own-entry sums agreed
+identical Node 22.23.2 + zlib 1.3.1-e00f703 on both sides; the Node-pin
+arms of that A/B resolved to the SAME version, so it could not test a
+Node delta — session 119 then proved one exists: the runner image moved
+22.23.2 → 22.23.5 and rebuilt byte-identical app code, shifting every
+route's sum exactly +5 B (annotation per-file diff across runs
+45097501585/45120203711: ONE chunk, 2619-*.js, 3385 → 3390 gzip; shared
+and counted once per chain, hence uniform). The web CI job is PINNED to
+the measured version (22.23.5); a deliberate runner-Node upgrade now
+means re-measuring the table on CI). The old own-entry sums agreed
 across environments only because the path-embedded chunks happened to
 compress to equal sizes there — luck the chain metric no longer relies
 on. Runners are path-stable, so these numbers are; the local `next build`
@@ -443,15 +450,15 @@ checkout, map, receipt, order history). Portal routes (`/admin`,
 their split decisions separately.
 
 <!-- BUNDLE-BASELINE-START -->
-| Route | Baseline First Load JS+CSS, full chain (B, CI-measured) |
+| Route | Baseline First Load JS+CSS, full chain (B, CI-measured, node 22.23.5) |
 |---|---|
-| `/` | 135773 |
-| `/restaurants/[id]` | 138844 |
-| `/cart` | 139299 |
-| `/checkout` | 142333 |
-| `/map` | 137011 |
-| `/orders/[id]` | 159678 |
-| `/orders/my` | 144304 |
+| `/` | 135778 |
+| `/restaurants/[id]` | 138849 |
+| `/cart` | 139304 |
+| `/checkout` | 142338 |
+| `/map` | 137016 |
+| `/orders/[id]` | 159683 |
+| `/orders/my` | 144309 |
 <!-- BUNDLE-BASELINE-END -->
 
 The gate is dead-gate-proofed (session-106 doctrine): it fails on a missing
