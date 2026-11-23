@@ -181,6 +181,7 @@ describe('GET /restaurants/:id/metrics — scoped payload (no global leak)', () 
     reg.record('GET /api/restaurants/:id', 200, 4, RID);
     reg.record('GET /api/restaurants/:id', 500, 30, RID);
     reg.record('GET /api/restaurants/:restaurantId/menu', 200, 2, RID);
+    reg.record('GET /api/restaurants/:id', 429, 2, RID, true); // guard-marked (session 123)
     reg.record('GET /api/restaurants/:id', 200, 1, OTHER_RID); // foreign
     reg.record('GET /api/orders', 200, 1); // unscoped
 
@@ -190,8 +191,8 @@ describe('GET /restaurants/:id/metrics — scoped payload (no global leak)', () 
     expect(body.restaurantId).toBe(RID);
     expect(body.scope).toBe('restaurant');
     expect(body.window).toBe('since_api_boot');
-    expect(body.totals.requests).toBe(3); // RID only: never 5, never 4-of-global
-    expect(body.totals.byStatus).toEqual({ '2xx': 2, '3xx': 0, '4xx': 0, '5xx': 1 });
+    expect(body.totals.requests).toBe(4); // RID only: never 7, never all-of-global
+    expect(body.totals.byStatus).toEqual({ '2xx': 2, '3xx': 0, '4xx': 1, '5xx': 1 });
     expect(body.routes.map((r: any) => r.route)).toEqual([
       'GET /api/restaurants/:id',
       'GET /api/restaurants/:restaurantId/menu',
@@ -211,6 +212,19 @@ describe('GET /restaurants/:id/metrics — scoped payload (no global leak)', () 
         'restaurantsPersisted', 'retentionSec', 'snapshotIntervalSec', 'window'].sort(),
     );
     expect(body.durability).not.toHaveProperty('stored');
+    // Session 123: the guard-marked 429 above tops up the OWNER 4xx tally
+    // but NEVER surfaces the ADMIN-only `throttled` field — not on the
+    // totals (key-set pin above holds it out) and not on any row.
+    expect(body.totals).not.toHaveProperty('throttled');
+    for (const row of body.routes) expect(Object.keys(row)).not.toContain('throttled');
+    // The GLOBAL snapshot (same registry, same arithmetic the ADMIN route
+    // serves verbatim — its HTTP round-trip is pinned in admin.controller)
+    // DOES see the pressure.
+    const globalSnap = metrics.snapshot();
+    expect(globalSnap.totals.throttled).toBe(1);
+    expect(
+      globalSnap.routes.find((r) => r.route === 'GET /api/restaurants/:id')?.throttled,
+    ).toBe(1);
     expect(body.durability.window).toBeNull();
     await app.close();
   });

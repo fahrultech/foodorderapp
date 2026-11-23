@@ -39,6 +39,15 @@ export class MetricsRouteRowResponse {
   requests: number;
   @ApiProperty({ type: () => MetricsStatusClassesResponse })
   byStatus: MetricsStatusClassesResponse;
+  @ApiProperty({
+    type: 'integer',
+    required: false,
+    description:
+      'Guard-throttled responses (429, session 123) — subset of byStatus.4xx. Present ONLY on ' +
+      'rows from the ADMIN global snapshot: the restaurant view shares this model but never ' +
+      'emits the key (OWNER-rung shape contract, sessions 85/98/116).',
+  })
+  throttled?: number;
   @ApiProperty({ type: 'integer', description: 'Sum of durations in ms (rounded).' })
   sumMs: number;
   @ApiProperty({ type: 'number', description: 'avg = sumMs/requests, one decimal.' })
@@ -62,6 +71,15 @@ export class MetricsTotalsResponse {
   requests: number;
   @ApiProperty({ type: () => MetricsStatusClassesResponse })
   byStatus: MetricsStatusClassesResponse;
+  @ApiProperty({
+    type: 'integer',
+    description:
+      'Total guard-throttled responses since API boot (session 123); subset of byStatus.4xx. ' +
+      'Only the RateLimitGuard stamp PLUS a finish-time 429 counts — a 429 from any other ' +
+      'producer stays invisible here. ADMIN global view only — the scoped ' +
+      'RestaurantMetricsTotalsResponse has no such field by design.',
+  })
+  throttled: number;
   @ApiProperty({ type: 'integer', description: 'Distinct tracked route keys (excludes the "other" overflow bucket).' })
   routeKeys: number;
   @ApiProperty({ type: 'boolean', description: 'True if the route-key cap ever tripped and folded new routes into "other".' })

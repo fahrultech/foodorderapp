@@ -175,6 +175,70 @@ describe('request metrics — registry aggregation', () => {
   });
 });
 
+describe('request metrics — guard-throttle tally (session 123)', () => {
+  it('throttled samples tally per-route and in totals, staying a subset of 4xx', () => {
+    const reg = new RequestMetricsRegistry();
+    reg.record('POST /api/auth/login', 429, 3, null, true);
+    reg.record('POST /api/auth/login', 429, 2, null, true);
+    reg.record('POST /api/auth/login', 200, 40);
+    const snap = reg.snapshot();
+    const row = snap.routes.find((r) => r.route === 'POST /api/auth/login')!;
+    expect(row.requests).toBe(3);
+    expect(row.throttled).toBe(2);
+    expect(row.byStatus['4xx']).toBe(2);
+    expect(snap.totals.throttled).toBe(2);
+  });
+
+  it('a 429 WITHOUT the guard stamp stays 4xx-only — the key exists as an honest zero', () => {
+    const reg = new RequestMetricsRegistry();
+    reg.record('GET /a', 429, 1); // hypothetical future 429 producer, not the guard
+    const snap = reg.snapshot();
+    expect(snap.totals.throttled).toBe(0);
+    expect(snap.routes[0].throttled).toBe(0);
+    expect(snap.routes[0].byStatus['4xx']).toBe(1);
+  });
+
+  it('overflow folding carries throttled into the `other` row (nothing is lost)', () => {
+    const reg = new RequestMetricsRegistry(1);
+    reg.record('GET /one', 200, 1);
+    reg.record('GET /two', 429, 1, null, true);
+    const snap = reg.snapshot();
+    const other = snap.routes.find((r) => r.route === OVERFLOW_KEY)!;
+    expect(other.requests).toBe(1);
+    expect(other.throttled).toBe(1);
+    expect(snap.totals.throttled).toBe(1);
+  });
+
+  it('the restaurant dimension NEVER emits the key (OWNER rung shape contract)', () => {
+    const RID = '5f0a1b2c-3d4e-4f50-9a8b-7c6d5e4f3a2b';
+    const reg = new RequestMetricsRegistry();
+    reg.record('GET /api/restaurants/:id', 200, 5, RID); // mints the bucket
+    reg.record('GET /api/restaurants/:id', 429, 2, RID, true); // throttle tops the row up
+    // GLOBAL view sees the pressure...
+    expect(reg.snapshot().totals.throttled).toBe(1);
+    expect(reg.snapshot().routes[0].throttled).toBe(1);
+    // ...the scoped view counts the request but carries NO throttle field
+    // anywhere — sessions 85/98/116 pins keep holding byte-identical keys.
+    const b = reg.restaurantSnapshot(RID);
+    expect(b.totals.requests).toBe(2);
+    expect(b.totals.byStatus['4xx']).toBe(1);
+    expect(Object.keys(b.totals)).not.toContain('throttled');
+    for (const row of b.routes) expect(Object.keys(row)).not.toContain('throttled');
+    // Same via the persistence feed (stored restaurant entries share the ctor path).
+    const entries = reg.restaurantEntries();
+    expect(Object.keys(entries[RID].totals)).not.toContain('throttled');
+  });
+
+  it('reset() zeroes the throttle tally too', () => {
+    const reg = new RequestMetricsRegistry();
+    reg.record('GET /a', 429, 1, null, true);
+    reg.reset();
+    const snap = reg.snapshot();
+    expect(snap.totals.throttled).toBe(0);
+    expect(snap.routes).toEqual([]);
+  });
+});
+
 describe('request metrics — interval resolution (METRICS_LOG_INTERVAL_SEC)', () => {
   it('defaults when unset/empty', () => {
     expect(resolveIntervalSec(undefined)).toBe(DEFAULT_METRICS_LOG_INTERVAL_SEC);

@@ -1,4 +1,5 @@
 import type { NextFunction, Request, Response } from 'express';
+import { rateLimitedBucketOf } from '../rate-limit/rate-limit.marker';
 import { RequestMetricsRegistry, restaurantScopeOf, routeKeyOf, shouldTrackUrl, statusClassOf, HISTOGRAM_BOUNDS_MS, type StatusClass } from './request-metrics';
 
 /** Compact per-request summary folded into the pino access line. */
@@ -43,7 +44,12 @@ export function createRequestMetricsMiddleware(registry: RequestMetricsRegistry)
       // restaurantScopeOf uses the SAME finish-time resolution: matched
       // restaurant templates additionally land in that restaurant's bucket
       // (concrete uuid, lowercased) — session 98's explicit dimension.
-      registry.record(routeKeyOf(req), res.statusCode, durationMs, restaurantScopeOf(req));
+      // Session 123: a sample counts toward the rate-limit pressure tally
+      // ONLY when the RateLimitGuard stamped this very request AND the
+      // response finished 429 — both halves are required, so no other 429
+      // producer (and no stamp that never reached the wire) inflates it.
+      const throttled = rateLimitedBucketOf(req) !== null && res.statusCode === 429;
+      registry.record(routeKeyOf(req), res.statusCode, durationMs, restaurantScopeOf(req), throttled);
       (res as Response & { metrics?: MetricsLogSummary }).metrics = {
         bucket: bucketLabel(durationMs),
         status_class: statusClassOf(res.statusCode),

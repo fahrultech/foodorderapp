@@ -29,6 +29,14 @@ export class AlertThresholdsResponse {
   minRequests: number;
   @ApiProperty({
     type: 'number',
+    description:
+      'Percent of served requests allowed to be guard-throttled 429s before the ' +
+      'rate_limit_pressure rule fires (session 123, ALERT_RATE_LIMIT_PCT_MAX, default 5). ' +
+      'Fires STRICTLY above this value, over the same minRequests sample floor.',
+  })
+  rateLimitPctMax: number;
+  @ApiProperty({
+    type: 'number',
     nullable: true,
     description:
       'snapshot_stale ceiling in seconds; null (default) means "2x the configured ' +
@@ -41,7 +49,7 @@ export class AlertThresholdsResponse {
 export class AlertRuleResultResponse {
   @ApiProperty({
     type: 'string',
-    enum: ['error_budget', 'p95_latency', 'route_key_overflow', 'snapshot_stale'],
+    enum: ['error_budget', 'p95_latency', 'route_key_overflow', 'snapshot_stale', 'rate_limit_pressure'],
   })
   id: string;
 
@@ -59,7 +67,8 @@ export class AlertRuleResultResponse {
     type: 'number',
     nullable: true,
     description:
-      'The number the verdict rests on (5xx rate % / p95 ms estimate / distinct route keys); ' +
+      'The number the verdict rests on (5xx rate % / p95 ms estimate / distinct route keys / ' +
+      'snapshot age s / 429 share %); ' +
       'null when the rule is not evaluable (no samples or sample below minRequests).',
   })
   observed: number | null;

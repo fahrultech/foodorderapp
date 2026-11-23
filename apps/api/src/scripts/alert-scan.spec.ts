@@ -115,6 +115,18 @@ describe('runScan — exit-code classification', () => {
     expect(outcome.escalated).toBe(false);
   });
 
+  it('rate_limit_pressure rides the SAME exit-1 contract (session 123): warning-severity rule still pages', async () => {
+    const { fn } = stubFetch([
+      ok({ access_token: 'tok-1' }),
+      ok({ status: 'alerting', firingRules: ['rate_limit_pressure'] }),
+      ok({ streak: { alerting: 1, currentStatus: 'alerting' } }),
+    ]);
+    const outcome = await runScan(CFG, fn as never);
+    expect(outcome.exitCode).toBe(1);
+    expect(outcome.report!.firingRules).toEqual(['rate_limit_pressure']);
+    expect(outcome.escalated).toBe(false);
+  });
+
   // --- Phase 11: repeated-fire escalation (">=3 consecutive bumps the note") ---
 
   it('escalates at the streak threshold — exit code STAYS 1 (a chronic fire pages louder, never changes class)', async () => {

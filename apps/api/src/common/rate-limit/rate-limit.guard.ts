@@ -2,6 +2,7 @@ import { ExecutionContext, HttpStatus, Inject, Injectable } from '@nestjs/common
 import type { CanActivate } from '@nestjs/common';
 import { AppException } from '../app-exception';
 import { currentReqId } from '../logging/request-context';
+import { markRateLimited } from './rate-limit.marker';
 import { RATE_LIMIT_CONFIG, type RateLimitConfig } from './rate-limit.config';
 import { resolveBucket } from './rate-limit.decorator';
 import { SlidingWindowLogStore } from './rate-limit.store';
@@ -51,6 +52,9 @@ export class RateLimitGuard implements CanActivate {
     if (!verdict.allowed) {
       const retryAfterSec = Math.max(1, Math.ceil(verdict.retryAfterMs / 1000));
       this.setHeader(res, 'Retry-After', String(retryAfterSec));
+      // Session 123: stamp the request BEFORE the throw so the metrics
+      // middleware can count a GUARD-VERIFIED 429 at finish time.
+      markRateLimited(req, bucket);
       throw new AppException(
         HttpStatus.TOO_MANY_REQUESTS,
         'RATE_LIMITED',

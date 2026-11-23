@@ -207,6 +207,14 @@ export class EnvVars {
   @IsString()
   ALERT_P95_MS_MAX?: string;
 
+  // rate_limit_pressure ceiling (session 123) — guard-throttled 429 share
+  // in percent (default 5, fires STRICTLY above, shares ALERT_MIN_REQUESTS
+  // as the sample floor). 0 is legal ("any 429 alerts"); garbage/negative
+  // falls back, never crash-boots.
+  @IsOptional()
+  @IsString()
+  ALERT_RATE_LIMIT_PCT_MAX?: string;
+
   // Minimum total requests before the error_budget rule is evaluated
   // (default 50 — a lone 5xx on a fresh boot is noise, not an outage).
   @IsOptional()

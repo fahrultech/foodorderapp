@@ -28,6 +28,17 @@
  * A per-restaurant snapshot can NEVER contain unattributed or foreign
  * samples — that separation is the OWNER-rung safety contract (session 85
  * decision: the global snapshot stays ADMIN-only).
+ *
+ * Rate-limit dimension (session 123, Phase 13 "rate-limit pressure
+ * telemetry"): a sample may additionally carry `throttled = true`, set by
+ * the metrics middleware ONLY when the RateLimitGuard stamped the request
+ * AND the response finished as 429. Route rows and the GLOBAL totals gain
+ * an additive `throttled` count so a store silently shedding customers is
+ * visible between the limiter headers and the complaint. The counter is
+ * deliberately GLOBAL-ONLY: `restaurantSnapshot()` never emits the key
+ * (neither rows nor totals), keeping the pinned OWNER-rung shape from
+ * sessions 85/98/116 byte-identical — per-restaurant limiter pressure is
+ * ADMIN telemetry, not an owner-facing field.
  */
 
 export const HISTOGRAM_BOUNDS_MS = [5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000] as const;
@@ -138,6 +149,12 @@ export interface MetricsRouteRow {
   route: string;
   requests: number;
   byStatus: Record<StatusClass, number>;
+  /**
+   * Guard-throttled responses (429) for this route (session 123). Present
+   * ONLY on rows from the GLOBAL snapshot — restaurant views never carry
+   * the key (OWNER-rung shape contract). Subset of `byStatus['4xx']`.
+   */
+  throttled?: number;
   sumMs: number;
   avgMs: number;
   minMs: number;
@@ -155,6 +172,8 @@ export interface MetricsSnapshot {
   totals: {
     requests: number;
     byStatus: Record<StatusClass, number>;
+    /** Guard-throttled 429 total across all routes (session 123; GLOBAL-only field). */
+    throttled: number;
     routeKeys: number;
     overflowed: boolean;
     /** Distinct success-created restaurant buckets (session 98 dimension). */
@@ -211,6 +230,10 @@ export type PersistedMetricsSnapshot = MetricsSnapshot & {
 interface RouteAgg {
   count: number;
   byStatus: Record<StatusClass, number>;
+  /** Guard-throttled 429 samples within this route (session 123). Counted on
+   *  the GLOBAL map only — the restaurant fold path never sets it, so a
+   *  bucket's agg carries a structural zero, never a claim. */
+  throttled: number;
   sumMs: number;
   minMs: number;
   maxMs: number;
@@ -230,6 +253,7 @@ function freshAgg(): RouteAgg {
   return {
     count: 0,
     byStatus: { '2xx': 0, '3xx': 0, '4xx': 0, '5xx': 0 },
+    throttled: 0,
     sumMs: 0,
     minMs: Infinity,
     maxMs: 0,
@@ -237,9 +261,10 @@ function freshAgg(): RouteAgg {
   };
 }
 
-function addSample(agg: RouteAgg, status: number, durationMs: number): void {
+function addSample(agg: RouteAgg, status: number, durationMs: number, throttled = false): void {
   agg.count += 1;
   agg.byStatus[statusClassOf(status)] += 1;
+  if (throttled) agg.throttled += 1;
   agg.sumMs += durationMs;
   if (durationMs < agg.minMs) agg.minMs = durationMs;
   if (durationMs > agg.maxMs) agg.maxMs = durationMs;
@@ -269,8 +294,8 @@ function histogramOf(agg: RouteAgg): HistogramBucket[] {
   return buckets;
 }
 
-function rowOf(route: string, agg: RouteAgg): MetricsRouteRow {
-  return {
+function rowOf(route: string, agg: RouteAgg, withThrottled = false): MetricsRouteRow {
+  const row: MetricsRouteRow = {
     route,
     requests: agg.count,
     byStatus: { ...agg.byStatus },
@@ -283,6 +308,11 @@ function rowOf(route: string, agg: RouteAgg): MetricsRouteRow {
     p99Ms: percentile(agg, 0.99),
     histogram: histogramOf(agg),
   };
+  // The key is present ONLY on the global view (session 123): the OWNER
+  // rung emitted exactly these keys since session 98 and multiple specs
+  // pin that set — a per-restaurant throttle tally is ADMIN telemetry.
+  if (withThrottled) row.throttled = agg.throttled;
+  return row;
 }
 
 export class RequestMetricsRegistry {
@@ -306,7 +336,13 @@ export class RequestMetricsRegistry {
     return this.startedAt;
   }
 
-  record(key: string, status: number, durationMs: number, restaurantId?: string | null): void {
+  record(
+    key: string,
+    status: number,
+    durationMs: number,
+    restaurantId?: string | null,
+    throttled = false,
+  ): void {
     let agg = this.routes.get(key);
     if (!agg) {
       const folding = this.routes.size >= this.maxKeys && key !== OVERFLOW_KEY;
@@ -315,8 +351,11 @@ export class RequestMetricsRegistry {
       agg = this.routes.get(mapKey) ?? freshAgg();
       this.routes.set(mapKey, agg);
     }
-    addSample(agg, status, durationMs);
+    addSample(agg, status, durationMs, throttled);
 
+    // The restaurant fold NEVER carries the throttle tally (session 123):
+    // the OWNER rung must not gain the field, and the middleware only
+    // passes throttled=true on guard-blocked requests anyway.
     if (restaurantId) this.recordRestaurant(restaurantId, key, status, durationMs);
   }
 
@@ -360,9 +399,12 @@ export class RequestMetricsRegistry {
   }
 
   /** Rows + element-wise merged histogram for any route-keyed map. */
-  private aggregate(map: Map<string, RouteAgg>): { rows: MetricsRouteRow[]; merged: RouteAgg } {
+  private aggregate(
+    map: Map<string, RouteAgg>,
+    withThrottled = false,
+  ): { rows: MetricsRouteRow[]; merged: RouteAgg } {
     const rows = [...map.entries()]
-      .map(([route, agg]) => rowOf(route, agg))
+      .map(([route, agg]) => rowOf(route, agg, withThrottled))
       .sort((a, b) => (b.requests - a.requests) || a.route.localeCompare(b.route));
 
     // Cumulative histogram counts are additive across routes, so the
@@ -371,6 +413,7 @@ export class RequestMetricsRegistry {
     for (const agg of map.values()) {
       merged.count += agg.count;
       for (const cls of ['2xx', '3xx', '4xx', '5xx'] as const) merged.byStatus[cls] += agg.byStatus[cls];
+      merged.throttled += agg.throttled;
       merged.sumMs += agg.sumMs;
       if (agg.minMs < merged.minMs) merged.minMs = agg.minMs;
       if (agg.maxMs > merged.maxMs) merged.maxMs = agg.maxMs;
@@ -392,13 +435,14 @@ export class RequestMetricsRegistry {
   }
 
   snapshot(now: Date = new Date()): MetricsSnapshot {
-    const { rows, merged } = this.aggregate(this.routes);
+    const { rows, merged } = this.aggregate(this.routes, true);
     return {
       generatedAt: now.toISOString(),
       uptimeSec: Math.max(0, Math.round((now.getTime() - this.startedAt) / 1000)),
       boundsMs: [...HISTOGRAM_BOUNDS_MS],
       totals: {
         ...this.totalsOf(merged),
+        throttled: merged.throttled,
         routeKeys: this.routes.has(OVERFLOW_KEY) ? this.routes.size - 1 : this.routes.size,
         overflowed: this.overflowed,
         restaurantKeys: this.restaurantBuckets.size,

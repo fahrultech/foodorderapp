@@ -1,6 +1,7 @@
 import { ExecutionContext, HttpException } from '@nestjs/common';
 import { AppException } from '../app-exception';
 import { runWithRequestContext } from '../logging/request-context';
+import { rateLimitedBucketOf } from './rate-limit.marker';
 import { loadRateLimitConfig, type RateLimitConfig } from './rate-limit.config';
 import { RateLimit } from './rate-limit.decorator';
 import { RateLimitGuard } from './rate-limit.guard';
@@ -106,6 +107,26 @@ describe('RateLimitGuard (unit)', () => {
     expect(body.details.window_sec).toBe(60);
     expect(res.headers['Retry-After']).toBe(String(body.details.retry_after_sec));
     expect(res.headers['X-RateLimit-Remaining']).toBe('0');
+  });
+
+  it('stamps the guard marker on a BLOCKED request — the metrics throttle tally depends on it (session 123)', () => {
+    const req: FakeReq & Record<string, unknown> = { ip: '9.9.9.9', headers: {} };
+    // Allowed request: never stamped.
+    expect(guard.canActivate(makeContext(req, makeRes(), decoratedHandler('auth')))).toBe(true);
+    expect(rateLimitedBucketOf(req)).toBeNull();
+    // Blocked request: stamped with the bucket BEFORE the throw.
+    for (let i = 0; i < 10; i++) store.check('auth:9.9.9.9', 10, 60_000);
+    let thrown: unknown;
+    try {
+      guard.canActivate(makeContext(req, makeRes(), decoratedHandler('auth')));
+    } catch (e) {
+      thrown = e;
+    }
+    expect(thrown).toBeInstanceOf(AppException);
+    expect(rateLimitedBucketOf(req)).toBe('auth');
+    // Nothing stamped on the non-guard paths either way.
+    expect(rateLimitedBucketOf(null)).toBeNull();
+    expect(rateLimitedBucketOf({})).toBeNull();
   });
 
   it('attaches the active reqId to the 429 details for support tracing', () => {

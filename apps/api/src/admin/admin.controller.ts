@@ -55,7 +55,9 @@ export class AdminController {
       'In-process per-route request counters, status-class tallies and duration histograms ' +
       '(cumulative since boot). The same numbers are folded into the pino log stream as ' +
       'periodic `event: "request_metrics"` lines. Route keys use matched templates, never ' +
-      'concrete ids; `/api/health` is excluded. Since session 89 the response ALSO carries ' +
+      'concrete ids; `/api/health` is excluded. Rows and totals carry an additive `throttled` ' +
+      'tally of GUARD-blocked 429s (session 123) — invisible on the scoped ' +
+      'GET /restaurants/:id/metrics view by contract. Since session 89 the response ALSO carries ' +
       'additive `durability` (snapshot scheduler state + stored history from the ' +
       '`metrics_snapshots` table — survives restarts) and `window` (exact traffic since the ' +
       'newest same-boot snapshot; null until such a row exists, so a restart never inherits ' +
@@ -77,9 +79,10 @@ export class AdminController {
     description:
       'The ops/alerts rule engine evaluated against the LIVE metrics snapshot: error_budget ' +
       '(5xx rate vs the 99.5% availability SLO), p95_latency (histogram estimate vs ceiling), ' +
-      'route_key_overflow (cardinality-cap folding) and snapshot_stale (the session-89 ' +
+      'route_key_overflow (cardinality-cap folding), snapshot_stale (the session-89 ' +
       'durability writer going silently dead — evaluated from a metrics_snapshots read, ' +
-      'writer-disabled is exempt). Cumulative-since-boot ' +
+      'writer-disabled is exempt) and rate_limit_pressure (guard-throttled 429 share over the ' +
+      'same sample floor, ALERT_RATE_LIMIT_PCT_MAX). Cumulative-since-boot ' +
       'totals inherited from GET /admin/metrics; the periodic `request_metrics` fold line ' +
       'carries the same verdict compactly (without the DB-backed staleness observation). ' +
       'ADMIN only.',

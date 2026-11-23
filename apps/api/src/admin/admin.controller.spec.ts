@@ -162,6 +162,7 @@ describe('AdminController HTTP', () => {
     totals: {
       requests: 3,
       byStatus: { '2xx': 2, '3xx': 0, '4xx': 1, '5xx': 0 },
+      throttled: 1,
       routeKeys: 2,
       overflowed: false,
       restaurantKeys: 0,
@@ -177,6 +178,7 @@ describe('AdminController HTTP', () => {
         route: 'GET /api/orders/:id',
         requests: 3,
         byStatus: { '2xx': 2, '3xx': 0, '4xx': 1, '5xx': 0 },
+        throttled: 1,
         sumMs: 38,
         avgMs: 12.5,
         minMs: 5,
@@ -214,6 +216,7 @@ describe('AdminController HTTP', () => {
     totals: {
       requests: 1,
       byStatus: { '2xx': 1, '3xx': 0, '4xx': 0, '5xx': 0 },
+      throttled: 0,
       routeKeys: 1,
       overflowed: false,
       restaurantKeys: 0,
@@ -229,6 +232,7 @@ describe('AdminController HTTP', () => {
         route: 'GET /api/orders/:id',
         requests: 1,
         byStatus: { '2xx': 1, '3xx': 0, '4xx': 0, '5xx': 0 },
+        throttled: 0,
         sumMs: 8,
         avgMs: 8,
         minMs: 8,
@@ -363,6 +367,7 @@ describe('AdminController HTTP', () => {
       fiveXxRatePctMax: 0.5,
       p95MsMax: 1000,
       minRequests: 50,
+      rateLimitPctMax: 5,
       snapshotStaleAfterSec: null,
     },
     rules: [
@@ -397,6 +402,14 @@ describe('AdminController HTTP', () => {
         observed: 30,
         threshold: 600,
         detail: 'newest snapshot row 30s old within the 600s ceiling (writer every 300s)',
+      },
+      {
+        id: 'rate_limit_pressure',
+        firing: false,
+        severity: 'warning',
+        observed: 0.8,
+        threshold: 5,
+        detail: '4 guard-throttled 429s (0.8%) within the 5% ceiling',
       },
     ],
   };

@@ -41,6 +41,16 @@
  *     (METRICS_SNAPSHOT_INTERVAL_SEC=0) is EXEMPT by design — the operator
  *     opted out of durability, so there is nothing to go stale. WARNING
  *     severity like route_key_overflow: observability degrades, users don't.
+ *   - rate_limit_pressure (session 123): the registry tallies guard-verified
+ *     429s per route (totals.throttled), but 429s hide inside the 4xx class,
+ *     so a store silently shedding customers looked healthy between the
+ *     limiter headers and the customer complaint. Fires when the throttled
+ *     share of the sample STRICTLY exceeds ALERT_RATE_LIMIT_PCT_MAX (default
+ *     5), over the SAME min-sample floor as the budget rule. WARNING
+ *     severity on purpose: a 429 means the limiter WORKED (a clean,
+ *     header-carrying refusal), but sustained pressure means customers are
+ *     being turned away — capacity/config attention, not an outage. Still
+ *     flips the verdict, the fold line and the alert-scan exit code.
  *
  * Cumulative-since-boot caveat inherited from the registry (session 85):
  * an early 5xx burst keeps the budget rule lit until traffic dilutes it.
@@ -58,7 +68,8 @@ export type AlertRuleId =
   | 'error_budget'
   | 'p95_latency'
   | 'route_key_overflow'
-  | 'snapshot_stale';
+  | 'snapshot_stale'
+  | 'rate_limit_pressure';
 export type AlertSeverity = 'error' | 'warning';
 export type AlertStatus = 'ok' | 'alerting';
 
@@ -90,6 +101,13 @@ export interface AlertThresholds {
   /** Minimum total requests before the budget rule is evaluated at all. */
   minRequests: number;
   /**
+   * Percent (0-100) of guard-throttled 429s allowed within the sample
+   * before the rate_limit_pressure rule fires (session 123). Fires
+   * STRICTLY above it; shares the minRequests floor. 0 is legal — "any
+   * throttled request alerts" — for operators proving the chain.
+   */
+  rateLimitPctMax: number;
+  /**
    * snapshot_stale ceiling in seconds. null (default) = 2x the configured
    * METRICS_SNAPSHOT_INTERVAL_SEC, resolved at evaluation time; a positive
    * integer from ALERT_SNAPSHOT_STALE_AFTER_SEC overrides the multiplier.
@@ -106,6 +124,12 @@ export const DEFAULT_ALERT_THRESHOLDS: AlertThresholds = {
   p95MsMax: 1000,
   // Below this sample the budget verdict is statistically meaningless.
   minRequests: 50,
+  // 5% of ALL served responses guard-throttled = customers routinely
+  // turned away. Deliberately an order of magnitude above the error-budget
+  // SLO: occasional 429s are the limiter breathing (bursts, one abusive
+  // client), a SUSTAINED 5% share across the sample is capacity/config
+  // pressure worth a page. Tune with ALERT_RATE_LIMIT_PCT_MAX.
+  rateLimitPctMax: 5,
   // null = derive 2x the snapshot interval per evaluation. The factor 2
   // means the writer must MISS TWO consecutive ticks before the alarm —
   // a single hiccup (one failed save, immediately retried next tick) is
@@ -119,9 +143,9 @@ export interface AlertRuleResult {
   severity: AlertSeverity;
   /**
    * The number the verdict rests on: 5xx rate in percent / p95 ms estimate /
-   * distinct route keys / snapshot age in seconds. Null when not evaluable
-   * (no samples yet, the sample is below `minRequests`, or the rule is
-   * exempt/not supplied).
+   * distinct route keys / snapshot age in seconds / 429 share in percent.
+   * Null when not evaluable (no samples yet, the sample is below
+   * `minRequests`, or the rule is exempt/not supplied).
    */
   observed: number | null;
   /** The threshold `observed` is compared against (SLO pct / ms / key cap / stale seconds). */
@@ -187,6 +211,11 @@ export function resolveAlertThresholds(
       0,
     ),
     p95MsMax: thresholdNumber(env.ALERT_P95_MS_MAX, DEFAULT_ALERT_THRESHOLDS.p95MsMax, 0),
+    rateLimitPctMax: thresholdNumber(
+      env.ALERT_RATE_LIMIT_PCT_MAX,
+      DEFAULT_ALERT_THRESHOLDS.rateLimitPctMax,
+      0,
+    ),
     minRequests: positiveIntThreshold(env.ALERT_MIN_REQUESTS, DEFAULT_ALERT_THRESHOLDS.minRequests),
     snapshotStaleAfterSec: positiveIntOrNull(env.ALERT_SNAPSHOT_STALE_AFTER_SEC),
   };
@@ -295,6 +324,31 @@ export function evaluateAlerts(
     }
   }
 
+  // ── rule 5: rate-limit pressure (guard-throttled share, session 123) ────
+  // Same min-sample floor as the budget rule: a lone 429 in a ten-request
+  // sample is the limiter breathing, not pressure. Observed is the 429
+  // share of ALL served responses (throttled is a subset of byStatus['4xx']).
+  let rlFiring = false;
+  let rlObserved: number | null = null;
+  let rlDetail: string;
+  const throttled = totals.throttled ?? 0;
+  if (totals.requests <= 0) {
+    rlDetail = 'no requests sampled yet — rule not evaluable';
+  } else if (totals.requests < thresholds.minRequests) {
+    rlDetail =
+      `429 share ${round2((throttled / totals.requests) * 100)}% over only ${totals.requests} ` +
+      `requests (< ${thresholds.minRequests} min sample) — not evaluated`;
+  } else {
+    rlObserved = round2((throttled / totals.requests) * 100);
+    rlFiring = rlObserved > thresholds.rateLimitPctMax;
+    rlDetail = rlFiring
+      ? `guard-throttled 429s are ${rlObserved}% of served requests ` +
+        `(${throttled} of ${totals.requests}), above the ${thresholds.rateLimitPctMax}% ` +
+        `ceiling — customers are being turned away faster than the limiter expects`
+      : `${throttled} guard-throttled 429s (${rlObserved}%) within the ` +
+        `${thresholds.rateLimitPctMax}% ceiling`;
+  }
+
   const rules: AlertRuleResult[] = [
     {
       id: 'error_budget',
@@ -327,6 +381,14 @@ export function evaluateAlerts(
       observed: staleObserved,
       threshold: staleThreshold,
       detail: staleDetail,
+    },
+    {
+      id: 'rate_limit_pressure',
+      firing: rlFiring,
+      severity: 'warning',
+      observed: rlObserved,
+      threshold: thresholds.rateLimitPctMax,
+      detail: rlDetail,
     },
   ];
 

@@ -1,13 +1,16 @@
 import * as http from 'http';
 import { Writable } from 'node:stream';
-import { Controller, Get, INestApplication, Module, NotFoundException, Param } from '@nestjs/common';
+import type { Request as ExpressRequest, Response as ExpressResponse } from 'express';
+import { Controller, Get, HttpStatus, INestApplication, Module, NotFoundException, Param, Req, Res } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Test } from '@nestjs/testing';
 import type { Logger as PinoInstance } from 'pino';
+import { AppException } from '../app-exception';
 import { ErrorFormatFilter } from '../error-format.filter';
 import { createHttpLoggingMiddleware } from '../logging/http-logging';
 import { createRootLogger, PinoLoggerService } from '../logging/pino-logger';
 import { requestIdMiddleware } from '../logging/request-id.middleware';
+import { markRateLimited } from '../rate-limit/rate-limit.marker';
 import { RequestMetricsRegistry } from './request-metrics';
 import { createRequestMetricsMiddleware } from './request-metrics.middleware';
 import { RequestMetricsService } from './request-metrics.service';
@@ -46,6 +49,26 @@ class ProbeController {
   boom(): never {
     throw new Error('kaboom');
   }
+
+  @Get('throttled')
+  throttled(@Req() req: ExpressRequest): never {
+    // Exactly what RateLimitGuard does on a blocked request: stamp the
+    // req with the bucket BEFORE throwing the 429 (session 123).
+    markRateLimited(req, 'probe');
+    throw new AppException(
+      HttpStatus.TOO_MANY_REQUESTS,
+      'RATE_LIMITED',
+      'Too many requests — please retry shortly',
+      { bucket: 'probe' },
+    );
+  }
+
+  @Get('fake-429')
+  fake429(@Res() res: ExpressResponse): void {
+    // Same WIRE status, NO guard stamp: an unmarked 429 must never inflate
+    // the limiter-pressure tally (session 123's both-halves rule).
+    res.status(HttpStatus.TOO_MANY_REQUESTS).json({ error: { code: 'NOT_THE_GUARD' } });
+  }
 }
 
 @Controller('health')
@@ -82,6 +105,17 @@ class RestaurantProbeController {
   @Get('metrics')
   metrics(): { totals: { requests: number } } {
     return { totals: { requests: 0 } };
+  }
+
+  @Get('throttled')
+  throttled(@Req() req: ExpressRequest): never {
+    markRateLimited(req, 'probe');
+    throw new AppException(
+      HttpStatus.TOO_MANY_REQUESTS,
+      'RATE_LIMITED',
+      'Too many requests — please retry shortly',
+      { bucket: 'probe' },
+    );
   }
 }
 
@@ -261,6 +295,7 @@ describe('request metrics — live middleware chain', () => {
       fiveXxRatePctMax: 0.5,
       p95MsMax: 1000,
       minRequests: 50,
+      rateLimitPctMax: 5,
       snapshotStaleAfterSec: null,
     });
     metricsService.logSnapshot();
@@ -328,6 +363,43 @@ describe('request metrics — live middleware chain', () => {
     await drain();
     expect(registry.snapshot().totals.restaurantKeys).toBe(1);
     expect(routeRow('GET /api/restaurants/:id/metrics')?.requests).toBe(1); // still exempt
+  });
+
+  it('throttle tally: guard-marked 429s count, UNMARKED 429s never do (session 123)', async () => {
+    expect(await request(app, 'GET', '/api/probe/throttled')).toBe(429);
+    expect(await request(app, 'GET', '/api/probe/throttled')).toBe(429);
+    expect(await request(app, 'GET', '/api/probe/fake-429')).toBe(429);
+    await drain();
+
+    const marked = routeRow('GET /api/probe/throttled');
+    expect(marked?.requests).toBe(2);
+    expect(marked?.throttled).toBe(2);
+    // The envelope + status class keep behaving exactly as before: 429 is
+    // still plain 4xx for the error budget, throttled is a SUBSET tally.
+    expect(marked?.byStatus['4xx']).toBe(2);
+    const unmarked = routeRow('GET /api/probe/fake-429');
+    expect(unmarked?.requests).toBe(1);
+    expect(unmarked?.throttled).toBe(0);
+    expect(unmarked?.byStatus['4xx']).toBe(1);
+    expect(registry.snapshot().totals.throttled).toBe(2);
+  });
+
+  it('restaurant dimension never carries the throttle field (OWNER rung contract, session 123)', async () => {
+    const RID = '00aa11bb-22cc-44dd-55ee-66ff77889900';
+    // Mint the bucket with a real 2xx, then throttle onto the existing row.
+    expect(await request(app, 'GET', `/api/restaurants/${RID}`)).toBe(200);
+    expect(await request(app, 'GET', `/api/restaurants/${RID}/throttled`)).toBe(429);
+    await drain();
+
+    // GLOBAL: the sample counts as guard-throttled...
+    expect(routeRow('GET /api/restaurants/:id/throttled')?.throttled).toBe(1);
+    // ...the OWNER rung tops up the request/4xx tallies but exposes NO
+    // throttled key anywhere — rows and totals keep the session-98 shape.
+    const b = registry.restaurantSnapshot(RID);
+    expect(b.totals.requests).toBe(2);
+    expect(b.totals.byStatus['4xx']).toBe(1);
+    expect(Object.keys(b.totals)).not.toContain('throttled');
+    for (const row of b.routes) expect(Object.keys(row)).not.toContain('throttled');
   });
 
   it('service ctor honours the interval knob: 0 = no timer, 5 = 5s', () => {

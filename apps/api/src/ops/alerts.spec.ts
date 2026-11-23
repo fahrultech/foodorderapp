@@ -55,6 +55,7 @@ describe('resolveAlertThresholds', () => {
       fiveXxRatePctMax: 0,
       p95MsMax: 0,
       minRequests: 1,
+      rateLimitPctMax: 5,
       snapshotStaleAfterSec: null,
     });
     expect(resolveAlertThresholds({ ALERT_5XX_RATE_PCT_MAX: '-0.1' }).fiveXxRatePctMax).toBe(0.5);
@@ -152,7 +153,7 @@ describe('evaluateAlerts — error_budget', () => {
 
   it('zero threshold + min 1: a lone 5xx out of one request is a verdict', () => {
     const snap = registrySnapshot(many('GET /api/x', 1, 500, 10));
-    const report = evaluateAlerts(snap, { fiveXxRatePctMax: 0, p95MsMax: 100000, minRequests: 1, snapshotStaleAfterSec: null });
+    const report = evaluateAlerts(snap, { fiveXxRatePctMax: 0, p95MsMax: 100000, minRequests: 1, rateLimitPctMax: 5, snapshotStaleAfterSec: null });
     expect(rule(report, 'error_budget')).toMatchObject({ firing: true, observed: 100 });
   });
 
@@ -236,7 +237,7 @@ describe('evaluateAlerts — snapshot_stale (session 109)', () => {
 
   it('no observation (the synchronous fold-line consumer): rule present, NOT firing, honest detail', () => {
     const report = evaluateAlerts(snap(999999));
-    expect(report.rules).toHaveLength(4);
+    expect(report.rules).toHaveLength(5);
     const s = rule(report, 'snapshot_stale');
     expect(s).toMatchObject({ firing: false, severity: 'warning', observed: null });
     expect(s.detail).toMatch(/not evaluated/);
@@ -330,28 +331,106 @@ describe('evaluateAlerts — snapshot_stale (session 109)', () => {
   });
 });
 
+describe('evaluateAlerts — rate_limit_pressure (session 123)', () => {
+  /** fill with n samples, t of them guard-marked 429s. */
+  const mix = (n: number, t: number) => (reg: RequestMetricsRegistry) => {
+    for (let i = 0; i < n - t; i++) reg.record('GET /api/x', 200, 10);
+    for (let i = 0; i < t; i++) reg.record('GET /api/x', 429, 10, null, true);
+  };
+
+  it('rule is present FIFTH with default ceiling 5% and warning severity', () => {
+    const report = evaluateAlerts(registrySnapshot(() => undefined));
+    expect(report.rules).toHaveLength(5);
+    expect(report.rules[4].id).toBe('rate_limit_pressure');
+    expect(report.rules[4]).toMatchObject({ firing: false, severity: 'warning', threshold: 5 });
+  });
+
+  it('no requests: not evaluable, honest detail, observed null', () => {
+    const rl = rule(evaluateAlerts(registrySnapshot(() => undefined)), 'rate_limit_pressure');
+    expect(rl).toMatchObject({ firing: false, observed: null });
+    expect(rl.detail).toMatch(/not evaluable/);
+  });
+
+  it('sample below the minRequests floor: NOT evaluated even at a 60% 429 share', () => {
+    const report = evaluateAlerts(registrySnapshot(mix(10, 6)));
+    const rl = rule(report, 'rate_limit_pressure');
+    expect(rl.firing).toBe(false);
+    expect(rl.observed).toBeNull();
+    expect(rl.detail).toMatch(/min sample.*not evaluated/s);
+    expect(report.status).toBe('ok');
+  });
+
+  it('exactly AT the ceiling does not fire (fires STRICTLY above)', () => {
+    const report = evaluateAlerts(registrySnapshot(mix(100, 5)));
+    const rl = rule(report, 'rate_limit_pressure');
+    expect(rl).toMatchObject({ firing: false, observed: 5, threshold: 5 });
+    expect(rl.detail).toMatch(/within/);
+    expect(report.status).toBe('ok');
+  });
+
+  it('one unit over fires: warning severity, honest numbers, verdict flips', () => {
+    const report = evaluateAlerts(registrySnapshot(mix(100, 6)));
+    const rl = rule(report, 'rate_limit_pressure');
+    expect(rl).toMatchObject({ firing: true, severity: 'warning', observed: 6, threshold: 5 });
+    expect(rl.detail).toContain('6 of 100');
+    expect(report.status).toBe('alerting');
+    expect(report.firingRules).toEqual(['rate_limit_pressure']);
+  });
+
+  it('tightened 0% ceiling: the SAME snapshot flips to firing (knob drives the rule)', () => {
+    const snap = registrySnapshot(mix(100, 1));
+    expect(rule(evaluateAlerts(snap), 'rate_limit_pressure').firing).toBe(false);
+    expect(
+      rule(evaluateAlerts(snap, { ...DEFAULT_ALERT_THRESHOLDS, rateLimitPctMax: 0 }), 'rate_limit_pressure'),
+    ).toMatchObject({ firing: true, threshold: 0, observed: 1 });
+  });
+
+  it('429s WITHOUT the guard stamp never inflate the share (limiter-exact count)', () => {
+    const reg = new RequestMetricsRegistry();
+    for (let i = 0; i < 90; i++) reg.record('GET /api/x', 200, 10);
+    for (let i = 0; i < 10; i++) reg.record('GET /api/x', 429, 10); // same status, unmarked
+    const report = evaluateAlerts(
+      reg.snapshot(),
+      { ...DEFAULT_ALERT_THRESHOLDS, rateLimitPctMax: 0 },
+    );
+    expect(reg.snapshot().totals.throttled).toBe(0);
+    expect(rule(report, 'rate_limit_pressure')).toMatchObject({ firing: false, observed: 0 });
+  });
+
+  it('ALERT_RATE_LIMIT_PCT_MAX parsing: valid decimals pass, garbage/negative fall back, 0 is legal', () => {
+    expect(resolveAlertThresholds({ ALERT_RATE_LIMIT_PCT_MAX: '2.5' }).rateLimitPctMax).toBe(2.5);
+    expect(resolveAlertThresholds({ ALERT_RATE_LIMIT_PCT_MAX: '0' }).rateLimitPctMax).toBe(0);
+    expect(resolveAlertThresholds({ ALERT_RATE_LIMIT_PCT_MAX: 'half' }).rateLimitPctMax).toBe(5);
+    expect(resolveAlertThresholds({ ALERT_RATE_LIMIT_PCT_MAX: '-1' }).rateLimitPctMax).toBe(5);
+    expect(resolveAlertThresholds({ ALERT_RATE_LIMIT_PCT_MAX: '' }).rateLimitPctMax).toBe(5);
+  });
+});
+
 describe('evaluateAlerts — combinations', () => {
   it('multiple simultaneous breaches list every firing rule in rule order', () => {
     const reg = new RequestMetricsRegistry(3);
     for (const p of ['/a', '/b', '/c', '/d']) reg.record(`GET ${p}`, 500, 3000);
     // min sample 1: this is a tiny synthetic registry, the budget rule is
     // otherwise (correctly) gated for n=4.
-    const report = evaluateAlerts(reg.snapshot(), { fiveXxRatePctMax: 0.5, p95MsMax: 1000, minRequests: 1, snapshotStaleAfterSec: null });
+    const report = evaluateAlerts(reg.snapshot(), { fiveXxRatePctMax: 0.5, p95MsMax: 1000, minRequests: 1, rateLimitPctMax: 5, snapshotStaleAfterSec: null });
     expect(report.status).toBe('alerting');
     expect(report.firingRules).toEqual(['error_budget', 'p95_latency', 'route_key_overflow']);
-    expect(report.rules).toHaveLength(4);
+    expect(report.rules).toHaveLength(5);
     expect(summarizeAlerts(report)).toEqual({
       status: 'alerting',
       firing: ['error_budget', 'p95_latency', 'route_key_overflow'],
     });
   });
 
-  it('all FOUR rules can fire and the list stays in rule order', () => {
+  it('all FIVE rules can fire and the list stays in rule order', () => {
     const reg = new RequestMetricsRegistry(3);
     for (const p of ['/a', '/b', '/c', '/d']) reg.record(`GET ${p}`, 500, 3000);
+    // One guard-marked 429 (folds into `other` past the cap — the throttle
+    // tally rides the fold) lifts the 429 share to 20% > 5%.
+    reg.record('GET /throttled', 429, 10, null, true);
     const report = evaluateAlerts(
       { ...reg.snapshot(), uptimeSec: 999999 },
-      { fiveXxRatePctMax: 0.5, p95MsMax: 1000, minRequests: 1, snapshotStaleAfterSec: null },
+      { fiveXxRatePctMax: 0.5, p95MsMax: 1000, minRequests: 1, rateLimitPctMax: 5, snapshotStaleAfterSec: null },
       { enabled: true, intervalSec: 300, lastCapturedAtMs: null },
     );
     expect(report.firingRules).toEqual([
@@ -359,6 +438,7 @@ describe('evaluateAlerts — combinations', () => {
       'p95_latency',
       'route_key_overflow',
       'snapshot_stale',
+      'rate_limit_pressure',
     ]);
   });
 

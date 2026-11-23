@@ -50,6 +50,7 @@ export class RequestMetricsService implements OnModuleDestroy {
     this.alertThresholds = resolveAlertThresholds({
       ALERT_5XX_RATE_PCT_MAX: config.get<string>('ALERT_5XX_RATE_PCT_MAX'),
       ALERT_P95_MS_MAX: config.get<string>('ALERT_P95_MS_MAX'),
+      ALERT_RATE_LIMIT_PCT_MAX: config.get<string>('ALERT_RATE_LIMIT_PCT_MAX'),
       ALERT_MIN_REQUESTS: config.get<string>('ALERT_MIN_REQUESTS'),
       ALERT_SNAPSHOT_STALE_AFTER_SEC: config.get<string>('ALERT_SNAPSHOT_STALE_AFTER_SEC'),
     });

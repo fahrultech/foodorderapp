@@ -24,6 +24,7 @@ function report(status: 'ok' | 'alerting', firingRules: AlertRuleId[]): AlertRep
       fiveXxRatePctMax: 0.5,
       p95MsMax: 1000,
       minRequests: 50,
+      rateLimitPctMax: 5,
       snapshotStaleAfterSec: null,
     },
     rules: [],
