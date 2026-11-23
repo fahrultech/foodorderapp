@@ -454,12 +454,20 @@ their split decisions separately.
 |---|---|
 | `/` | 135778 |
 | `/restaurants/[id]` | 138849 |
-| `/cart` | 139304 |
+| `/cart` | 139306 |
 | `/checkout` | 142338 |
 | `/map` | 137016 |
 | `/orders/[id]` | 159683 |
 | `/orders/my` | 144309 |
 <!-- BUNDLE-BASELINE-END -->
+
+Session-120 note: `/cart` re-adopted to the CI-measured 139306 (the
+`mobile-cart-clear` testid cost +2 B over the old row). The SAME run
+measured every untouched route 5 B UNDER the table — shared chunk
+2619-*.js back at gzip 3385 despite the pinned runner node 22.23.5 — so
+session 119's "runner Node patch drift" attribution is NOT the sole
+stabilizer; the untouched rows deliberately keep that +5 headroom rather
+than re-measuring a wobbly number down onto the baseline.
 
 The gate is dead-gate-proofed (session-106 doctrine): it fails on a missing
 manifest, missing/empty/duplicate-row/unparseable baseline table, a baseline

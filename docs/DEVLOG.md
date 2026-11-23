@@ -65,6 +65,18 @@ never fires.
 - Sanitizer scan clean on all added lines (U+2026 masks, asterisk-mask
   sequences, literal backslash-u escapes); em-dash/arrow prose chars
   landed as real characters, not escape text.
+- POST-PUSH CI INCIDENT (honest, same session): CI run 137553015648 went
+  RED on the Web bundle gate ALONE (e2e/API/PG15/PG16 all green). The
+  annotations showed /cart measured=139306 over the 139304 row (+2 B —
+  the mobile-cart-clear testid, local margin +41 had hidden nothing but
+  CI sums run ~43 B above local per the session-118 path truth), while
+  every UNTOUCHED route measured 5 B UNDER budget: shared 2619-*.js back
+  at gzip 3385 despite the pinned runner node 22.23.5 — session 119's
+  "+5 forever" attribution is therefore not the sole stabilizer. Fix per
+  the re-measure doctrine: /cart row re-adopted to this run's
+  CI-measured 139306 with the drift note above; untouched rows keep the
+  +5 headroom rather than chasing a wobbly number. The follow-up CI run
+  must be fully green.
 
 **Left for next sessions:**
 
