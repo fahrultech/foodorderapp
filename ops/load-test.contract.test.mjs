@@ -12,6 +12,7 @@ import {
   restaurantIds,
   revalidateProfile,
   thresholds,
+  writeProfile,
 } from './load-test.lib.mjs';
 
 assert.deepEqual(restaurantIds({ items: [{ id: 'r1' }, { id: 'r2' }] }), ['r1', 'r2']);
@@ -157,4 +158,27 @@ assert.deepEqual(
 );
 assert.throws(() => revalidateProfile('unknown'), /profile/i);
 
-console.log('load-test contract: ok (browse + auth + conditional)');
+// --- write ladder over the cached+compressed stack (session 121) -----------
+
+const writeSmoke = writeProfile('smoke');
+assert.equal(writeSmoke.ladder.executor, 'constant-vus');
+assert.equal(writeSmoke.ladder.vus, 1);
+assert.equal(writeSmoke.ladder.duration, '30s');
+const writeLoad = writeProfile('load');
+assert.equal(writeLoad.ladder.executor, 'ramping-vus');
+assert.deepEqual(writeLoad.ladder.stages, [
+  { duration: '20s', target: 3 },
+  { duration: '40s', target: 5 },
+  { duration: '1m', target: 5 },
+  { duration: '20s', target: 0 },
+], 'write ladder plateau stays MODEST (5 VUs) — roadmap Phase 12 wording');
+assert.throws(() => writeProfile('unknown'), /profile/i);
+// The write ladder reuses the same pure cart/payload helpers as the auth
+// scenario — pin that the rotation dish plan is byte-stable across both.
+assert.deepEqual(
+  planCart(menu, 1000, 0),
+  planCart(menu, 1000, 0),
+  'planCart must stay deterministic for cross-baseline comparability',
+);
+
+console.log('load-test contract: ok (browse + auth + conditional + write)');

@@ -243,3 +243,48 @@ export function revalidateProfile(name) {
   }
   return profile;
 }
+
+// ---------------------------------------------------------------------------
+// WRITE ladder over the cached+compressed stack (session 121, Phase 12).
+// Session 104's conditional profile never exercised writes: this scenario
+// pairs an ANONYMOUS cache-whitelisted browse GET (the session-82 ladder's
+// detail read carried a bearer, which opts out of the cache entirely — so
+// the write baseline predates the cache and never measured it under writes)
+// with the create -> intent -> capture ladder, under the SHIPPED
+// HTTP_CACHE_TTL_SEC and compression defaults. Same executor shape as the
+// auth profile, plateau 5 not 10: the ladder now carries an extra browse
+// request per iteration, so the request rate lands in the same band.
+// ---------------------------------------------------------------------------
+
+const WRITE_PROFILES = Object.freeze({
+  smoke: Object.freeze({
+    ladder: Object.freeze({
+      executor: 'constant-vus',
+      vus: 1,
+      duration: '30s',
+      gracefulStop: '5s',
+    }),
+  }),
+  load: Object.freeze({
+    ladder: Object.freeze({
+      executor: 'ramping-vus',
+      startVUs: 0,
+      stages: Object.freeze([
+        Object.freeze({ duration: '20s', target: 3 }),
+        Object.freeze({ duration: '40s', target: 5 }),
+        Object.freeze({ duration: '1m', target: 5 }),
+        Object.freeze({ duration: '20s', target: 0 }),
+      ]),
+      gracefulRampDown: '10s',
+      gracefulStop: '15s',
+    }),
+  }),
+});
+
+export function writeProfile(name) {
+  const profile = WRITE_PROFILES[name];
+  if (!profile) {
+    throw new Error(`Unknown write load-test profile: ${name}. Expected smoke or load.`);
+  }
+  return profile;
+}
