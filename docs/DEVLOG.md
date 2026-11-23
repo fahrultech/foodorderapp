@@ -20,11 +20,12 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
   gate was blind to 28,805 B: 6,749 CSS + 12,087/2,148/4,117 chunks
   reachable only via the root layout + 3,704 `app/layout-*.js` — exactly
   where the session-117 SkipLink lived.
-- Baseline RE-MEASURED with the new method, CI-clean (see Verified):
-  `/` 135,768 · `/restaurants/[id]` 138,839 · `/cart` 139,294 ·
-  `/checkout` 142,327 · `/map` 137,007 · `/orders/[id]` 159,673 ·
-  `/orders/my` 144,300 B; table header relabeled "Baseline First Load
-  JS+CSS, full chain (B)".
+- Baseline RE-MEASURED with the new method; final committed numbers are
+  the CI-measured sums (see the CI incident under Verified): `/` 135,773
+  · `/restaurants/[id]` 138,844 · `/cart` 139,299 · `/checkout` 142,333
+  · `/map` 137,011 · `/orders/[id]` 159,678 · `/orders/my` 144,304 B;
+  table header relabeled "Baseline First Load JS+CSS, full chain (B,
+  CI-measured)".
 - Selftests 13 -> 15 cases: the CSS rule is REVERSED (a JS-only baseline
   must now fail naming exactly the CSS bytes); the LAYOUT-only negative
   the roadmap asked for — a chunk listed ONLY under `/layout` trips the
@@ -63,16 +64,39 @@ budgeted honestly.
   e2e not exercised for a tooling change. API delta 0: `nest build` clean,
   jest 98 suites / 1294 tests — byte-identical to session 117's claim.
 - Sanitizer scan: no ellipsis-codepoint, asterisk-mask, or unicode-escape
-  artifacts on added lines; `git diff --check` clean. (Process note: one patch tool
-  context_aware landing DOUBLED the backslash escapes on two template
-  lines — caught by `node --check`, repaired byte-wise; the returned diff
-  is not always truth, the syntax check is.)
+  artifacts on added lines; `git diff --check` clean. (Process note: one
+  patch tool context_aware landing DOUBLED the backslash escapes on two
+  template lines — caught by `node --check`, repaired byte-wise; the
+  returned diff is not always truth, the syntax check is.)
+- THE CI INCIDENT (three runs, fully diagnosed, table corrected): the
+  first CI run of the new method went RED +4..+6 B on every route — the
+  session-115 doctrine's own contingency fired ("the table needs the CI
+  numbers instead"). Diagnosis chain: (1) gate given per-route
+  `::error` annotations (Actions logs are admin-only; check-run
+  annotations are anonymous-readable via the API) — CI sums land
+  uniformly +5 B; (2) Node pin 22.23.2 + zlib notice: sums IDENTICAL
+  before/after the pin, Node/zlib exonerated (pin reverted, notice step
+  kept); (3) per-file `bundle-chain` annotations: EVERY chunk byte-
+  matches the local CI-clean listing except `main-app-*` (−1 B) and
+  `app/layout-*` (+6 B) with page chunks differing only in hash at
+  equal size; (4) decisive experiment — `cp -al` the repo to the EXACT
+  runner path and rebuild locally: those two chunks flip to CI's hashes
+  and sizes. ROOT CAUSE: the checkout path is embedded into the
+  main-app/app-layout chunk module ids, so absolute sums are PATH-
+  dependent (the session-117 worktree "phantom −84 B" was the same
+  mechanism); the old own-entry sums agreed across environments only by
+  size coincidence, and the local build additionally drifted from
+  session 117's via the .env.local define-fold (chunk 7621, 2109 vs
+  2148 B — session 115's +39 B story seen in the shared-chunk mirror).
+  COMMITTED TABLE = CI-measured numbers (runner path is stable and is
+  where the gate enforces); local gate runs now show a known phantom
+  +4..+6 B margin. Final validation run pending on this push.
 
 **Left for next sessions:** Phase 12 items 2-4 — tracking-page delivery
-polish, dark-ring + mobile bottom-bar focus pass, k6 WRITE profile. Watch
-the first CI run of this push: if the web job's gate REDs, the local
-CI-clean build drifted from CI and the table needs the CI numbers instead
-(session-115 doctrine).
+polish, dark-ring + mobile bottom-bar focus pass, k6 WRITE profile. If a
+future runner-image update changes the CI sums, the gate's `bundle-chain`
+annotations diff the listing against any local build in minutes; a
+dev-box node upgrade needs NOTHING (toolchain was proven irrelevant).
 
 ---
 ## 2026-11-21 20:10 — Session 117 — focus-visibility + skip-link audit: ONE global :focus-visible contract, keyboard-pinned (Phase 11 UX item, closes the phase)

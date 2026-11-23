@@ -409,21 +409,33 @@ Why exact bytes: the route table rounds to 1 kB and hides small deltas
 (session 90 proved a 266 B gz win invisible there; session 117 a 209 B
 layout loss).
 
-Baseline re-measured November 23, 2026 (session 118) on a cold
+Baseline = CI-MEASURED numbers (session 118): re-measured on a cold
 `rm -rf .next && next build` from a CI-CLEAN checkout — no gitignored
-`apps/web/.env.local`: a defined `NEXT_PUBLIC_API_URL` inlines into the
-client chunks and moved five route sums +39 B (the first CI run of this
-gate failed RED precisely because the baseline had been taken with the
-local .env.local present — the gate caught its own measurement discipline,
-exactly as intended). Reproducibility was proven at re-measure: the OLD-method
-own-entry sums of that same build reproduced the session-115 table byte for
-byte (`/` 106,963, `/orders/[id]` 145,103, ...), so the chain numbers below
-differ from them by exactly the newly-counted layout/CSS bytes, not by
-build drift. Lockfile-pinned, so CI rebuilds reproduce these bytes modulo
-toolchain upgrades. Tolerance is ZERO by design — like the schema-drift
-gate, growth is either shrunk back or re-measured deliberately (clean
-checkout!) via `node scripts/check-bundle-budget.mjs --print`, committing
-the new numbers WITH the change that grew the bundle.
+`apps/web/.env.local`: a defined `NEXT_PUBLIC_API_URL` define-folds
+`lib/api.ts`'s fallback branch and moved one shared client chunk (7621)
+−39 B on EVERY route (session 115's +39-B anecdote was the same mechanism
+seen through the old own-entry sums). Why CI is the source of truth:
+absolute gzip sums are PATH-SENSITIVE — the `main-app-*` and
+`app/layout-*` chunk hashes and sizes embed the checkout path, so the dev
+box (`/home/...`-short) and the runner (`/home/runner/work/<repo>/<repo>`)
+build those two chunks differently (measured by session 118's live A/B:
+identical files everywhere else, −1/+6 B on exactly the two, under byte-
+identical Node 22.23.2 + zlib 1.3.1-e00f703 on both sides; the Node pin
+was tested and explicitly NOT the cause). The old own-entry sums agreed
+across environments only because the path-embedded chunks happened to
+compress to equal sizes there — luck the chain metric no longer relies
+on. Runners are path-stable, so these numbers are; the local `next build`
+gate run will show a phantom +4..+6 B margin on every route (local chunks
+are the smaller side of the two path-embedded ones) — compare via
+in-path `--print` A/B (session-117 doctrine) or read the CI annotations
+the gate emits on failure (`bundle-budget`/`bundle-chain` titles,
+anonymously API-readable). The prior CI-CLEAN reproducibility still
+holds IN-PATH: the old-method own-entry sums of the same local build
+reproduced the session-115 table byte for byte. Lockfile-pinned, so CI
+rebuilds reproduce these bytes modulo runner-image changes. Tolerance is
+ZERO by design — like the schema-drift gate, growth is either shrunk
+back or re-measured deliberately on CI (or an exact-path replica build),
+committing the new numbers WITH the change that grew the bundle.
 
 Route set = the core storefront funnel (home, restaurant detail, cart,
 checkout, map, receipt, order history). Portal routes (`/admin`,
@@ -431,15 +443,15 @@ checkout, map, receipt, order history). Portal routes (`/admin`,
 their split decisions separately.
 
 <!-- BUNDLE-BASELINE-START -->
-| Route | Baseline First Load JS+CSS, full chain (B) |
+| Route | Baseline First Load JS+CSS, full chain (B, CI-measured) |
 |---|---|
-| `/` | 135768 |
-| `/restaurants/[id]` | 138839 |
-| `/cart` | 139294 |
-| `/checkout` | 142327 |
-| `/map` | 137007 |
-| `/orders/[id]` | 159673 |
-| `/orders/my` | 144300 |
+| `/` | 135773 |
+| `/restaurants/[id]` | 138844 |
+| `/cart` | 139299 |
+| `/checkout` | 142333 |
+| `/map` | 137011 |
+| `/orders/[id]` | 159678 |
+| `/orders/my` | 144304 |
 <!-- BUNDLE-BASELINE-END -->
 
 The gate is dead-gate-proofed (session-106 doctrine): it fails on a missing

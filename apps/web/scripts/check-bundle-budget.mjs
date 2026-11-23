@@ -182,9 +182,12 @@ if (process.argv[1] && resolve(process.argv[1]) === resolve(fileURLToPath(import
       for (const { route, baselineBytes } of rows) {
         const r = firstLoadBytes(pages, route, NEXT_DIR);
         console.error(`::error title=bundle-budget ${route}::measured=${r.bytes ?? r.error} budget=${baselineBytes}`);
-        // Session 118 drift hunt: the same Node/zlib still lands +5 B on CI
-        // for every route - dump the per-file chain breakdown so the CI
-        // listing can be diffed against a local build byte for byte.
+        // Session 118: permanent diagnostic. Absolute gzip sums are
+        // PATH-SENSITIVE (main-app/app-layout chunk module ids embed the
+        // checkout path), so a CI RED can mean runner drift, not a real
+        // regression - dump file=gzsize per route and diff the listing
+        // against a local build chunk by chunk (anomalies show up as
+        // flipped hashes on exactly the environment-sensitive chunks).
         if (r.bytes !== undefined) {
           const files = [...new Set([...r.layoutKeys, r.entryKey].flatMap((k) => pages[k]))]
             .filter((f) => /\.(js|css)$/.test(f))
