@@ -90,7 +90,9 @@ budgeted honestly.
   2148 B — session 115's +39 B story seen in the shared-chunk mirror).
   COMMITTED TABLE = CI-measured numbers (runner path is stable and is
   where the gate enforces); local gate runs now show a known phantom
-  +4..+6 B margin. Final validation run pending on this push.
+  +4..+6 B margin. VALIDATED: final run 45098645551 FULL CI GREEN —
+  the chain gate enforcing its own corrected zero-tolerance table on
+  the runner, all 5 jobs.
 
 **Left for next sessions:** Phase 12 items 2-4 — tracking-page delivery
 polish, dark-ring + mobile bottom-bar focus pass, k6 WRITE profile. If a
