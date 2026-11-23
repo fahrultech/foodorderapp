@@ -316,14 +316,24 @@
 
 ## Phase 12 — Bundle truth, tracking polish & dark-ring verification (opened 2026-11-21, Phase 11 exhausted; from the Perf / Product / UX / Test evergreen loops)
 
-- [ ] Perf: fix the bundle-gate undercount (session 117 finding) — the gate
+- [x] Perf: fix the bundle-gate undercount (session 117 finding) — the gate
   sums only each route's OWN app-build-manifest chunks, so shared ROOT
   LAYOUT and CSS chunks are invisible to every pinned budget (SkipLink's
   +209 B gz landed at margins +0 on all 7 routes). Sum the full ancestor
   chain (layout + css) per route, re-measure the committed table CI-clean
   (in-place builds — path-absolute sums are not comparable across
   worktrees), and prove a layout-only change now trips the gate via a new
-  node:test selftest.
+  node:test selftest. (2026-11-23, session 118; per-route metric = UNION
+  of the page entry + every ancestor `/layout` manifest key, `.js` AND
+  `.css`, each file deduped to one count — for `/` that closes a real
+  28,805 B blind spot (6,749 CSS + 18,352 layout-only client chunks +
+  3,704 layout module); table re-measured CI-clean with the OLD sums
+  proven byte-identical to session 115's on the same build first
+  (`/` now 135,768); selftests 13 -> 15 incl. the LAYOUT-only negative
+  (SkipLink repro shape) + nested-chain dedupe test, the CSS rule
+  reversed; live 1-byte-under negative on the real build exit-1 naming
+  all 7; PERFORMANCE.md + CI step comments rewritten; API delta 0
+  (98/1294), web app-code delta 0.)
 - [ ] Product: tracking-page delivery polish — once an order is
   `delivering`, show the assigned driver's first name and a
   "usually ~N min" remaining estimate derived from session 113's

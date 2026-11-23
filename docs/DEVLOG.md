@@ -3,6 +3,78 @@
 Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
+## 2026-11-23 09:38 — Session 118 — Bundle-gate undercount FIXED: the full ancestor chain (layouts + CSS) is now summed (Phase 12 perf item)
+
+**Built:**
+
+- `check-bundle-budget.mjs` per-route metric rewritten: the UNION of the
+  route's own manifest entry and every ancestor layout entry (`/layout`
+  down to `${route}/layout`, only keys present in the manifest), summing
+  gzip-9 `.js` AND `.css` files, each counted exactly ONCE (dedup).
+  New exported `ancestorLayoutKeys` helper (segment-stripping, never a
+  listing heuristic); the report line now shows
+  `N js + M css, chain: K entries`.
+- The metric is deliberately BROADER than Next's printed "First Load JS"
+  column (Size + shared only — the table shares the same blind spot): it
+  is what the browser actually downloads on first paint. For `/` the old
+  gate was blind to 28,805 B: 6,749 CSS + 12,087/2,148/4,117 chunks
+  reachable only via the root layout + 3,704 `app/layout-*.js` — exactly
+  where the session-117 SkipLink lived.
+- Baseline RE-MEASURED with the new method, CI-clean (see Verified):
+  `/` 135,768 · `/restaurants/[id]` 138,839 · `/cart` 139,294 ·
+  `/checkout` 142,327 · `/map` 137,007 · `/orders/[id]` 159,673 ·
+  `/orders/my` 144,300 B; table header relabeled "Baseline First Load
+  JS+CSS, full chain (B)".
+- Selftests 13 -> 15 cases: the CSS rule is REVERSED (a JS-only baseline
+  must now fail naming exactly the CSS bytes); the LAYOUT-only negative
+  the roadmap asked for — a chunk listed ONLY under `/layout` trips the
+  gate (the SkipLink repro); a nested-chain test — root +
+  `/dashboard/layout` + `/dashboard/kitchen/layout` all count and a chunk
+  shared by all four entries dedupes to ONE count; existing rigs'
+  baselines corrected for the CSS term.
+- docs/PERFORMANCE.md gate section rewritten for the new method (blind-spot
+  cause and the per-chunk byte breakdown recorded, session-115 CI-clean
+  doctrine kept and extended with the reproducibility proof); CI web-job
+  step comment updated.
+
+**Why:** session 117's honest A/B proved the gate's zero-margin was a
+methodology artifact — root-layout and CSS chunks were invisible to all 7
+pinned budgets, so any future layout/globals.css growth would silently
+pass. Filed as Phase 12 item 1; fixed now so every later web session is
+budgeted honestly.
+
+**Verified:**
+
+- Selftests `node --test scripts/check-bundle-budget.test.mjs` 15/15.
+- Re-measure ritual: `.env.local` stashed, `rm -rf .next && npm run build`
+  cold on node 22 (CI's major) green; `--print` emitted the table numbers
+  verbatim; the gate against the new table reports margin +0 on ALL 7
+  routes; the LIVE 1-byte-under negative on the real `.next` exit 1 naming
+  all 7 (session-115 precedent: local CI-clean sums reproduce CI exactly —
+  run 44885551814 was green on the re-measure push).
+- Reproducibility proof: the OLD-method own-entry sums of the SAME build
+  reproduced the session-115 table byte for byte (`/` 106,963,
+  `/orders/[id]` 145,103, all 7) — chain deltas are purely the newly
+  counted layout/CSS bytes, no build drift.
+- `.env.local` restored; CI-clean build kept as the on-disk `.next` — the
+  `NEXT_PUBLIC_API_URL` define-fold default is the SAME literal
+  (`http://localhost:4000/api`), so local runs are functionally identical.
+- Web app-code delta 0 (only `scripts/` + docs + ci.yml comment touched);
+  e2e not exercised for a tooling change. API delta 0: `nest build` clean,
+  jest 98 suites / 1294 tests — byte-identical to session 117's claim.
+- Sanitizer scan: no ellipsis-codepoint, asterisk-mask, or unicode-escape
+  artifacts on added lines; `git diff --check` clean. (Process note: one patch tool
+  context_aware landing DOUBLED the backslash escapes on two template
+  lines — caught by `node --check`, repaired byte-wise; the returned diff
+  is not always truth, the syntax check is.)
+
+**Left for next sessions:** Phase 12 items 2-4 — tracking-page delivery
+polish, dark-ring + mobile bottom-bar focus pass, k6 WRITE profile. Watch
+the first CI run of this push: if the web job's gate REDs, the local
+CI-clean build drifted from CI and the table needs the CI numbers instead
+(session-115 doctrine).
+
+---
 ## 2026-11-21 20:10 — Session 117 — focus-visibility + skip-link audit: ONE global :focus-visible contract, keyboard-pinned (Phase 11 UX item, closes the phase)
 
 **Built:**
