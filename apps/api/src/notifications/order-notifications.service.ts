@@ -3,18 +3,17 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Order, OrderStatus } from '../orders/order.entity';
 import { User } from '../users/user.entity';
+import { normalizeContactEmail } from '../orders/orders.service';
 import { OrderEventsService, OrderEvent } from '../orders/order-events.service';
 import { MailService } from './mail.service';
 import { PushService } from './push.service';
-
-/** Human-friendly labels for customer-facing status update emails. */
-const STATUS_LABEL: Partial<Record<OrderStatus, string>> = {
-  [OrderStatus.CONFIRMED]: 'Your order has been confirmed',
-  [OrderStatus.PREPARING]: 'Your order is being prepared',
-  [OrderStatus.DELIVERING]: 'Your order is on its way',
-  [OrderStatus.COMPLETED]: 'Your order has been delivered',
-  [OrderStatus.CANCELLED]: 'Your order has been cancelled',
-};
+import {
+  EmailLocale,
+  confirmationEmail,
+  hasStatusNotice,
+  statusUpdateEmail,
+  STATUS_UPDATE_LABELS,
+} from './email-copy';
 
 @Injectable()
 export class OrderNotificationsService implements OnModuleInit {
@@ -54,11 +53,34 @@ export class OrderNotificationsService implements OnModuleInit {
     }
   }
 
-  /** Resolves the customer email for an order: user.email for authed, null for guest. */
+  /**
+   * Resolve the recipient address for an order:
+   * - authenticated orders keep the BEARER-ONLY rule: user.email, and ONLY
+   *   user.email. The stored `contactEmail` is never used as a fallback —
+   *   for signed-in customers it is checkout input, not a verified address,
+   *   and a vanished user row (GDPR erasure also NULLs contactEmail) means
+   *   no email, exactly as before this feature.
+   * - guest orders use `orders.contactEmail` (the session-76 receipt-proof
+   *   column, session-45's deferred follow-up). Service-layer writes store
+   *   it normalized; re-normalize defensively so legacy/imported rows can
+   *   never email a non-canonical address.
+   */
   private async resolveEmail(order: Order): Promise<string | null> {
-    if (!order.userId) return null;
-    const user = await this.users.findOne({ where: { id: order.userId }, select: ['email', 'name'] });
-    return user?.email ?? null;
+    if (order.userId) {
+      const user = await this.users.findOne({ where: { id: order.userId }, select: ['email', 'name'] });
+      return user?.email ?? null;
+    }
+    return normalizeContactEmail(order.contactEmail);
+  }
+
+  /**
+   * Copy locales per recipient (see email-copy.ts header): authenticated
+   * recipients get the long-standing English templates untouched; guests
+   * have no stored locale signal anywhere server-side, so they receive one
+   * bilingual EN+ID email.
+   */
+  private localesFor(order: Order): EmailLocale[] {
+    return order.userId ? ['en'] : ['en', 'id'];
   }
 
   private async sendOrderConfirmation(orderId: string): Promise<void> {
@@ -69,33 +91,7 @@ export class OrderNotificationsService implements OnModuleInit {
     if (!order) return;
     const to = await this.resolveEmail(order);
 
-    const itemLines = order.items
-      .map((i) => `  • ${i.name} × ${i.quantity}  ${formatCents(i.unitPriceCents * i.quantity)}`)
-      .join('\n');
-
-    const subject = `Order confirmed — #${order.code}`;
-    const text = [
-      `Hi ${order.customerName},`,
-      ``,
-      `Thanks for your order from ${order.restaurant.name}!`,
-      ``,
-      `Order: #${order.code}`,
-      `Deliver to: ${order.deliveryAddress}`,
-      ``,
-      `Items:`,
-      itemLines,
-      ``,
-      `Subtotal: ${formatCents(order.subtotalCents)}`,
-      order.discountCents
-        ? `Discount: -${formatCents(order.discountCents)}${order.promoCode ? ` (${order.promoCode})` : ''}`
-        : null,
-      `Delivery fee: ${formatCents(order.deliveryFeeCents)}`,
-      `Total: ${formatCents(order.totalCents)}`,
-      ``,
-      `We will keep you posted as your order moves forward.`,
-    ]
-      .filter((l) => l !== null)
-      .join('\n');
+    const { subject, text } = confirmationEmail(order, this.localesFor(order));
 
     await Promise.all([
       to ? this.mail.send({ to, subject, text }) : Promise.resolve(),
@@ -112,8 +108,7 @@ export class OrderNotificationsService implements OnModuleInit {
   }
 
   private async sendStatusUpdate(orderId: string, status: OrderStatus): Promise<void> {
-    const label = STATUS_LABEL[status];
-    if (!label) return; // PENDING has no update email (confirmed = the creation mail)
+    if (!hasStatusNotice(status)) return; // PENDING has no update email (confirmed = the creation mail)
 
     const order = await this.orders.findOne({
       where: { id: orderId },
@@ -122,25 +117,19 @@ export class OrderNotificationsService implements OnModuleInit {
     if (!order) return;
     const to = await this.resolveEmail(order);
 
-    const subject = `${label} — #${order.code}`;
-    const text = [
-      `Hi ${order.customerName},`,
-      ``,
-      `${label}.`,
-      ``,
-      `Order: #${order.code}`,
-      `Restaurant: ${order.restaurant.name}`,
-      status === OrderStatus.CANCELLED
-        ? `\nIf you did not request a cancellation, please contact support.`
-        : '',
-    ].join('\n');
+    const message = statusUpdateEmail(order, status, this.localesFor(order));
+    if (!message) return;
+
+    // Push stays bearer-only and English (the label table is EN-keyed; see
+    // the locales note in email-copy.ts).
+    const enLabel = STATUS_UPDATE_LABELS.en[status] as string;
 
     await Promise.all([
-      to ? this.mail.send({ to, subject, text }) : Promise.resolve(),
+      to ? this.mail.send({ to, subject: message.subject, text: message.text }) : Promise.resolve(),
       order.userId
         ? this.push.sendToUser(order.userId, {
-            title: `${label} — #${order.code}`,
-            body: `${order.restaurant.name}: ${label}.`,
+            title: `${enLabel} — #${order.code}`,
+            body: `${order.restaurant.name}: ${enLabel}.`,
             url: `/orders/${order.id}`,
             tag: `order-${order.id}`,
           })
@@ -148,9 +137,4 @@ export class OrderNotificationsService implements OnModuleInit {
     ]);
     if (to) this.log.log(`Status-update email (${status}) sent to ${to} for #${order.code}`);
   }
-}
-
-/** Format integer cents as a human-readable amount (IDR 12,500). */
-function formatCents(cents: number): string {
-  return `IDR ${(cents).toLocaleString('id-ID')}`;
 }

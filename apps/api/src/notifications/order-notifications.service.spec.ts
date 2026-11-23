@@ -17,6 +17,7 @@ function makeOrder(overrides: Partial<Order> = {}): Order {
     customerName: 'Alice',
     deliveryAddress: '123 Main St',
     userId: 'user-1',
+    contactEmail: null,
     subtotalCents: 10000,
     discountCents: 0,
     promoCode: null,
@@ -112,7 +113,54 @@ describe('OrderNotificationsService', () => {
       });
     });
 
-    it('skips email for guest orders (no userId)', async () => {
+    it('sends a bilingual (EN+ID) confirmation to the guest contactEmail, no push', async () => {
+      const guestOrder = makeOrder({
+        userId: undefined as unknown as string,
+        contactEmail: 'guest@example.com',
+      });
+      ordersFindOne.mockResolvedValue(guestOrder);
+
+      bus.next({
+        type: 'order.created',
+        restaurantId: 'resto-1',
+        userId: null,
+        payload: { orderId: 'order-1', code: 'FO-TEST', status: 'pending' },
+      });
+
+      await new Promise((r) => setTimeout(r, 10));
+      expect(mailSend).toHaveBeenCalledTimes(1);
+      const call = mailSend.mock.calls[0][0] as Record<string, unknown>;
+      expect(call.to).toBe('guest@example.com');
+      expect(call.subject).toBe('Order confirmed / Pesanan dikonfirmasi — #FO-TEST');
+      expect(String(call.text)).toContain('Hi Alice,');
+      expect(String(call.text)).toContain('Hai Alice,');
+      expect(String(call.text)).toContain('Kirim ke: 123 Main St');
+      // Guests have no bearer identity — push subscriptions are JWT-scoped.
+      expect(pushSend).not.toHaveBeenCalled();
+      // No user lookup for guest orders.
+      expect(usersFindOne).not.toHaveBeenCalled();
+    });
+
+    it('re-normalizes a non-canonical stored contactEmail before sending', async () => {
+      const guestOrder = makeOrder({
+        userId: undefined as unknown as string,
+        contactEmail: '  Guest@Example.COM ',
+      });
+      ordersFindOne.mockResolvedValue(guestOrder);
+
+      bus.next({
+        type: 'order.created',
+        restaurantId: 'resto-1',
+        userId: null,
+        payload: { orderId: 'order-1', code: 'FO-TEST', status: 'pending' },
+      });
+
+      await new Promise((r) => setTimeout(r, 10));
+      expect(mailSend).toHaveBeenCalledTimes(1);
+      expect(mailSend.mock.calls[0][0].to).toBe('guest@example.com');
+    });
+
+    it('still skips email for guest orders WITHOUT a contactEmail (silent)', async () => {
       const guestOrder = makeOrder({ userId: undefined as unknown as string });
       ordersFindOne.mockResolvedValue(guestOrder);
 
@@ -126,6 +174,28 @@ describe('OrderNotificationsService', () => {
       await new Promise((r) => setTimeout(r, 10));
       expect(mailSend).not.toHaveBeenCalled();
       expect(pushSend).not.toHaveBeenCalled();
+    });
+
+    it('bearer-only rule: an AUTHED order with contactEmail set still mails ONLY user.email, EN-only', async () => {
+      ordersFindOne.mockResolvedValue(
+        makeOrder({ contactEmail: 'someone-else@example.com' }),
+      );
+      usersFindOne.mockResolvedValue(makeUser());
+
+      bus.next({
+        type: 'order.created',
+        restaurantId: 'resto-1',
+        userId: 'user-1',
+        payload: { orderId: 'order-1', code: 'FO-TEST', status: 'pending' },
+      });
+
+      await new Promise((r) => setTimeout(r, 10));
+      expect(mailSend).toHaveBeenCalledTimes(1);
+      const call = mailSend.mock.calls[0][0] as Record<string, unknown>;
+      expect(call.to).toBe('alice@example.com');
+      // Authed copy stays English-only until a stored per-user locale lands.
+      expect(String(call.subject)).toBe('Order confirmed — #FO-TEST');
+      expect(String(call.text)).not.toContain('Pesanan');
     });
 
     it('skips email when order is not found', async () => {
@@ -207,7 +277,33 @@ describe('OrderNotificationsService', () => {
       expect(pushSend).not.toHaveBeenCalled();
     });
 
-    it('skips email for guest orders (no userId on updated event)', async () => {
+    it('sends a bilingual status-update email to guests with contactEmail, no push', async () => {
+      ordersFindOne.mockResolvedValue(
+        makeOrder({
+          userId: undefined as unknown as string,
+          contactEmail: 'guest@example.com',
+        }),
+      );
+
+      bus.next({
+        type: 'order.updated',
+        restaurantId: 'resto-1',
+        userId: null,
+        payload: { orderId: 'order-1', code: 'FO-TEST', status: 'confirmed' },
+      });
+
+      await new Promise((r) => setTimeout(r, 10));
+      expect(mailSend).toHaveBeenCalledTimes(1);
+      const call = mailSend.mock.calls[0][0] as Record<string, unknown>;
+      expect(call.to).toBe('guest@example.com');
+      expect(call.subject).toBe(
+        'Your order has been confirmed / Pesanan Anda telah dikonfirmasi — #FO-TEST',
+      );
+      expect(String(call.text)).toContain('Pesanan Anda telah dikonfirmasi.');
+      expect(pushSend).not.toHaveBeenCalled();
+    });
+
+    it('still skips guest orders without a contactEmail on updated events', async () => {
       ordersFindOne.mockResolvedValue(makeOrder({ userId: undefined as unknown as string }));
       usersFindOne.mockResolvedValue(null);
 

@@ -113,6 +113,13 @@ export class EnvVars {
   @IsString()
   SMTP_SECURE?: string;
 
+  // Rig mode (live smokes / local dev): jsonTransport + MAIL_CAPTURED log
+  // lines instead of real delivery. Parsed inside MailService; any other
+  // value is inert, so a typo can only silence capture, never send mail.
+  @IsOptional()
+  @IsString()
+  SMTP_JSON_CAPTURE?: string;
+
   // ── Web push (all optional — the complete triplet enables push) ──────────
   @IsOptional()
   @IsString()

@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { MailService } from './mail.service';
 import * as nodemailer from 'nodemailer';
@@ -117,6 +118,70 @@ describe('MailService', () => {
     it('send() is a no-op', async () => {
       await svc.send({ to: 'x@example.com', subject: 'hi', text: 'body' });
       expect(mockSendMail).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('SMTP_JSON_CAPTURE rig mode', () => {
+    function build(opts: Record<string, string | undefined> = {}) {
+      jest.clearAllMocks();
+      return Test.createTestingModule({
+        providers: [
+          MailService,
+          { provide: ConfigService, useValue: buildConfig(opts) },
+        ],
+      }).compile();
+    }
+
+    it('uses the jsonTransport even with no SMTP_HOST (rig needs no relay)', async () => {
+      const svc = (await build({
+        SMTP_HOST: undefined,
+        SMTP_JSON_CAPTURE: '1',
+      })).get(MailService);
+      expect(svc.enabled).toBe(true);
+      expect(mockCreateTransport).toHaveBeenCalledWith({ jsonTransport: true });
+    });
+
+    it('takes precedence over a configured real host', async () => {
+      const svc = (await build({ SMTP_JSON_CAPTURE: 'true' })).get(MailService);
+      expect(mockCreateTransport).toHaveBeenCalledTimes(1);
+      expect(mockCreateTransport).toHaveBeenCalledWith({ jsonTransport: true });
+      expect(svc.enabled).toBe(true);
+    });
+
+    it('garbage capture values are inert (normal host path, no jsonTransport)', async () => {
+      const svc = (await build({ SMTP_JSON_CAPTURE: 'ture' })).get(MailService);
+      expect(mockCreateTransport).toHaveBeenCalledWith(
+        expect.objectContaining({ host: 'smtp.test' }),
+      );
+      expect(svc.enabled).toBe(true);
+    });
+
+    it('logs exactly one single-line MAIL_CAPTURED payload per send', async () => {
+      const svc = (await build({ SMTP_JSON_CAPTURE: 'YES' })).get(MailService);
+      const logSpy = jest.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
+      await svc.send({ to: 'guest@example.com', subject: 'Order confirmed — #FO-1', text: 'a\nb' });
+      const captured = logSpy.mock.calls
+        .map((c) => String(c[0]))
+        .filter((m) => m.startsWith('MAIL_CAPTURED '));
+      expect(captured).toHaveLength(1);
+      const payload = JSON.parse(captured[0].slice('MAIL_CAPTURED '.length));
+      expect(payload).toEqual({
+        to: 'guest@example.com',
+        subject: 'Order confirmed — #FO-1',
+        text: 'a\nb',
+      });
+      expect(captured[0]).not.toContain('\n');
+      logSpy.mockRestore();
+    });
+
+    it('silent-disabled path logs nothing when capture is off', async () => {
+      const svc = (await build({ SMTP_HOST: undefined })).get(MailService);
+      const logSpy = jest.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
+      await svc.send({ to: 'x@example.com', subject: 's', text: 't' });
+      expect(
+        logSpy.mock.calls.map((c) => String(c[0])).some((m) => m.startsWith('MAIL_CAPTURED')),
+      ).toBe(false);
+      logSpy.mockRestore();
     });
   });
 });
