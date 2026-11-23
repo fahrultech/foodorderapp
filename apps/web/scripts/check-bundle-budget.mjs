@@ -182,6 +182,16 @@ if (process.argv[1] && resolve(process.argv[1]) === resolve(fileURLToPath(import
       for (const { route, baselineBytes } of rows) {
         const r = firstLoadBytes(pages, route, NEXT_DIR);
         console.error(`::error title=bundle-budget ${route}::measured=${r.bytes ?? r.error} budget=${baselineBytes}`);
+        // Session 118 drift hunt: the same Node/zlib still lands +5 B on CI
+        // for every route - dump the per-file chain breakdown so the CI
+        // listing can be diffed against a local build byte for byte.
+        if (r.bytes !== undefined) {
+          const files = [...new Set([...r.layoutKeys, r.entryKey].flatMap((k) => pages[k]))]
+            .filter((f) => /\.(js|css)$/.test(f))
+            .map((f) => `${f}=${gzipSync(readFileSync(join(NEXT_DIR, f)), { level: 9 }).length}`)
+            .join(',');
+          console.error(`::error title=bundle-chain ${route}::${files}`);
+        }
       }
     }
     console.error('\nEither shrink the route, or — if the growth is intended — re-measure');
