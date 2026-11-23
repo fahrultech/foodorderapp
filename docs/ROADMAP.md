@@ -339,10 +339,19 @@
   annotations for anonymous postmortems; PERFORMANCE.md + CI step
   comments rewritten; API delta 0
   (98/1294), web app-code delta 0.)
-- [ ] Product: tracking-page delivery polish — once an order is
+- [x] Product: tracking-page delivery polish — once an order is
   `delivering`, show the assigned driver's first name and a
   "usually ~N min" remaining estimate derived from session 113's
   per-restaurant ETA (read-side embed only, no migration; EN/ID + e2e).
+  (2026-11-23, session 119; pure `orders/delivery-view.ts` builder —
+  remainingMinutes = ceil((session-113 ETA seconds − confirmedAt→now)/60),
+  clamp 0 = arriving-soon, createdAt fallback anchor, etaSource null only
+  on aggregate-read failure; attached ONLY by `findOneForViewer` (receipt)
+  and ONLY while `delivering` — every other status/read byte-identical,
+  live-proven zero extra SQL on preparing reads via the query-logger
+  window; 99 suites/1313 tests (+1/+19), live smoke 26/26, SSR card +
+  Order ns 84→89 keys EN/ID, e2e 120→122 green ×2 fresh-seed, bundle
+  gate zero client delta.)
 - [ ] UX: dark-theme focus-ring verification + mobile bottom-bar keyboard
   pass — session 117 pins the ring on the light canvas only; extend the
   spec to the dark theme cookie (rgb(249,115,22)) and audit the

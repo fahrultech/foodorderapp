@@ -82,6 +82,22 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   for `estimate`/`null`; only `observed` gets the "usually ~N min" pill.
   Backdating the stamps re-derives the answer on the next request — zero
   writes, zero repair tooling (session 113).
+- **The receipt `delivery` embed is read-side and `delivering`-only**
+  (session 119, `orders/delivery-view.ts`): `GET /orders/:id` attaches
+  `delivery` = {driverFirstName, etaSource, sampleCount, remainingMinutes}
+  ONLY while the order's status is `delivering`, by ONE caller in
+  `OrdersService.findOneForViewer` (all three rungs share the single
+  attach point; denied viewers 404 before any embed read runs).
+  `remainingMinutes` = ceil((session-113 ETA seconds − confirmedAt→now
+  elapsed)/60), clamped at 0 (= arriving soon), anchored on `createdAt`
+  when `confirmedAt` is unusable and null when no honest basis exists;
+  `etaSource` is null ONLY when the aggregate read failed — sub-read
+  failures degrade inside the view, the receipt never 500s (session-89
+  doctrine). Every other status and every other read/echo ships byte-
+  identical with ZERO extra SQL (live-proven by query-logger windows);
+  the SSR card gates on the same wire truth, so a status flip surfaces
+  via the live feed's router.refresh with zero client-chunk growth.
+  Only the driver's FIRST name token ever leaves the API on this surface.
 - **Map pins are a coordinate PAIR** — `restaurants.latitude/longitude`
   (WGS84 decimal degrees, nullable, DB CHECKs `-90..90` / `-180..180` mirror
   the DTO bounds). The partner rule lives in `RestaurantsService`:

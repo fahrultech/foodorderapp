@@ -3,6 +3,86 @@
 Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
+## 2026-11-23 13:11 — Session 119 — Tracking-page delivery polish: driver first name + honest countdown on the delivering receipt (Phase 12 product item)
+
+**Built:**
+
+- API: pure DI-free `orders/delivery-view.ts` — `buildOrderDeliveryView`
+  derives `remainingMinutes = ceil((ETA seconds − confirmedAt→now)/60)`,
+  clamped at 0 (= arriving soon), anchored on `createdAt` when
+  `confirmedAt` is unusable, null when no honest basis exists; reuses
+  session 113's `buildDeliveryEta` so 'observed'/'estimate' semantics are
+  byte-identical to the restaurant pill (never claims observed below the
+  5-sample floor). `firstNameOf` emits ONLY the first name token of the
+  driver's user name.
+- API: ONE attach point — `OrdersService.findOneForViewer` routes all
+  three access rungs through `attachDeliveryView`, which fires ONLY when
+  status is `delivering`: session 113's own `DELIVERY_ETA_SQL` against
+  the orders repo (one statement, positional array param) +
+  `UsersService.findById` for the driver name. Sub-read failures degrade
+  INSIDE the view (`etaSource: null`, driver line survives) — the receipt
+  never 500s; a DENIED viewer 404s before any embed read runs. Every
+  other status/read/echo is byte-identical (early return, zero queries).
+- API: additive swagger `OrderDeliveryViewResponse` component +
+  `OrderResponse.delivery` (class defined BEFORE OrderResponse — model
+  thunks resolve at decoration time). No new routes: docs op/path count
+  unchanged (64 paths).
+- Web: SSR card under the timeline in `/orders/[id]/page.tsx`, gated on
+  `status === 'delivering' && order.delivery` (mirrors the wire contract);
+  testids `tracking-delivery` / `-driver` / `-eta`; observed basis rides a
+  title tooltip with the sample count (ICU plural kept numeric).
+  `lib/api.ts` mirrors the view type. 5 new `Order` ns keys EN/ID
+  (84→89, parity + ICU token-set asserted on disk BEFORE the merge;
+  files proved roundtrip-identical so the json.dump merge churned only
+  the 6 intended lines per file — the lone extra is a pre-existing
+  trailing-comma reformat on `pageTitle`, byte-same value).
+- e2e: `zz-tracking-polish.spec.ts` (2 tests) — paid+owner ladder,
+  driver assigned mid-flow, preparing proves NO card/no key, the flip
+  proves the DOM ↔ own-API-payload cross-check with the ETA-branch
+  invariant (never an absolute minute pin — earlier specs move the
+  median); ID locale pass byte-pins `Sedang diantar Demo` + the
+  countdown regex. Sorts last among zz-*: zero shared-seed consumption.
+
+**Verified:**
+
+- API build green; jest 99 suites / 1313 tests (+1 suite / +19 tests vs
+  session 118's 98/1294): 12 pure-builder cases + 7 service-ladder cases
+  (rung parity, per-status no-query no-key sweep, aggregate-boom degrade,
+  unassigned order, no-users harness, denied-404-runs-no-reads; fake
+  timers make the countdown arithmetic exact).
+- Live smoke 26/26 on a 29-migration from-empty scratch DB, gate-OFF boot
+  (status flow, payments not under test): preparing receipt zero
+  `percentile_cont` statements in its query-logger window (first run
+  caught the session-79 GUC trap — ALTER must precede boot so the pool
+  connects with logging — every window counted 0); delivering receipt
+  exactly ONE; confirmedAt rewound 10 min makes the estimate branch
+  deterministic — sampleCount 3 (seeded Warung completions <5 floor),
+  remainingMinutes 15 = ceil((1500−600−δ)/60); bearer/proof/ADMIN payloads
+  byte-identical via jq -cS; wrong proof = same 404, no delivery key;
+  completed flip removes the key; embedded restaurant never leaks
+  deliveryEta; docs-json registers the component; API log zero errors.
+- Web build green; bundle gate OK — margins +43..+45 B IDENTICAL on all 7
+  routes (a server-component + message change adds zero chunk bytes; the
+  +44 uniform offset = the documented ~+4..6 B path phantom + the −39 B
+  NEXT_PUBLIC_API_URL define-fold now visible on ALL routes under the
+  session-118 chain method, per that session's own 7621-via-layout note).
+- Full e2e 122/122 green ×2 CONSECUTIVE on fresh seeds (targeted 2/2
+  first); fixture-timing gate OK (62 work legs, max 155 ms, 5-run history
+  merged). Sanitizer scan clean on all added lines (U+2026 masks,
+  asterisk-mask sequences, literal backslash-u escapes).
+
+**Left for next sessions:**
+
+- The Phase 8 🔒 order-centric attribution item still gates per-restaurant
+  TRAFFIC for POST /orders + payments (the delivery embed itself needs no
+  attribution — it rides the receipt read).
+- The live-feed e2e could grow a 4th assertion riding the delivering→
+  completed flip announcing the arrival card disappearing (card presence
+  is today pinned via navigation, not push).
+- UX: dark-theme focus ring + mobile bottom-bar pass is the next top-down
+  item.
+
+---
 ## 2026-11-23 09:38 — Session 118 — Bundle-gate undercount FIXED: the full ancestor chain (layouts + CSS) is now summed (Phase 12 perf item)
 
 **Built:**
