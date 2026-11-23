@@ -622,7 +622,13 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
 - **Request metrics (in-process, no dependency)** — `common/metrics/`
   records per route TEMPLATE (matched Express path,
   never concrete ids; unmatched paths normalized + a 250-key cap folds
-  overflow into `other`): counts, status-class tallies (2xx/3xx/4xx/5xx) and
+  overflow into `other`): counts, status-class tallies (2xx/3xx/4xx/5xx),
+  a guard-throttled `throttled` counter (session 123: a 429 counts ONLY
+  when `RateLimitGuard` stamped the request before throwing AND the
+  response finished 429 — a 429 from any other producer stays invisible;
+  the field rides GLOBAL rows/totals only — `restaurantSnapshot()` never
+  emits the key, so the pinned OWNER-rung shape from sessions 85/98/116
+  stays byte-identical) and
   a cumulative duration histogram (fixed 5ms–10s bounds + Inf). `/api/health`
   is ignored, matching the access logger. Two consumption surfaces read the
   SAME registry: the compact `{bucket, status_class}` summary is folded into
@@ -687,18 +693,25 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   the OWNER rung through it even by accident, and the panel chunk stays
   code-split behind the `traffic != null` render gate (session 90 rule).
   On top of the snapshots sits the DI-free alert engine
-  `ops/alerts.ts` (session 86): four rules — `error_budget` (5xx rate vs
+  `ops/alerts.ts` (session 86): five rules — `error_budget` (5xx rate vs
   the 99.5% availability SLO, gated by a minimum sample), `p95_latency`
   (histogram estimate vs ceiling), `route_key_overflow` (cardinality-cap
-  folding, a warning) and `snapshot_stale` (session 109: fires while the
+  folding, a warning), `snapshot_stale` (session 109: fires while the
   session-89 durability writer is enabled but the newest
   `metrics_snapshots` row is older than `ALERT_SNAPSHOT_STALE_AFTER_SEC`,
   default 2x the snapshot interval — a silently dead writer zeroes the
   error budget's memory while every live number keeps looking healthy;
   zero rows grace from API uptime, an UNREADABLE store reports honestly
   as unreadable, and a DISABLED writer is EXEMPT by design; warning
-  severity — telemetry degrades, users don't) — evaluated from
+  severity — telemetry degrades, users don't) and `rate_limit_pressure`
+  (session 123: guard-throttled 429 share of the sample STRICTLY above
+  `ALERT_RATE_LIMIT_PCT_MAX` (default 5) over the SAME `ALERT_MIN_REQUESTS`
+  floor — 429s hide inside the 4xx class, so without this a store silently
+  shedding customers looked healthy between the limiter headers and the
+  complaint; warning severity on purpose: the 429 itself means the limiter
+  WORKED, sustained pressure means customers are being turned away) — evaluated from
   env-resolved thresholds (`ALERT_5XX_RATE_PCT_MAX` / `ALERT_P95_MS_MAX` /
+  `ALERT_RATE_LIMIT_PCT_MAX` /
   `ALERT_MIN_REQUESTS` / `ALERT_SNAPSHOT_STALE_AFTER_SEC`,
   read once at boot; garbage falls back, never crash-boots). ONE engine,
   three consumers that can never disagree: ADMIN pull route

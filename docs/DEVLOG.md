@@ -3,6 +3,95 @@
 Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
+## 2026-11-23 20:13 — Session 123 — Rate-limit pressure telemetry: guard-verified per-route 429 tallies + 5th alert rule `rate_limit_pressure` riding fold line + alert-scan (Phase 13 Ops item)
+
+**Built:**
+
+- Ops: the 42s that the limiter sheds are now first-class telemetry. The
+  metrics registry counted status CLASSES, so a store silently turning
+  customers away was invisible between the limiter's own headers and a
+  complaint. New DI-free `common/rate-limit/rate-limit.marker.ts`:
+  `RateLimitGuard` stamps the blocked request with its bucket BEFORE
+  throwing `RATE_LIMITED`; the metrics middleware demands BOTH halves —
+  stamp present AND finish-time status 429 — so a hypothetical other 429
+  producer (or a stamp whose response never reached the wire) can never
+  inflate the tally. The registry gains an additive per-route + totals
+  `throttled` counter (a subset of `byStatus['4xx']`; overflow folding
+  carries it into the `other` row; `record()` keeps a 5th optional arg so
+  every existing caller is untouched). GLOBAL snapshot only:
+  `restaurantSnapshot()` never emits the key (rows OR totals) — the
+  session-85/98/116 OWNER-rung shape stays byte-identical, pinned in three
+  specs incl. the HTTP round-trip against a live guard-marked sample.
+- Alerts: `ops/alerts.ts` gains the 5th rule `rate_limit_pressure` —
+  throttled share of served requests STRICTLY above
+  `ALERT_RATE_LIMIT_PCT_MAX` (default 5), gated by the SAME
+  `ALERT_MIN_REQUESTS` floor as the budget rule (a lone 429 in a young
+  sample is the limiter breathing); warning severity on purpose — the 429
+  means the limiter WORKED, sustained pressure means customers are being
+  turned away (capacity/config attention, not an outage). One engine,
+  every consumer inherits it with zero changes: `GET /admin/alerts`, the
+  compact `request_metrics` fold verdict, `alert_verdicts` persistence
+  (full report verbatim), and `ops/alert-scan.sh` exit codes
+  (0 healthy / 1 alerting / 2 broken).
+- Wiring/docs: knob declared in `env.validation.ts` (garbage falls back,
+  never crash-boots; 0 legal to prove the chain); typed contracts gained
+  the fields — `MetricsTotalsResponse.throttled` + optional
+  `MetricsRouteRowResponse.throttled` (documented admin-only) +
+  `AlertRuleResultResponse` enum + `AlertThresholdsResponse.rateLimitPctMax`;
+  admin route summaries name the 5th rule. Deliberately NOT done: the
+  window-delta payload keeps its shape (old persisted rows lack the field;
+  the subtraction ignores extras — persisted snapshots ride the counter
+  automatically, a windowed 429 delta is a filed follow-up). No new
+  routes/params: swagger ops stay 78, query-surface audit untouched.
+
+**Verified:**
+
+- API build green; FULL jest 101 suites/1361 tests (+17 vs session 122's
+  101/1344, suites unchanged): registry unit describe x5 (per-route +
+  totals tallies, unmarked 429 stays an honest zero, overflow carry,
+  restaurant-view absence incl. the persistence feed, reset), live-chain
+  integration x2 (marked-vs-unmarked probes through the REAL middleware;
+  a throttled top-up on a minted restaurant bucket surfaces the field
+  GLOBAL but never on the scoped snapshot), guard unit x1 (stamp on block
+  only, bucket-named), rule unit x8 (present-FIFTH, not-evaluable, floor
+  gate at a 60% share, exactly-AT-5 does not fire, one-unit-over flips the
+  verdict ALONE, 0% tightened ceiling, unmarked-429 share stays 0, env
+  parsing), alert-scan x1 (rate_limit_pressure rides exit 1). Mirror pins
+  re-derived from the REAL engine (admin.controller fixture + the
+  all-FIVE-rules-in-order combination test; `toHaveLength(4)` re-pinned
+  to 5; fixtures carry the new fields so the drift guard stays honest).
+- Live smoke 38/38 on the real driver (scratch DB `foodorder_rl123`,
+  29-migration from-empty + seed, :4123, orders bucket 2/600s,
+  ALERT_MIN_REQUESTS=10, p95 ceiling raised so ONLY the new rule can
+  fire): baseline totals.throttled 0; 2 served 201s + 5 guard 429s ->
+  row requests 7 / throttled 5 / 4xx-subset pin; junk 400 and metrics
+  reads never inflate; envelope keeps RATE_LIMITED + retry_after_sec;
+  GET /admin/alerts answers firingRules EXACTLY [rate_limit_pressure]
+  (warning, threshold 5, observed share consistent with the live
+  denominator); the 5s fold line carries the same verdict + count; the
+  REAL alert-scan exits 1 naming the rule; OWNER metrics payload has no
+  throttled key on totals or rows; docs-json registers all four contract
+  additions and live ops == swagger.spec SUCCESS (78). Two harness
+  lessons: the cross-check band between two separate admin reads must
+  tolerate the in-flight reads themselves, and pipefail + grep-abort
+  needs the `{ ... || true; }` wrap.
+- E2E: full suite 126/126 GREEN x2 consecutive on fresh seeds (API-only
+  change — additive payload fields invisible to the panels; the OWNER
+  key-set pins held unchanged), fixture-timing gate OK (the one 44s
+  limiter-wait was a 429 backoff, credited out of work legs by design).
+  Web files untouched; no new bundle delta (budget gate unaffected —
+  zero web app-code changes).
+
+**Left for next sessions:**
+
+- Windowed 429 delta: `window` could expose the exact per-window
+  throttled share (honest-null for baselines persisted before today —
+  the session-116 baseline-honesty ladder, already filed here).
+- Per-bucket limiter pressure (auth/orders/payments split is in the
+  marker; riding it onto the fold line for multi-process ops is cheap).
+- `rate_limit_pressure` also deserves the TrafficPanel/AlertHistory
+  cards to show it as a rail item — raw rule ids already flow (session
+  114), only the copy is missing.
 ## 2026-11-23 18:41 — Session 122 — Guest order notification emails over the session-76 proof column (EN+ID bilingual); email copy extracted; SMTP_JSON_CAPTURE rig (Phase 13 Product item)
 
 **Built:**

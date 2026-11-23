@@ -414,13 +414,28 @@
   a disabled ARM2; 101 suites/1344 tests (+1/+26) with the two legacy
   guest-skip pins flipped to the new contract; API surface untouched —
   swagger/query-surface/e2e deltas 0.)
-- [ ] Ops: rate-limit pressure telemetry — the metrics registry counts
+- [x] Ops: rate-limit pressure telemetry — the metrics registry counts
   status CLASSES, so a store silently shedding 429s is invisible between
   the limiter's own headers and a customer complaint. Add an additive
   per-route `429` counter (only when the guard actually throttles),
   surface it on the ADMIN snapshot, and give `ops/alerts.ts` a
   `rate_limit_pressure` rule (429 share over a sample floor, env knob)
   that rides the fold line + alert-scan exit codes like the other four.
+  (2026-11-23, session 123; `RateLimitGuard` stamps the bucket on a
+  blocked request BEFORE throwing (new DI-free `rate-limit.marker.ts`)
+  and the metrics middleware counts ONLY stamp+finish-429 — an unmarked
+  429 can never inflate it; additive `throttled` on GLOBAL route rows +
+  totals (4xx-subset, overflow-fold carries it), restaurant view never
+  emits the key so the pinned OWNER-rung shape stays byte-identical
+  (unit+integration+HTTP pins); 5th rule `rate_limit_pressure` — share
+  STRICTLY above `ALERT_RATE_LIMIT_PCT_MAX` (default 5, 0 legal,
+  garbage→default) over the shared `ALERT_MIN_REQUESTS` floor, warning
+  severity (the 429 means the limiter WORKED; sustained pressure =
+  customers turned away); fold verdict + persisted `alert_verdicts` +
+  real alert-scan exit 1 all inherit with zero consumer changes; typed
+  contracts registered (ops still 78); +17 tests (101 suites/1361),
+  live smoke 38/38 on a 29-migration from-empty DB with a real orders
+  bucket 2/600s flood, e2e 126/126 green ×2 fresh-seed, web delta 0.)
 - [ ] Test: make the k6 write ladder a SCHEDULED perf regression — an
   `ops/perf-check.sh` (scratch DB + boot + smoke-arm ladder + threshold
   grep, cleanup trap) mirroring the alert-scan exit-code doctrine
