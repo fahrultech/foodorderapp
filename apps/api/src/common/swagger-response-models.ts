@@ -343,6 +343,44 @@ export class DeliveryEtaResponse {
   sampleCount: number;
 }
 
+/**
+ * Tracking-page delivery view (session 119) — the read-side `delivery`
+ * embed on GET /orders/{id} while the order is `delivering`.
+ */
+export class OrderDeliveryViewResponse {
+  @ApiProperty({
+    type: 'string',
+    nullable: true,
+    description:
+      'Assigned driver\'s FIRST name (first token of the user name); null while unassigned or when the users read failed.',
+    example: 'Demo',
+  })
+  driverFirstName: string | null;
+
+  @ApiProperty({
+    enum: ['observed', 'estimate'],
+    nullable: true,
+    description:
+      'ETA derivation basis (session 113 semantics): observed = median of real recent durations, estimate = curated avgPrepMinutes below the 5-sample floor; null ONLY when the aggregate read failed this request.',
+  })
+  etaSource: 'observed' | 'estimate' | null;
+
+  @ApiProperty({
+    type: 'integer',
+    description: 'Eligible completed orders behind an `observed` basis; 0 for estimate/failed reads.',
+  })
+  sampleCount: number;
+
+  @ApiProperty({
+    type: 'integer',
+    nullable: true,
+    description:
+      'Whole minutes remaining, ceil-ed, clamped at 0 (= arriving soon). Derived as restaurant ETA seconds minus the confirmed->now elapsed (createdAt fallback anchor); null when no countdown can be honest (failed ETA read or no usable stamp).',
+    example: 12,
+  })
+  remainingMinutes: number | null;
+}
+
 export class RestaurantResponse {
   @ApiProperty({ type: 'string', format: 'uuid' })
   id: string;
@@ -877,6 +915,13 @@ export class OrderResponse {
       'Embedded restaurant summary — present on GET /orders/{id}, /orders/my and status transitions; absent on the owner inbox rows.',
   })
   restaurant?: RestaurantResponse;
+
+  @ApiPropertyOptional({
+    type: () => OrderDeliveryViewResponse,
+    description:
+      'Tracking-page delivery polish (session 119): attached ONLY on GET /orders/{id} AND ONLY when status is `delivering` — every other read, echo and status is absent. Names the assigned driver and counts down from session 113\'s per-restaurant ETA.',
+  })
+  delivery?: OrderDeliveryViewResponse | null;
 
   @ApiProperty({ type: 'string', format: 'date-time' })
   createdAt: string;

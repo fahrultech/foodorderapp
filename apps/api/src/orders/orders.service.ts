@@ -3,6 +3,7 @@ import {
   ForbiddenException,
   HttpStatus,
   Injectable,
+  Logger,
   NotFoundException,
   Optional,
 } from '@nestjs/common';
@@ -25,6 +26,8 @@ import {
 import { MenuService } from '../menu/menu.service';
 import { MenuOptionService } from '../menu/menu-option.service';
 import { RestaurantsService } from '../restaurants/restaurants.service';
+import { DELIVERY_ETA_SQL, EtaSqlRow } from '../restaurants/delivery-eta';
+import { buildOrderDeliveryView } from './delivery-view';
 import { OrderEventsService } from './order-events.service';
 import { PromosService, normalizePromoCode } from '../promos/promos.service';
 import { AddressesService } from '../users/addresses.service';
@@ -103,6 +106,8 @@ export class OrdersService {
     @Optional()
     private readonly optionPricing?: MenuOptionService,
   ) {}
+
+  private readonly logger = new Logger(OrdersService.name);
 
   private async auditStatusChange(
     orderId: string,
@@ -457,11 +462,59 @@ export class OrdersService {
     contactEmail?: string,
   ) {
     const order = await this.findOne(id);
-    if (viewer?.role === UserRole.ADMIN) return order;
-    if (viewer && order.userId && order.userId === viewer.sub) return order;
+    if (viewer?.role === UserRole.ADMIN) return this.attachDeliveryView(order);
+    if (viewer && order.userId && order.userId === viewer.sub) {
+      return this.attachDeliveryView(order);
+    }
     const proof = normalizeContactEmail(contactEmail);
-    if (proof && order.contactEmail && proof === order.contactEmail) return order;
+    if (proof && order.contactEmail && proof === order.contactEmail) {
+      return this.attachDeliveryView(order);
+    }
     throw new NotFoundException('Order not found');
+  }
+
+  /**
+   * Tracking-page delivery polish (Phase 12, session 119). Attached ONLY here
+   * (the receipt read) and ONLY when the order is `delivering` — every other
+   * status and every other read/echo stays byte-identical. The view names the
+   * driver and counts down from session 113's per-restaurant ETA; any failed
+   * sub-read degrades to the honest null inside the view, never a 500 on the
+   * receipt (the session-89 "extras degrade, the route stays 200" doctrine).
+   */
+  async attachDeliveryView(order: Order): Promise<Order> {
+    if (order.status !== OrderStatus.DELIVERING) return order;
+
+    let etaRow: EtaSqlRow | null | undefined = undefined;
+    try {
+      // Session 113's OWN batched statement (same file, same semantics:
+      // undefined = nothing eligible, null = read failed). Positional $1
+      // array param per the raw-SQL rule (session 106).
+      const raw = (await this.orders.query(DELIVERY_ETA_SQL, [[order.restaurantId]])) as unknown;
+      const rows = Array.isArray(raw) ? (raw as EtaSqlRow[]) : [];
+      etaRow = rows.length > 0 ? rows[0] : undefined;
+    } catch (err) {
+      etaRow = null;
+      this.logger.warn(`delivery ETA aggregate read failed: ${(err as Error).message}`);
+    }
+
+    let driverName: string | null = null;
+    if (order.driverId && this.users) {
+      try {
+        const driver = await this.users.findById(order.driverId);
+        driverName = driver?.name ?? null;
+      } catch (err) {
+        this.logger.warn(`delivery driver read failed: ${(err as Error).message}`);
+      }
+    }
+
+    (order as unknown as Record<string, unknown>).delivery = buildOrderDeliveryView({
+      etaRow,
+      driverName,
+      avgPrepMinutes: order.restaurant?.avgPrepMinutes ?? null,
+      confirmedAt: order.confirmedAt,
+      createdAt: order.createdAt,
+    });
+    return order;
   }
 
   /**

@@ -138,3 +138,126 @@ describe('OrdersService.findOneForViewer — receipt access ladder', () => {
     });
   });
 });
+
+/**
+ * Tracking-page delivery polish (Phase 12, session 119). The `delivery`
+ * embed rides ONLY the viewer read and ONLY `delivering` orders; every
+ * degraded sub-read answers inside the view, never a 500 receipt.
+ */
+describe('OrdersService.findOneForViewer — delivery embed', () => {
+  const RID = '88888888-8888-4888-8888-888888888888';
+  const DRIVER_ID = '99999999-9999-4999-8999-999999999999';
+
+  const delivering = (over: Partial<Order> = {}): Order =>
+    ({
+      id: ORDER_ID,
+      code: 'FO-TEST2',
+      status: OrderStatus.DELIVERING,
+      userId: OWNER_ID,
+      restaurantId: RID,
+      driverId: DRIVER_ID,
+      contactEmail: 'guest@example.com',
+      confirmedAt: new Date('2026-11-23T07:50:00.000Z'),
+      createdAt: new Date('2026-11-23T07:30:00.000Z'),
+      restaurant: { id: RID, avgPrepMinutes: 25 },
+      items: [],
+      ...over,
+    }) as unknown as Order;
+
+  function buildRich(order: Order, queryImpl?: jest.Mock, driverName?: string | null) {
+    const query =
+      queryImpl ??
+      jest.fn(async () => [{ rid: RID, samples: '9', median_seconds: '1200' }]);
+    const repo = {
+      findOne: jest.fn(async () => order),
+      query,
+    } as unknown as Repository<Order>;
+    const noop = {} as any;
+    const users =
+      driverName === undefined
+        ? undefined
+        : ({ findById: jest.fn(async () => ({ name: driverName })) } as any);
+    // 6 legacy noops + payments + config + users (constructor positional order).
+    const svc = new OrdersService(repo as any, noop, noop, noop, noop, noop, noop, noop, users);
+    return { svc, query };
+  }
+
+  beforeEach(() => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-11-23T08:00:00.000Z'));
+  });
+  afterEach(() => jest.useRealTimers());
+
+  it('delivering order via the proof rung carries the full honest view', async () => {
+    const { svc, query } = buildRich(delivering(), undefined, 'Demo Driver');
+    const order = await svc.findOneForViewer(ORDER_ID, undefined, 'guest@example.com');
+    expect(query).toHaveBeenCalledWith(expect.any(String), [[RID]]);
+    expect((order as any).delivery).toEqual({
+      driverFirstName: 'Demo',
+      etaSource: 'observed',
+      sampleCount: 9,
+      remainingMinutes: 10, // median 1200s - 600s elapsed -> 600s -> ceil 10
+    });
+  });
+
+  it('bearer-owner rung embeds identically (single attach point)', async () => {
+    const { svc } = buildRich(delivering(), undefined, 'Demo Driver');
+    const order = await svc.findOneForViewer(ORDER_ID, { sub: OWNER_ID, role: UserRole.CUSTOMER });
+    expect((order as any).delivery.driverFirstName).toBe('Demo');
+  });
+
+  it('every NON-delivering status ships byte-identical: no query, no key', async () => {
+    for (const status of [
+      OrderStatus.PENDING,
+      OrderStatus.CONFIRMED,
+      OrderStatus.PREPARING,
+      OrderStatus.COMPLETED,
+      OrderStatus.CANCELLED,
+    ]) {
+      const { svc, query } = buildRich(delivering({ status }), undefined, 'Demo Driver');
+      const order = await svc.findOneForViewer(ORDER_ID, { sub: OWNER_ID, role: UserRole.CUSTOMER });
+      expect(query).not.toHaveBeenCalled();
+      expect('delivery' in order).toBe(false);
+    }
+  });
+
+  it('failed aggregate read degrades INSIDE the view (driver line survives, route stays 200)', async () => {
+    const boom = jest.fn(async () => {
+      throw new Error('db down');
+    });
+    const { svc } = buildRich(delivering(), boom, 'Rudi Santoso');
+    const order = await svc.findOneForViewer(ORDER_ID, { sub: OWNER_ID, role: UserRole.CUSTOMER });
+    expect((order as any).delivery).toEqual({
+      driverFirstName: 'Rudi',
+      etaSource: null,
+      sampleCount: 0,
+      remainingMinutes: null,
+    });
+  });
+
+  it('unassigned order still gets a view: eta without a name', async () => {
+    const { svc } = buildRich(delivering({ driverId: null }), undefined, 'Demo Driver');
+    const order = await svc.findOneForViewer(ORDER_ID, { sub: OWNER_ID, role: UserRole.CUSTOMER });
+    expect((order as any).delivery.driverFirstName).toBeNull();
+    expect((order as any).delivery.etaSource).toBe('observed');
+  });
+
+  it('no users service injected (harness shape): name null, ETA still derived', async () => {
+    const { svc } = buildRich(delivering());
+    const order = await svc.findOneForViewer(ORDER_ID, { sub: OWNER_ID, role: UserRole.CUSTOMER });
+    expect((order as any).delivery).toEqual({
+      driverFirstName: null,
+      etaSource: 'observed',
+      sampleCount: 9,
+      remainingMinutes: 10,
+    });
+  });
+
+  it('a DENIED viewer never runs the embed reads', async () => {
+    const query = jest.fn(async () => []);
+    const { svc } = buildRich(delivering(), query, 'Demo Driver');
+    await expect(
+      svc.findOneForViewer(ORDER_ID, { sub: OTHER_ID, role: UserRole.CUSTOMER }),
+    ).rejects.toThrow(NotFoundException);
+    expect(query).not.toHaveBeenCalled();
+  });
+});
