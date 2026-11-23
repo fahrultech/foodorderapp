@@ -371,11 +371,61 @@
   keeps a sequential-nav start point across blur(), cycle walks must
   anchor ON the skip link, and the skip link's own testid must lose to
   its href pattern in element naming.)
-- [ ] Test: k6 WRITE profile against the cached+compressed stack — a
+- [x] Test: k6 WRITE profile against the cached+compressed stack — a
   checkout ladder (auth → create → pay) at modest VUs with
   HTTP_CACHE_TTL_SEC default and compression ON, asserting
   statements-per-request and zero 429s in a new docs/PERFORMANCE.md
   section (session 104's conditional profile never exercised writes).
+  (2026-11-23, session 121; `ops/load-test-write.js` — anonymous
+  CACHEABLE browse (bearer-free, both sides of the 1024 B gzip threshold
+  pinned) → signup → create → intent → capture → not-cache-marked
+  receipt, per-leg trends, loud abort on ANY 429 or missing cache
+  contract; FIRST load run caught a real product bug — `orders.code`
+  birthday-collision 500 (4-char Math.random draws into a UNIQUE
+  column) — fixed same session: 6-char crypto.randomInt draws +
+  bounded 23505 retry of the whole create unit-of-work with a fresh
+  code (+1 suite/+5 tests, 100/1318; live smoke 13/13 with a
+  trigger-forced deterministic collision via nextval counter); load
+  arms: cached 506 iters/2,536 reqs p95 12.71 ms 6,076/6,076 checks
+  vs TTL=0 control 505/2,531 — stmt/req 8.00→7.11 (honest: writes
+  dominate), browse leg 5.22→1.53 ms on zero SQL in-TTL, 0×429 both
+  arms, exact DB cross-check (1,011 orders, one succeeded payment
+  each); targeted e2e 14/14, web delta 0.)
+
+## Phase 13 — Guest reach, limiter telemetry & baseline durability (opened 2026-11-23, Phase 12 exhausted; from the Product / Ops / Test / Perf / UX evergreen loops)
+
+- [ ] Product: guest order notification emails — the session-45 fan-out
+  skips guest orders silently ("no contactEmail on Order entity yet"),
+  and the session-76 proof column finally IS on the entity: deliver
+  placed + status-step emails to `orders.contactEmail` (normalized,
+  trim/lowercase) for orders with NO userId, keeping the bearer-only
+  suppression rules intact. Unit + live smoke (send-capture transport
+  like session 45's), EN/ID copy via the existing email templates.
+- [ ] Ops: rate-limit pressure telemetry — the metrics registry counts
+  status CLASSES, so a store silently shedding 429s is invisible between
+  the limiter's own headers and a customer complaint. Add an additive
+  per-route `429` counter (only when the guard actually throttles),
+  surface it on the ADMIN snapshot, and give `ops/alerts.ts` a
+  `rate_limit_pressure` rule (429 share over a sample floor, env knob)
+  that rides the fold line + alert-scan exit codes like the other four.
+- [ ] Test: make the k6 write ladder a SCHEDULED perf regression — an
+  `ops/perf-check.sh` (scratch DB + boot + smoke-arm ladder + threshold
+  grep, cleanup trap) mirroring the alert-scan exit-code doctrine
+  (0 green / 1 regression / 2 broken rig), so "baselines drift" is caught
+  by a runner, not by memory. docs/PERFORMANCE.md run section + a
+  systemd timer example.
+- [ ] Perf: finish the cache whitelist decision for `GET /api/search` —
+  session 103's item text proposed it but the shipped whitelist is the
+  THREE list/detail paths; either add search to the store (per-query URL
+  key + bounds on the store cap + metrics attribution like the three) or
+  record WHY NOT (query-parameter fan-out makes hit rates worthless) in
+  ARCHITECTURE.md — an explicit decision either way, plus the k6 browse
+  profile extended to whichever shape ships.
+- [ ] UX: "Order again" from CANCELLED orders — session 107's ladder is
+  COMPLETED-only; a cancelled order is exactly when a customer wants to
+  retry. Same `applyOrderAgain` path (no restock semantics needed — the
+  ladder reads the snapshot), honest skip reporting, EN/ID; e2e pinning
+  the cancelled card gains the button.
 
 ## Completed
 - 2026-10-17 — Phase 0: monorepo scaffold, NestJS API (auth, restaurants, menu, orders, status machine, health), Next.js storefront (browse, detail, cart, checkout, order page), docker compose + Dockerfiles, seed data, jest unit tests, CI-ready scripts.

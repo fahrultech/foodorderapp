@@ -1,3 +1,4 @@
+import { randomInt } from 'node:crypto';
 import {
   BadRequestException,
   ForbiddenException,
@@ -47,6 +48,15 @@ import {
   RestockRepairOptions,
   RestockRepairReport,
 } from './stock-restock-repair';
+
+/**
+ * True for a driver-level unique violation (SQLSTATE 23505). pg surfaces
+ * the class on `QueryFailedError.code`. Used by create()'s code-collision
+ * retry (session 121) — see the call-site contract comment.
+ */
+function isUniqueViolationError(err: unknown): boolean {
+  return typeof err === 'object' && err !== null && (err as { code?: unknown }).code === '23505';
+}
 
 const STATUS_FLOW: Record<OrderStatus, OrderStatus[]> = {
   [OrderStatus.PENDING]: [OrderStatus.CONFIRMED, OrderStatus.CANCELLED],
@@ -153,10 +163,19 @@ export class OrdersService {
     });
   }
 
+  /**
+   * Human-readable short code. 31-char unambiguous alphabet (no I/O/L/0/1).
+   * Session 121: the width grew 4 -> 6. Four chars = 31^4 ≈ 924k codes into
+   * a UNIQUE column — a birthday-paradox collision every ~1.6k orders, live-
+   * reproduced as a random 500 on order-create under the k6 write ladder.
+   * 31^6 ≈ 887M makes a collision rare; the create() retry makes it a
+   * non-event. crypto.randomInt (not Math.random): uniform draws from a
+   * CSPRNG for a customer-facing identifier.
+   */
   private generateCode(): string {
     const chars = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
     let out = '';
-    for (let i = 0; i < 4; i++) out += chars[Math.floor(Math.random() * chars.length)];
+    for (let i = 0; i < 6; i++) out += chars[randomInt(chars.length)];
     return `FO-${out}`;
   }
 
@@ -328,7 +347,6 @@ export class OrdersService {
     }
 
     const order = this.orders.create({
-      code: this.generateCode(),
       restaurantId: dto.restaurantId,
       userId: userId ?? null,
       customerName: contact.customerName,
@@ -376,7 +394,51 @@ export class OrdersService {
           quantity: delta.quantity,
         }))
       : null;
-    const saved = await this.orders.manager.transaction(async (em) => {
+    // Unit-of-work run with CODE-COLLISION RETRY (session 121): a fresh code
+    // is drawn per attempt; if the INSERT trips a unique violation (SQLSTATE
+    // 23505) the whole transaction already rolled back (stock decrements
+    // included, and `em.save` re-mints the PK), so re-running the unit of
+    // work with a redrawn code cannot double-take anything. Inside this tx
+    // the ONLY by-chance collidable constraint is the random code: the promo
+    // caps re-check under the FOR UPDATE lock raise plain 400s, not 23505,
+    // and the PK is a fresh uuid. Everything else (INSUFFICIENT_STOCK, 400s,
+    // driver errors) propagates exactly as before; a persistent 23505 past
+    // the bound is rethrown, so the failure mode is never worse than pre-
+    // retry — it just becomes vanishingly rare instead of a random 500.
+    const CODE_ATTEMPTS = 3;
+    for (let attempt = 1; ; attempt += 1) {
+      order.code = this.generateCode();
+      try {
+        const saved = await this.attemptCreateUnitOfWork(order, stockEntries, {
+          appliedPromoId,
+          discountCents,
+          userId: userId ?? null,
+        });
+        const full = await this.findOne(saved.id);
+        this.emit('order.created', full);
+        return full;
+      } catch (err) {
+        if (!isUniqueViolationError(err) || attempt >= CODE_ATTEMPTS) throw err;
+        this.logger.warn(
+          `order code collision on insert (attempt ${attempt}/${CODE_ATTEMPTS}) — retrying with a fresh code`,
+          { restaurantId: dto.restaurantId },
+        );
+      }
+    }
+  }
+
+  /**
+   * ONE execution of create()'s write set, extracted session 121 so the
+   * code-collision retry can re-run the whole unit of work. Contract notes
+   * live at the call site (session 71 unit-of-work + session 72 restock
+   * ledger + session 67 promo cap under FOR UPDATE).
+   */
+  private async attemptCreateUnitOfWork(
+    order: Order,
+    stockEntries: Array<[string, { name: string; quantity: number; stockAtRead: number }]>,
+    promo: { appliedPromoId: string | null; discountCents: number; userId: string | null },
+  ): Promise<Order> {
+    return this.orders.manager.transaction(async (em) => {
       for (const [menuItemId, delta] of stockEntries) {
         const result = await em.query(
           `UPDATE "menu_items" SET "stock" = "stock" - $2
@@ -408,26 +470,22 @@ export class OrdersService {
         }
       }
       const persisted: Order = await em.save(order);
-      if (appliedPromoId) {
+      if (promo.appliedPromoId) {
         // Ledger redemption row in the SAME transaction, under the promo
         // row lock — this closes the "last redemption" count→insert race
         // session 67 left documented (see PromosService.recordUsage).
         await this.promos.recordUsage(
           {
-            promoId: appliedPromoId,
+            promoId: promo.appliedPromoId,
             orderId: persisted.id,
-            userId: userId ?? null,
-            discountCents,
+            userId: promo.userId,
+            discountCents: promo.discountCents,
           },
           em,
         );
       }
       return persisted;
     });
-
-    const full = await this.findOne(saved.id);
-    this.emit('order.created', full);
-    return full;
   }
 
   async findOne(id: string) {

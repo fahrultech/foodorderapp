@@ -1,6 +1,6 @@
 # API load testing and baselines
 
-Three k6 workloads live in `ops/`:
+Four k6 workloads live in `ops/`:
 
 - `ops/load-test.js` — the READ-ONLY public storefront baseline. It bootstraps
   restaurant ids, then cycles through:
@@ -30,6 +30,19 @@ never will — destructive traffic stays in its own scenario (below).
   Content-Length on the capture — that header is the honest wire-size
   signal (k6 decompresses at the JS layer).
 
+- `ops/load-test-write.js` — the WRITE LADDER over the cached+compressed
+  stack (session 121, Phase 12): anonymous cache-whitelisted browse GET ->
+  signup -> order create -> payment intent -> capture -> receipt. Contracts:
+  ZERO 429s (any throttled response aborts the run, naming the bucket), and
+  under `CACHE_ARM=on` (default) every browse response must prove the
+  strong ETag + `Cache-Control: public` + the both-sides-of-1024B gzip
+  threshold (>= decoded -> `Content-Encoding: gzip` + numeric encoded
+  Content-Length; < -> byte-transparent identity). `CACHE_ARM=off` pairs
+  with an `HTTP_CACHE_TTL_SEC=0` boot for the control arm. Creates real
+  rows: same isolated-rig rule as the auth scenario. This profile caught
+  the `orders.code` birthday-collision 500 — see "Write ladder under the
+  cached+compressed stack" below.
+
 Pure helpers (cart planning, payload shape, profiles) live in
 `ops/load-test.lib.mjs` and are pinned by `ops/load-test.contract.test.mjs`
 (`node --test ops/load-test.contract.test.mjs`).
@@ -42,6 +55,7 @@ With k6 installed:
 BASE_URL=http://127.0.0.1:4000/api PROFILE=smoke k6 run ops/load-test.js
 BASE_URL=http://127.0.0.1:4000/api PROFILE=load k6 run ops/load-test.js
 BASE_URL=http://127.0.0.1:4000/api PROFILE=smoke k6 run ops/load-test-conditional.js
+BASE_URL=http://127.0.0.1:4100/api PROFILE=smoke k6 run ops/load-test-write.js   # scratch rig!
 ```
 
 Or without a host installation:
@@ -383,6 +397,96 @@ production build on :4100):
 - Cross-check against session 104: its control row (1.29 ms p95 aggregate,
   250.74 req/s) is what the B2 row reproduces — the replay-heavy shape is
   stable, and neither arm regressed it.
+
+## Write ladder under the cached+compressed stack — November 23, 2026 (session 121)
+
+Phase 12 Test item: session 104's conditional profile never exercised
+writes, and the session-82 write ladder predates the cache and read the
+restaurant detail BEARER'd — an anonymous-whitelist opt-out, so no write
+baseline had ever touched the cached+compressed stack. `ops/load-test-write.js`
+fills the gap: each iteration is an anonymous cacheable browse GET (also
+proving the layers, or aborting), signup once per VU, order create, payment
+intent + capture, and the bearer receipt read (pinned NOT cache-marked —
+the layers stay byte-transparent off-whitelist).
+
+**The first run did exactly what a write profile is for: it caught a REAL
+product bug.** After 160 successful orders in the load arm (~200 rows on the
+table counting seed + smoke), order-create answered 500 with
+`duplicate key value violates unique constraint` on `orders.code`. The
+column is UNIQUE while `generateCode()` drew 4 characters from the 31-char
+alphabet via `Math.random()` with no collision guard — birthday-paradox
+collision odds that grow QUADRATICALLY with table size (already ~2% by
+200 rows, near-certain past ~1.6k), a time bomb that scales with business
+volume (session 82's 992-order baseline sat on the lucky side of the curve).
+Fixed in the same session: 6-char draws from `crypto.randomInt` (31^6 ~ 887M),
+AND the create unit-of-work now re-runs up to 3 times on SQLSTATE 23505
+with a FRESH code per attempt. The retry is safe by construction: the
+failed INSERT rolls the whole transaction (stock decrements included) and
+`em.save` re-mints the PK, so nothing double-takes; inside that transaction
+the by-chance-collidable constraint is only the random code (promo caps
+re-check under FOR UPDATE and raise plain 400s). Past the bound the
+violation rethrows — the pre-fix behavior becomes the last resort, not the
+first hit. +5 unit specs (`order-code-collision.spec.ts`) pin format, the
+redraw-per-attempt, the non-unique pass-through, the exhaustion, and the
+promo ledger surviving the extraction; a 13/13 live smoke proves the retry
+DETERMINISTICALLY on the real driver — a BEFORE INSERT trigger raises 23505
+on exactly the first two attempts (counter via `nextval`, since a table
+UPDATE inside the trigger rolls back with every aborted transaction — first
+smoke run burned that lesson), the bounded give-up writes NOTHING, and a
+24-way concurrent create burst lands 24/201s with unique well-formed codes.
+
+Rig: same host (2 vCPU EPYC, 1.9 GiB RAM, PostgreSQL 16, canonical
+6-restaurant seed, k6 v2.3.0 in Docker `--network host`), fresh
+`foodorder_k6write` on the full 29-migration chain + seed, production build
+on :4100, `RATE_LIMIT_{AUTH,ORDERS,PAYMENTS}_MAX=20000` boot-time only on
+this throwaway instance (shipped defaults are per-IP 10/30/10 per minute —
+the payments bucket alone caps the ladder at 5 iterations/min/IP, so a
+honest write baseline relaxes it exactly like session 82; the zero-429
+assertion then proves THIS run was limiter-free). Arms: shipped defaults
+(TTL 15 + gzip 1024) vs `HTTP_CACHE_TTL_SEC=0` control with compression
+still ON (`CACHE_ARM=off` skips only the cache-header assertions).
+
+Results (all thresholds green, 100.00% checks, 0 failed requests, 0 429s):
+
+| Arm | Iters | Requests | req/s | avg | p95 | max | browse leg avg | write legs avg | Checks |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| **cached (TTL 15, shipped)** | 506 | 2,536 | 18.09 | 6.05 ms | **12.71 ms** | 93.3 ms | **1.53 ms** | 25.6 ms | 6,076/6,076 |
+| control (TTL 0, gzip on) | 505 | 2,531 | 18.01 | 7.01 ms | 13.79 ms | 128.0 ms | 5.22 ms | 26.8 ms | 4,546/4,546 |
+
+Statements-per-request (query logger `log_statement='all'`, run-unique
+`MARK_`-bracketed windows, `LOG: (statement|execute)` counted, DETAILs
+ignored):
+
+| Arm | Requests | Logged statements | stmt/req |
+|---|---:|---:|---:|
+| cached | 2,536 | 18,021 | **7.11** |
+| control | 2,531 | 20,237 | **8.00** |
+
+Honest reading: only an 11% collapse (vs the browse baseline's 7.6x) BECAUSE
+the write legs dominate SQL — the cache covers ONE of five requests per
+iteration. What it does buy: every in-TTL browse re-read costs ZERO
+statements (browse leg 5.22 -> 1.53 ms avg) and the create+intent+capture
+legs are untouched by the layers (~26 ms avg both arms) — compression and
+cache are byte-transparent for writes, pinned per iteration by the receipt
+check. (The cached window carries one 5-statement background snapshot tick;
+the control window none.)
+
+Post-run DB cross-check EXACT: 1,011 new orders in the two windows
+(506+505 = the `orders_placed` counters), every one `pending` with exactly
+one `succeeded` payment, 10 signup users (5 VUs x 2 arms), zero duplicate
+`code` rows across the final 1,287-order table, zero rows outside the
+seed-format + new-6-char grammar, zero 5xx lines in either API log window
+(all post-fix 500s in the log belong to the deliberate smoke trigger).
+`/api/health` `status: ok` after the run; scratch DB dropped.
+
+Other harness lessons (all spec-side): the trigger helper table AND sequence
+need `GRANT ... TO foodorder` — the trigger body runs as the APP role, and
+an ungranted helper 42501s into a misleading 500 (the session-109 ownership
+trap, re-earned); and a 500-class "PASS" must be attributed (the log stack
+naming the simulated collision is now asserted, not the status code alone).
+
+Smoke arm for the shape: 1 VU x 30 s, 29 iterations, 147 requests,
+4.84 req/s, 352/352 checks, p95 16.6 ms, 0 429s.
 
 ## First Load JS+CSS budget gate — November 21, 2026 (session 115); ancestor-chain revision November 23, 2026 (session 118)
 

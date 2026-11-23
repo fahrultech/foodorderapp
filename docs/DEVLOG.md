@@ -3,6 +3,95 @@
 Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
+## 2026-11-23 17:26 — Session 121 — k6 WRITE ladder over the cached+compressed stack; caught+fixed the orders.code birthday-collision 500 (Phase 12 Test item)
+
+**Built:**
+
+- Ops: new `ops/load-test-write.js` — the write ladder the roadmap item
+  asked for: anonymous CACHEABLE browse GET (session 82's ladder read the
+  detail bearer'd — an anonymous-whitelist opt-out, so no write path had
+  ever touched the cache+gzip stack) -> signup (1/VU) -> order create ->
+  payment intent -> capture -> bearer receipt. Loud contracts, session-104
+  doctrine: ANY 429 aborts the run naming the bucket from the error
+  envelope (rate_limited_429s threshold `count==0` too); under `CACHE_ARM=on`
+  every browse response must carry a strong ETag + `Cache-Control: public`
+  AND honor BOTH sides of the 1024 B compression threshold (decoded >= ->
+  gzip + numeric encoded Content-Length; below -> byte-transparent identity;
+  k6 decompresses at the JS layer so res.body.length is the honest
+  comparator); the receipt read is pinned NOT cache-marked (layers
+  off-whitelist = no res patch). Per-leg trends `browse_ms`/`write_ms`.
+  Profiles + the deterministic-cart pins live in `ops/load-test.lib.mjs`
+  (smoke 1 VU x 30 s; load ramp to a MODEST 5-VU plateau); the ops contract
+  test grew 10 assertions (shape pins + determinism, `node --test` green).
+- **Fix (found BY the profile's first load run):** `orders.code` is UNIQUE
+  but `generateCode()` drew 4 chars from the 31-char alphabet via
+  `Math.random()` — birthday-paradox odds growing quadratically with table
+  size; the first run 500'd with duplicate-key 23505 after 160 in-run
+  orders (~200 rows), the pre-existing session-82 baseline having sat
+  luckily under the curve at 992. Session 121 shipped: 6-char draws from
+  `crypto.randomInt` (924k -> ~887M space), and `create()`'s unit-of-work
+  now re-runs up to 3 times on SQLSTATE 23505 with a FRESH code per attempt
+  (the failed INSERT rolls the whole tx, stock decrements included, and
+  `em.save` re-mints the PK — a retry cannot double-take; the random code
+  is the only by-chance-collidable constraint inside that tx — promo caps
+  re-check under FOR UPDATE and raise 400s). Past the bound the violation
+  rethrows (pre-fix behavior becomes last resort). The tx body moved to a
+  private `attemptCreateUnitOfWork` untouched in substance.
+- API: +1 suite/+5 tests `order-code-collision.spec.ts` (format regex over
+  the exact alphabet, redraw-per-attempt via a draft-code recorder, the
+  bounded give-up, non-unique errors pass through UN-retried, promo ledger
+  row survives the extraction on the retried path). Entity comment +
+  generateCode docstring record the math.
+
+**Verified:**
+
+- ops contract test green; API build green; FULL jest 100 suites/1318
+  tests (+1/+5 vs session 119's 99/1313).
+- Live smoke 13/13 on the real driver (`foodorder_k6write`, 29-migration
+  from-empty chain + seed, :4100, relaxed buckets): plain create 201 with
+  a 6-char code; DETERMINISTIC retry proof — a BEFORE INSERT trigger raised
+  23505 on exactly the first two attempts (counter via `nextval` BECAUSE a
+  table UPDATE inside the trigger rolls back with every aborted tx — the
+  first smoke iteration proved that trap by pinning the mode raise forever),
+  third attempt committed, exactly ONE row, exactly two WARN lines;
+  always-raise arm exhausted at 3 attempts -> 500 envelope, zero rows
+  leaked, and the 500 is ATTRIBUTED via the log stack naming the simulated
+  collision (a bare status-code PASS once hid a 42501 — the session-109
+  "trigger runs as the APP role" ownership trap, GRANTs now in the script);
+  24-way concurrent burst 24/201 all-unique well-formed codes; zero
+  duplicate codes table-wide.
+- k6 baseline arms (fixed dist): smoke 29 iters/147 reqs/352 checks all
+  green; load CACHED (shipped TTL 15 + gzip 1024) 506 iters/2,536 reqs
+  18.09 req/s, p95 12.71 ms, 6,076/6,076 checks, 0 429s, 0 failed
+  requests; load CONTROL (HTTP_CACHE_TTL_SEC=0, gzip ON) 505/2,531,
+  p95 13.79 ms, 4,546/4,546, 0 429s. Query-logger stmt/req (run-unique
+  MARK_ windows, statement|execute counted): 8.00 control -> 7.11 cached —
+  an honest 11% collapse (write legs dominate; the cache covers 1 of 5
+  requests) but the browse leg 5.22 -> 1.53 ms avg on ZERO SQL in-TTL.
+- Post-run DB cross-check EXACT: 1,011 new orders = the two counters
+  (506+505), every one pending with exactly one succeeded payment, 10
+  users, zero bad-format codes across 1,287 rows, zero 5xx in either
+  window's API log (all post-boot 500s are the deliberate smoke trigger);
+  health ok; scratch DB dropped.
+- e2e touch (code flows to headings/URLs): 14/14 on the five specs that
+  exercise create/receipt (guest-order-smoke, pay-order, zz-forms-a11y,
+  menu-options, mobile-cart-checkout) against the fixed dist on a fresh
+  seed — all format pins were already regex-flexible. Full suite and web
+  build NOT re-run (zero web files touched).
+- Sanitizer scan clean on all added lines (codepoint-checked: U+2026 masks,
+  asterisk-mask sequences, literal backslash-u escapes); the write-ladder
+  credential keys use the runtime-assembly idiom (session 80 doctrine).
+
+**Left for next sessions:**
+
+- The dev-box `foodorder` DB already carries pre-fix 4-char codes and may
+  hold collision-adjacent history; nothing to migrate (codes are opaque),
+  but a `docs/` note or ADMIN probe if volume grows.
+- Session-120 post-push incident follow-through: confirm CI green for
+  THIS push too (bundle baseline was re-adopted; this session changed no
+  web bytes — the run should be clean).
+
+============
 ## 2026-11-23 15:45 — Session 120 — Dark-theme focus ring + mobile bottom-bar keyboard audit (Phase 12 UX item)
 
 **Built:**

@@ -40,7 +40,7 @@ export class Order {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  /** Short human-readable code, e.g. #FO-8F3K */
+  /** Short human-readable code, e.g. #FO-8F3KQM (unique — see OrdersService.generateCode) */
   @Column({ unique: true })
   code: string;
 
