@@ -11,6 +11,18 @@ export interface DeliveryEta {
   sampleCount: number;
 }
 
+/**
+ * Tracking-page delivery view (session 119) — read-side embed on
+ * GET /orders/:id while the order is `delivering`. Mirrors
+ * apps/api/src/orders/delivery-view.ts exactly.
+ */
+export interface OrderDeliveryView {
+  driverFirstName: string | null;
+  etaSource: 'observed' | 'estimate' | null;
+  sampleCount: number;
+  remainingMinutes: number | null;
+}
+
 export interface Restaurant {
   id: string;
   slug: string;
@@ -239,6 +251,11 @@ export interface Order {
   deliveringAt?: string | null;
   completedAt?: string | null;
   cancelledAt?: string | null;
+  /**
+   * Tracking-page delivery polish (session 119): present ONLY on
+   * GET /orders/:id AND only while `status === 'delivering'`.
+   */
+  delivery?: OrderDeliveryView | null;
 }
 
 /** Status values the API's OrderStatus enum accepts (see apps/api/src/orders/order.entity.ts). */

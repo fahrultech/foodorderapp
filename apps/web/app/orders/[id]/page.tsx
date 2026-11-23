@@ -96,6 +96,43 @@ export default async function OrderPage({
           <OrderLiveFeed orderId={order.id} orderStatus={order.status} />
         </div>
         <OrderTimeline order={order} />
+        {/* Tracking-page delivery polish (session 119): once the order is
+            out for delivery, name the driver and show the honest countdown
+            derived from session 113's per-restaurant ETA. The API embeds
+            `delivery` ONLY on this read and ONLY while `delivering`, so the
+            gate here mirrors the wire contract; router.refresh() from the
+            live-feed island above re-runs the server fetch, so a status
+            flip to `delivering` surfaces this card without a manual reload. */}
+        {order.status === 'delivering' && order.delivery && (
+          <div
+            className="mt-4 rounded-xl border border-stone-200 bg-stone-50 px-4 py-3 text-sm"
+            data-testid="tracking-delivery"
+          >
+            {order.delivery.driverFirstName && (
+              <p
+                className="font-semibold"
+                data-testid="tracking-delivery-driver"
+              >
+                {t('deliveryDriver', { name: order.delivery.driverFirstName })}
+              </p>
+            )}
+            <p
+              className={`text-stone-500 ${order.delivery.driverFirstName ? 'mt-0.5' : ''}`}
+              data-testid="tracking-delivery-eta"
+              title={
+                order.delivery.etaSource === 'observed'
+                  ? t('deliveryEtaObservedTitle', { count: order.delivery.sampleCount })
+                  : undefined
+              }
+            >
+              {order.delivery.etaSource === null || order.delivery.remainingMinutes === null
+                ? t('deliveryEtaUnknown')
+                : order.delivery.remainingMinutes === 0
+                  ? t('deliveryEtaSoon')
+                  : t('deliveryEtaMinutes', { minutes: String(order.delivery.remainingMinutes) })}
+            </p>
+          </div>
+        )}
       </div>
 
       {order.status === 'completed' && (

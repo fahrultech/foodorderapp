@@ -645,7 +645,12 @@
     "commentPlaceholder": "How was the food and delivery? (optional)",
     "submitting": "Submitting\u2026",
     "submitReview": "Submit review",
-    "pageTitle": "Order \u2014 FoodOrder"
+    "pageTitle": "Order \u2014 FoodOrder",
+    "deliveryDriver": "Delivering with {name}",
+    "deliveryEtaMinutes": "Usually ~{minutes} min left",
+    "deliveryEtaSoon": "Arriving any moment now",
+    "deliveryEtaUnknown": "Timing estimate unavailable",
+    "deliveryEtaObservedTitle": "{count, plural, one {Based on # recent completed delivery} other {Based on # recent completed deliveries}}"
   },
   "Auth": {
     "titleSignIn": "Sign in \u2014 FoodOrder",

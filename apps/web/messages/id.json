@@ -645,7 +645,12 @@
     "commentPlaceholder": "Bagaimana makanan dan pengirimannya? (opsional)",
     "submitting": "Mengirim\u2026",
     "submitReview": "Kirim ulasan",
-    "pageTitle": "Pesanan \u2014 FoodOrder"
+    "pageTitle": "Pesanan \u2014 FoodOrder",
+    "deliveryDriver": "Sedang diantar {name}",
+    "deliveryEtaMinutes": "Biasanya sisa ~{minutes} mnt",
+    "deliveryEtaSoon": "Tiba sebentar lagi",
+    "deliveryEtaUnknown": "Estimasi waktu tidak tersedia",
+    "deliveryEtaObservedTitle": "{count, plural, one {Berdasarkan # pengiriman selesai terbaru} other {Berdasarkan # pengiriman selesai terbaru}}"
   },
   "Auth": {
     "titleSignIn": "Masuk \u2014 FoodOrder",
