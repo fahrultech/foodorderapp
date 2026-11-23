@@ -493,9 +493,20 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   addresses live in `push_subscriptions`: one user may own multiple browser
   endpoints, endpoint re-registration transfers a shared browser to the
   current JWT subject, unsubscribe is user-scoped/idempotent, and provider
-  404/410 responses prune stale rows. Guest orders skip both channels because
-  they have no user id. Push payloads contain only order code/status and a
-  same-site receipt URL — no address, phone, item, or payment data. Delivery is
+  404/410 responses prune stale rows. Email recipients: authenticated orders
+  go ONLY to `user.email` (the stored `contactEmail` is checkout input, never
+  a fallback), and guest orders go to `orders.contactEmail` re-normalized
+  (trim/lowercase) at send time — guests without that column stay silent.
+  Push remains bearer-only (subscriptions are JWT-scoped). Push payloads
+  contain only order code/status and a same-site receipt URL — no address,
+  phone, item, or payment data. Copy doctrine: the
+  API stores no recipient locale, so authenticated mail keeps the long-standing
+  English templates byte-identical while guests (language unknown) receive ONE
+  bilingual EN+ID email rendered by the DI-free `notifications/email-copy.ts`
+  module — the `locales` array is the extension point for a future per-user
+  locale. `SMTP_JSON_CAPTURE` swaps nodemailer's jsonTransport in: nothing is
+  delivered and each message logs one `MAIL_CAPTURED {json}` line (live-smoke
+  assertion target; takes precedence over `SMTP_HOST`). Delivery is
   best-effort and inherits the process-local bus boundary; a durable outbox or
   broker is future multi-instance work. The web side is now complete:
   `PushNotificationsProvider` reads the public config only for signed-in users,

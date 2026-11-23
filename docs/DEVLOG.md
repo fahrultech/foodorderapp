@@ -3,6 +3,87 @@
 Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
+## 2026-11-23 18:41 — Session 122 — Guest order notification emails over the session-76 proof column (EN+ID bilingual); email copy extracted; SMTP_JSON_CAPTURE rig (Phase 13 Product item)
+
+**Built:**
+
+- Product: guests finally get their lifecycle emails. Session 45's fan-out
+  skipped guest orders silently ("no `contactEmail` on Order entity yet");
+  session 76's proof column made that excuse stale, this session spent it.
+  `resolveEmail` ladder: authed orders keep the BEARER-ONLY rule unchanged —
+  `user.email` and only `user.email` (the stored `contactEmail` is checkout
+  input, never a verified fallback); guest orders send to
+  `orders.contactEmail` RE-NORMALIZED at read time via the shared
+  `normalizeContactEmail` (trim/lowercase — a legacy/imported row can never
+  mail a non-canonical address); guests without the column stay silent like
+  before. Push stays bearer-only (subscriptions are JWT-scoped). Every IN-API
+  status path (owner/admin-via-HTTP/driver/customer cancels and the
+  ADMIN-triggered stale sweep) rides the shared event bus, so guests gain
+  confirm/preparing/delivering/completed/cancelled notices with zero new
+  wiring. Honest boundary (pre-existing, unchanged by this session): the
+  STANDALONE `cancel-stale` cron script runs in its own process with no bus
+  consumer, so sweep-cancels notify nobody on any identity — durable-outbox
+  territory.
+- Extract: new DI-free `notifications/email-copy.ts` owns the templates —
+  `STATUS_UPDATE_LABELS` + `confirmationEmail`/`statusUpdateEmail` builders
+  taking a `locales` array. Locale doctrine (no recipient locale is stored
+  ANYWHERE server-side — the cookie lives on the web side): authenticated
+  renders `['en']` BYTE-IDENTICAL to session 45 (spec-pinned against a
+  re-implementation of the pre-extraction builders), guests render `['en',
+  'id']` as ONE bilingual email (EN block, dash separator, ID block; subject
+  merged "EN title / ID title — #CODE"; output locale-sorted so argument
+  order cannot drift). The `locales` array is the extension point for a
+  future stored per-user locale.
+- Ops rig: `MailService` gains `SMTP_JSON_CAPTURE` (`true/1/yes`,
+  case-insensitive; garbage INERT — a typo can only silence capture, never
+  deliver): nodemailer jsonTransport, nothing leaves the process, every send
+  logs one single-line `MAIL_CAPTURED {json}` entry. Takes precedence over
+  `SMTP_HOST` (works with no relay at all). Declared in `env.validation.ts`
+  + documented in `.env.example` and the mail.service header.
+
+**Verified:**
+
+- API build green; FULL jest 101 suites/1344 tests (+1 suite/+26 vs session
+  121's 100/1318): `email-copy.spec.ts` EN byte-identity + EN/ID label-table
+  completeness + bilingual composition + locale-order pin;
+  `mail.service.spec.ts` +5 rig cases (jsonTransport with no host,
+  precedence over a real host, garbage inert, exactly-one greppable payload
+  line per send, silent when disabled);
+  `order-notifications.service.spec.ts` — the two legacy "guest skips" pins
+  intentionally FLIPPED to the new contract (bilingual mail + normalized
+  `to` + no push + no user-table query), plus re-normalization of a
+  non-canonical stored address and the bearer-suppression case (authed order
+  with `contactEmail` set mails ONLY `user.email`, EN-only copy).
+- Live smoke 27/27 on the real driver (`foodorder_gmail22`, 29-migration
+  from-empty chain + seed, :4122, confirm gate opened): ARM1 boots with
+  `SMTP_JSON_CAPTURE=1` and no host — guest create yields EXACTLY 1 capture
+  with normalized `to` + bilingual subject + both greetings + `Kirim ke:`;
+  owner confirm + cancel each yield their bilingual notice (ID support hint
+  present); authed demo order yields exactly 1 EN-subject capture to
+  `demo@foodorder.app` with ZERO captures ever to the proof address (bearer
+  suppression proven on the wire); no-contactEmail guest changes nothing;
+  ARM2 garbage value (`ture`) + no host falls back to the disabled warning
+  with zero captures. Scratch DB dropped. Two harness lessons earned mid-
+  smoke: the boot WARN line embeds the marker words (matcher now requires
+  `MAIL_CAPTURED {`), and pino lines carry the payload escaped inside `msg`
+  (parser gained the unescape fallback) — both harness bugs, product fine.
+- Web files untouched (web delta 0); no new routes/DTOs/query params —
+  swagger contract and query-surface audit unchanged; e2e untouched (mail is
+  server-side only, checkout already collects the proof email).
+
+**Left for next sessions:**
+
+- Put the receipt DEEP-LINK into guest emails (`/orders/:id?email=<proof>` —
+  the web link contract since session 76): today guests must type the proof
+  into the OrderVerify island.
+- A stored per-user locale (profile field) would replace the bilingual
+  guest compromise — `email-copy`'s `locales` parameter is ready for it.
+- Stripe/Xendit adapters + order-centric per-restaurant attribution remain
+  the two 🔒 roadmap items (keys / registry design).
+- Sweep-cancel notifications (the standalone cron script has no bus — see
+  the honest boundary above; fix belongs to the durable-outbox idea).
+
+---
 ## 2026-11-23 17:26 — Session 121 — k6 WRITE ladder over the cached+compressed stack; caught+fixed the orders.code birthday-collision 500 (Phase 12 Test item)
 
 **Built:**

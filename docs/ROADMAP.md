@@ -394,13 +394,26 @@
 
 ## Phase 13 — Guest reach, limiter telemetry & baseline durability (opened 2026-11-23, Phase 12 exhausted; from the Product / Ops / Test / Perf / UX evergreen loops)
 
-- [ ] Product: guest order notification emails — the session-45 fan-out
+- [x] Product: guest order notification emails — the session-45 fan-out
   skips guest orders silently ("no contactEmail on Order entity yet"),
   and the session-76 proof column finally IS on the entity: deliver
   placed + status-step emails to `orders.contactEmail` (normalized,
   trim/lowercase) for orders with NO userId, keeping the bearer-only
   suppression rules intact. Unit + live smoke (send-capture transport
   like session 45's), EN/ID copy via the existing email templates.
+  (2026-11-23, session 122; `resolveEmail` ladder — authed mail stays
+  user.email ONLY (contactEmail never a verified fallback), guests get the
+  re-normalized proof address, addressless guests stay silent, push remains
+  bearer-only. Templates extracted into DI-free `notifications/email-copy.ts`
+  with a `locales` array: authed renders EN byte-identical (spec-pinned vs
+  the session-45 builders), guests one bilingual EN+ID email (no recipient
+  locale is stored server-side — honest compromise + extension point). New
+  `SMTP_JSON_CAPTURE` rig (jsonTransport + single-line MAIL_CAPTURED log,
+  precedence over SMTP_HOST, garbage inert) enabled the live smoke: 27/27
+  on a 29-migration from-empty DB incl. on-the-wire bearer suppression and
+  a disabled ARM2; 101 suites/1344 tests (+1/+26) with the two legacy
+  guest-skip pins flipped to the new contract; API surface untouched —
+  swagger/query-surface/e2e deltas 0.)
 - [ ] Ops: rate-limit pressure telemetry — the metrics registry counts
   status CLASSES, so a store silently shedding 429s is invisible between
   the limiter's own headers and a customer complaint. Add an additive
