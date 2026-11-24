@@ -3,7 +3,71 @@
 Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
-## 2026-11-24 14:28 — Session 126 — Search-shaped whitelist coverage: Phase 13 cache-whitelist decision recorded KEEP; both k6 browse rotations now ride the /api/search leg (ops, Phase 13)
+## 2026-11-24 16:25 — Session 127 — Order-again widened to CANCELLED orders: both surfaces gain the retry button through the unchanged snapshot ladder (UX, Phase 13 closer)
+
+**Built:**
+
+- Web: the "Order again" surface gate on BOTH customer surfaces —
+  history card (`app/orders/my/page.tsx`) and the SSR receipt island
+  mount (`app/orders/[id]/page.tsx`) — went from `completed` only to
+  `completed || cancelled`. Deliberately a pure condition widening:
+  the ladder (`lib/order-again.ts`), the button island,
+  `CartProvider.applyOrderAgain` and every message key are UNTOUCHED
+  — the ladder never reads order state (only the frozen item rows
+  against the current menu), and a cancelled retry costs no restock
+  or payment semantics, so zero new copy ("Order again"/"Pesan lagi"
+  is already status-generic). Skips/clamps/below-min stay honest via
+  the same result panel; foreign carts still confirm the replace.
+- Test: new 6th `zz-order-again` test — the fixture creates an order
+  (1x Nasi Goreng, pending), self-cancels it via
+  `POST /orders/:id/cancel` (201 pin, no payment rung needed), then
+  pins: Cancelled-tab card shows the button with the EN label; the
+  clean plan auto-routes with cart badge 1; the bare-URL receipt
+  (email proof) mirrors the card and a second click MERGES to badge
+  2; with the `locale=id` cookie the same cancelled receipt renders
+  "Pesan lagi". Fresh-seed-safe by construction (own order code,
+  demo account has no seeded cancelled order — FO-SEED6 is a guest's).
+- docs: ARCHITECTURE.md "Order again" bullet records the widened
+  gate + why no restock semantics are involved; ROADMAP Phase 13
+  closed, Phase 14 opened (k6 load arms, restock-repair backlog
+  alert, notification channel settings, proof-param sweep, email
+  magic-link receipt access — from the Perf/Ops/Product/Test
+  evergreen loops; an initially drafted "cancelled timeline step"
+  item was pulled after ground-truth showed `OrderTimeline` already
+  ships a red cancelled terminal node).
+
+**Verified:**
+
+- Web: `npm run build` green. Bundle A/B IN-PATH (stash-clean build
+  vs tree, same checkout): `/orders/[id]` +0 B (server-component
+  condition — no client chunk change), `/orders/my` +7 B gz, the
+  other five budgeted routes byte-identical; both order routes sit
+  41-49 B UNDER their committed CI rows, so the table stays as is.
+- Targeted: the new test green standalone (create+cancel fixture
+  legs 36/40 ms).
+- Full e2e **126 -> 127 green x2 consecutive** on fresh seeds
+  (3.5 min each run; reseeded between runs per the suite contract).
+  `check-fixture-timings.mjs` gate OK (20 labels, history merged,
+  max work legs ~150 ms; the 43 s payOrder legs are limiter-waits,
+  credited out of work).
+- Live SSR curl smoke on the warm boot: seeded CANCELLED guest
+  receipt FO-SEED6 ships the button (1 hit), PENDING FO-SEED1 ships
+  none (0 — gate not over-widened), COMPLETED FO-SEED8 still ships
+  it (1 — no regression).
+- API delta 0: `git diff --stat` touches only apps/web, e2e and docs
+  — no API source, no endpoints, no jest rerun needed.
+
+**Left for next sessions:**
+
+- Phase 14's five items; the first (full k6 LOAD arms on the
+  5-shape browse rotation + the mixed hit/miss ratio profile)
+  closes sessions 104/126's leftovers.
+- If product later wants distinct copy on cancelled cards ("Try
+  again"), it is a one-key split — deliberately not done today to
+  keep EN byte-pins and copy minimal.
+
+---
+## 2026-11-24 14:28 — Session 126 — Search-shaped whitelist coverage: Phase 13 cache-whitelist decision recorded KEEP; both k6 browse rotations now ride the /search?q= leg (ops, Phase 13)
 
 **Built:**
 

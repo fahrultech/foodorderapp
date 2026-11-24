@@ -122,7 +122,10 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   current cart (count, restaurant, subtotal) vs the one-item new cart —
   Keep discards the add, Replace swaps. Escape/backdrop close = Keep.
 - **"Order again" replays the frozen snapshot through a pure ladder**
-  (session 107) — one click on a COMPLETED order (history card `app/orders/my`
+  (session 107; session 127 widened the surface gate to
+  COMPLETED **and CANCELLED** orders — the ladder reads only the frozen
+  rows, never order state, so a retry costs no restock or payment
+  semantics) — one click (history card `app/orders/my`
   or the receipt island) rebuilds cart lines from `order_items` (name,
   quantity, `menuItemId`, `optionSelections`) against the CURRENT
   `GET /restaurants/:id` menu. The resolver is DI/React-free

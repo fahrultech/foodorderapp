@@ -392,7 +392,7 @@
   arms, exact DB cross-check (1,011 orders, one succeeded payment
   each); targeted e2e 14/14, web delta 0.)
 
-## Phase 13 — Guest reach, limiter telemetry & baseline durability (opened 2026-11-23, Phase 12 exhausted; from the Product / Ops / Test / Perf / UX evergreen loops)
+## Phase 13 — Guest reach, limiter telemetry & baseline durability ✅ complete 2026-11-24 (opened 2026-11-23, Phase 12 exhausted; from the Product / Ops / Test / Perf / UX evergreen loops)
 
 - [x] Product: guest order notification emails — the session-45 fan-out
   skips guest orders silently ("no contactEmail on Order entity yet"),
@@ -482,11 +482,54 @@
   harness arithmetic, reconciled on the wire), k6 smoke arms 74/223
   and 75/76 at 100% checks; app source untouched — jest delta 0
   (102/1380), web delta 0.)
-- [ ] UX: "Order again" from CANCELLED orders — session 107's ladder is
+- [x] UX: "Order again" from CANCELLED orders — session 107's ladder is
   COMPLETED-only; a cancelled order is exactly when a customer wants to
   retry. Same `applyOrderAgain` path (no restock semantics needed — the
   ladder reads the snapshot), honest skip reporting, EN/ID; e2e pinning
   the cancelled card gains the button.
+  (2026-11-24, session 127; pure condition widening `completed ||
+  cancelled` on BOTH surfaces (history card + SSR receipt mount) —
+  ladder/island/cart-writer/messages untouched, zero new copy; new 6th
+  e2e test pins cancelled-tab pill → clean auto-route badge 1 → bare-URL
+  receipt mirror merges badge 2 → ID `Pesan lagi`; live curl smoke
+  cancelled=1 / pending=0 / completed=1 on the warm boot; IN-PATH bundle
+  A/B +0 B `/orders/[id]`, +7 B `/orders/my`, other five routes
+  byte-identical; full e2e 126→127 green ×2 fresh-seed + timing gate OK;
+  API delta 0 — sources untouched.)
+
+## Phase 14 — Load truth, repair telemetry & receipt reach (opened 2026-11-24, Phase 13 exhausted; from the Perf / Ops / UX / Test / Product evergreen loops)
+
+- [ ] Perf: full k6 LOAD arms for the session-126 5-shape browse rotation
+  (smoke-arm numbers were recorded instead of a load table) PLUS the
+  session-104 leftover mixed hit/miss RATIO profile — real fleets
+  interleave capture and revalidation; record both as new rows in
+  docs/PERFORMANCE.md with the statement-window cross-check like
+  session 126's table.
+- [ ] Ops: `restock_repair_backlog` alert rule — orphaned cancelled
+  orders (non-NULL snapshot + NULL `stockRestockedAt` past the repair
+  grace, session 73's own predicate) are invisible between cron runs;
+  count them, feed a 6th DI-free rule into `ops/alerts.ts` (env
+  threshold, warning severity), ride the fold line + persisted verdicts
+  + alert-scan exit codes like the other five. Unit + live smoke.
+- [ ] Product: per-user notification channel settings — the email ladder
+  is all-or-nothing today (authed orders get status emails whenever SMTP
+  is configured; session 122's guest path has no opt-out at all) while
+  push is per-device only (sessions 48/49); add user-level toggles
+  (order_email / order_push, defaults preserve current behavior)
+  consulted in `OrderNotificationsService`, an `/account` settings
+  section on web, GDPR export parity, unit + SMTP-capture live smoke +
+  e2e.
+- [ ] Test: receipt proof-param sweep — property tests over
+  `?email=`/`?contactEmail=` normalization edges pinned against the real
+  presenter ladder (trim, case folding incl. non-ASCII, the raw-`+`
+  wire-decodes-to-space trap, already-known dot-address fixtures),
+  asserting the SAME 404 shape for every denial (no oracle drift).
+- [ ] Product: magic-link receipt access — the order-confirmation emails
+  (session 122 now reaches guests too) link the order page, but a bare
+  link still demands a typed proof email; embed a short-lived signed
+  access token in the email link that unlocks the receipt via a
+  one-time query rung (bearer ladder unchanged). API + email copy +
+  live smoke + e2e.
 
 ## Completed
 - 2026-10-17 — Phase 0: monorepo scaffold, NestJS API (auth, restaurants, menu, orders, status machine, health), Next.js storefront (browse, detail, cart, checkout, order page), docker compose + Dockerfiles, seed data, jest unit tests, CI-ready scripts.
