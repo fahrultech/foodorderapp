@@ -47,6 +47,11 @@ Pure helpers (cart planning, payload shape, profiles) live in
 `ops/load-test.lib.mjs` and are pinned by `ops/load-test.contract.test.mjs`
 (`node --test ops/load-test.contract.test.mjs`).
 
+The WRITE LADDER smoke arm is additionally guarded by a SCHEDULED runner —
+`ops/perf-check.sh` (session 124): scratch DB + boot + k6 + exact DB
+cross-check, exiting 0 green / 1 regression / 2 rig broken like the
+alert-scan doctrine. See "Scheduled write-ladder regression check" below.
+
 ## Run it
 
 With k6 installed:
@@ -127,7 +132,9 @@ The scenario writes real rows, so the rig is isolated end-to-end:
 
 ```bash
 # from apps/api, on top of the untracked .env — a scratch DB, relaxed guardrails
-export DATABASE_URL="${DATABASE_URL%/*}/foodorder_k6load" PORT=4100 JWT_SECRET
+# (the JWT secret needs NO export — ConfigModule loads it from .env; the
+#  process-env DATABASE_URL/PORT overrides below win over it)
+export DATABASE_URL="${DATABASE_URL%/*}/foodorder_k6load" PORT=4100
 export RATE_LIMIT_AUTH_MAX=20000 RATE_LIMIT_ORDERS_MAX=20000 RATE_LIMIT_PAYMENTS_MAX=20000
 sudo -u postgres psql -c "CREATE DATABASE foodorder_k6load OWNER foodorder"
 npm run migration:run && npm run seed && node dist/main.js &
@@ -586,6 +593,89 @@ two chain negatives: a chunk listed ONLY under `/layout` tripping the gate
 chunk shared by four entries to one count. The CI web job runs
 `node --test` before the real gate, and the ship run additionally proved
 the negative live on the real `.next` with deliberately 1-byte baselines.
+
+## Scheduled write-ladder regression check — November 24, 2026 (session 124)
+
+Phase 13 Test item: session 121's baseline is now guarded by a RUNNER, not
+by memory. `ops/perf-check.sh` builds a throwaway rig — drop/create scratch
+DB on the full 29-migration chain + canonical seed, optional fresh
+`nest build`, API on a dedicated port with boot-time relaxed limiter buckets
+— runs the `ops/load-test-write.js` SMOKE arm via the `grafana/k6`
+container (`--network host`, shipped cache/compression defaults), and
+judges the run. Exit codes mirror `ops/alert-scan.sh` (session 86):
+
+| Exit | Verdict | Triggers |
+|---|---|---|
+| 0 | green | every rule passes AND the DB cross-check is exact |
+| 1 | REGRESSION | p95 over `PERF_CHECK_P95_MS_MAX` (default 120 ms, ~7x the smoke baseline); `rate_limited_429s` > 0; zero orders; capture shortfall < 95%; `http_req_failed` > 1%; checks pass-rate < 0.99; k6 crossed its own internal thresholds (exit 99); written rows DISAGREE with the k6 counters; any 5xx (pino `level:50`) line in the scratch API log |
+| 2 | rig broken | missing prereq, build/seed/boot failure, port busy, overlapping run (flock), k6 ABORTED (exit 108 — the zero-429 / cache / bootstrap guard fired, so the sample is invalid), k6 crashed, unreadable summary, sample thinner than `PERF_CHECK_MIN_ITERS` (5), psql unreachable |
+
+A dead smoke detector never reports green, and never pages like a fire:
+the 1-vs-2 distinction is the paging policy downstream.
+
+Anatomy: preflight (node/jq/curl/npm/psql/docker, `.env`, port free, flock)
+→ scratch DB → `nest build` unless `PERF_CHECK_BUILD=0` (a stale dist
+silently measures OLD code — the live-smoke fail-fast doctrine) → seed →
+capture the LATEST seeded timestamp as the run-window anchor → boot +
+`/api/health` poll → k6 smoke arm → `ops/perf-check.analyze.mjs` (k6 exit
+class + result rules over the summary JSON) → exact DB cross-check + the
+5xx log grep → one compact JSON verdict on stdout (facts, reasons, rig
+metadata). The cleanup trap kills the API and drops the DB
+(`PERF_CHECK_KEEP_DB=1` parks it for a postmortem).
+
+Why the verdict splits exit-class vs JSON (measured against the real
+container this session): k6 v2.3.0 exits 99 when its OWN thresholds cross,
+but those are loose (p95<500 ms) — a 4x latency drift vs the 120 ms ceiling
+this guard exists for would still exit 0. And `exec.test.abort` exits 108
+while STILL exporting a (thin) summary: the run-level class must veto
+before the result rules can be fooled by it. Summary-shape facts pinned by
+the selftests: flat values under `metrics.<name>`; rate metrics expose
+`value` (`http_req_failed` = failure rate, `checks` = pass rate); a never
+incremented counter can be ABSENT from the export (absence of
+`rate_limited_429s` means zero, not unknown).
+
+Harness catch of the first live run (spec-side, zero product bugs): the
+seed writes its 10 fixture orders with `createdAt = now`, so a wall-clock
+RUN_START captured BEFORE the seed swallows them into the window — the
+cross-check reported orders=39/29 with orphan_orders=10 = exactly the
+seeded ten. The window is now strict `>` over `greatest(max(orders),
+max(payments))` captured AFTER the seed; psql's ISO timestamp text keeps
+its significant space (no `tr -d` on it).
+
+Live proof on this host (smoke arm, 2026-11-24):
+
+| Run | Iters | Reqs | p95 | avg | DB cross-check (orders, payments, orphans) | Exit |
+|---|---:|---:|---:|---:|---|---:|
+| green | 29 | 147 | 17.99 ms | 8.94 ms | 29/29, 29/29, 0 | 0 |
+| regression (`--p95-max 5` live) | 29 | 147 | 18.01 ms | — | 29/29, 29/29, 0 | 1 |
+| rig: busy port | — | — | — | — | scratch DB never created | 2 |
+| rig: held flock | — | — | — | — | scratch DB never created | 2 |
+
+p95 17.99 ms vs session 121's 16.6 ms smoke run: the arm is stable and the
+120 ms default ceiling carries ~7x noise margin — tighten
+`PERF_CHECK_P95_MS_MAX` deliberately when a new baseline lands.
+
+Selftests: `ops/perf-check.analyze.test.mjs` — 18 `node --test` cases
+(healthy pin, both boundary rules at exactly-AT and one-unit-over, 429>0,
+zero orders, capture-ratio boundary `ceil(30*0.95)=29`, failed rate, checks
+rate, k6 exit 0/99/108/7 classes, thin sample, garbage/missing-field
+summaries, plus CLI process spawns asserting the 0/1/2 exit contract).
+Wired into the CI `api` job next to the pure-helper contract test, so a
+dead gate fails pushes, not just the nightly.
+
+Scheduling: `ops/systemd/foodorder-perf-check.{service,timer}` — daily at
+04:20 (65 min after the backup slot, `Persistent=true` catches up misses),
+`TimeoutStartSec=20min` because systemd's default would SIGTERM a healthy
+run mid-seed, `OnFailure=` wired to the same transport as the alert-scan
+units. `PERF_CHECK_PROFILE=load` upgrades a run to the full 2.5-minute
+ladder (session 121 load arm: 506 iters, p95 12.71 ms) — it fits the
+daily slot too; the smoke arm ships as the default to keep the nightly
+cost ~2 minutes.
+
+Deliberately NOT gated here: statements-per-request (needs the
+session-79/104 query-logger ALTER-before-boot windowing — a manual
+follow-up) and the TTL=0 control arm (session 121's one-off A/B — the
+scheduled guard measures the stack PRODUCTION runs).
 
 ## Query-plan findings and tuning decisions (November 4 baseline, historical)
 

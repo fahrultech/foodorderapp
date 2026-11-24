@@ -3,6 +3,99 @@
 Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
+## 2026-11-24 10:35 — Session 124 — Scheduled perf regression runner: ops/perf-check.sh over the k6 write ladder with exit-code doctrine + analyzer selftests in CI + systemd timer example (Phase 13 Test item)
+
+**Built:**
+
+- Ops: `ops/perf-check.sh` — "baselines drift" is now caught by a RUNNER,
+  not by memory. One-shot rig: preflight (node/jq/curl/npm/psql/docker,
+  ENV_FILE, port-free fail-fast, flock against overlaps) → drop/create a
+  scratch DB → `nest build` unless PERF_CHECK_BUILD=0 (a stale dist
+  silently measures old code) → seed the full 29-migration chain →
+  capture the seed window anchor → boot the compiled API on :4110 with
+  boot-time-only relaxed limiter buckets (assembled via a runtime
+  `RATE_LIMIT_${bucket}_MAX` loop so no credential-shaped literal ever
+  reaches the transcript) → `/api/health` poll → k6 WRITE-LADDER smoke
+  arm in the grafana/k6 container (`--network host`, shipped
+  cache/compression defaults) → verdict → cleanup trap kills the API and
+  drops the DB (PERF_CHECK_KEEP_DB=1 parks it). Exit codes mirror the
+  alert-scan doctrine: 0 green · 1 REGRESSION · 2 rig broken; one compact
+  JSON verdict line on stdout (rig metadata + analyzer facts + the
+  crosscheck triple) so a MAILTO/OnFailure transport can parse it.
+- Verdict logic split by design: `ops/perf-check.analyze.mjs` (pure +
+  CLI) classifies the RUN from the k6 exit code — 99 crossed-internal-
+  thresholds = regression; 108 = the profile's own abort guard fired,
+  sample invalid = rig-broken; crash codes = rig-broken — then judges
+  the RESULT from the summary JSON: p95 over PERF_CHECK_P95_MS_MAX
+  (default 120 ms, ~7x the smoke baseline; the ladder's internal
+  p95<500 is too loose to catch a 4x drift), 429 counter > 0, zero
+  orders, capture ratio < 95%, failed-rate > 1%, checks < 0.99; thin
+  samples (< PERF_CHECK_MIN_ITERS=5) and unreadable summaries are
+  rig-broken, never green. Plus the session-121 doctrine inside the
+  runner itself: exact DB cross-check (window orders == orders_placed,
+  window succeeded payments == payments_captured, zero window orders
+  lacking exactly one succeeded payment) and a zero-pino-level-50
+  assertion over the scratch log.
+- Selftests + CI: `ops/perf-check.analyze.test.mjs` — 18 node:test
+  cases (healthy pin, both boundary rules exactly-AT and one-unit-over,
+  capture boundary ceil(30*0.95)=29, exit 0/99/108/7 classes, thin
+  sample, garbage/missing-field summaries, CLI process spawns asserting
+  the 0/1/2 contract). The CI `api` job gained an "Ops script selftests"
+  step running them plus `ops/load-test.contract.test.mjs` (the pure
+  k6 helpers had no CI reference at all before this).
+- Scheduling + docs: `ops/systemd/foodorder-perf-check.{service,timer}`
+  example — daily 04:20 (after the backup slot, Persistent=true),
+  TimeoutStartSec=20min so systemd's default cannot SIGTERM a healthy
+  run mid-seed; PERFORMANCE.md gained the run section (exit-code table,
+  anatomy, live proof numbers, knobs, honest NOT-gated list) and its
+  workloads intro, and the session-82 recipe block was repaired: the
+  committed line had lost its tail to the transcript sanitizer mid
+  `JWT_SECRET=...` — the export is not needed at all (ConfigModule
+  loads the secret from the untracked env file).
+
+**Verified:**
+
+- k6 container behavior MEASURED before coding to it (grafana/k6
+  v2.3.0): crossed internal thresholds exit 99; `exec.test.abort` exits
+  108 while STILL writing a thin summary-export (hence the run-class
+  veto before the result rules); script-load errors exit 104; summary
+  shape pinned: flat `metrics.<name>` values, rate metrics expose
+  `value`, never-incremented counters are ABSENT (absence of
+  rate_limited_429s means zero), per-metric threshold flags true=crossed.
+- Live rig on this host, four runs total. GREEN exit 0: 29 iterations /
+  147 requests / p95 17.99 ms / avg 8.94 ms / checks 100.00% /
+  crosscheck orders=29/29 payments=29/29 orphan_orders=0, API killed +
+  scratch DB dropped by trap. REGRESSION exit 1 proven LIVE through the
+  real runner (PERF_CHECK_P95_MS_MAX=5 named "p95 18.01 ms exceeds
+  ceiling 5 ms" while the crosscheck stayed exact). RIG-BROKEN exit 2
+  proven live twice (held flock; busy port — and the report showed the
+  scratch DB was never created). The FIRST green attempt honestly
+  caught two of my own harness bugs live: a wall-clock window captured
+  before the seed swallowed the 10 seeded fixture orders (39/29 +
+  orphans=10 = exactly the seeded ten — re-anchored to strict > over
+  the post-seed greatest(max createdAt) of both tables), and jq's
+  empty-generator semantics (`($x|select(length>0))` inside an object
+  construction deletes the WHOLE report on early-exit paths — now
+  explicit if/else nulls).
+- API jest 101 suites / 1361 tests green (numbers match session 123's
+  pin — zero app-code delta: no `apps/api/src` or `apps/web` file was
+  touched; `nest build` ran fresh inside the rig). CI yaml parsed clean
+  via the patch lint; selftest invocation green locally (19 pass).
+- Sanitizer scan over every added file and DEVLOG entry: no
+  asterisk-mask sequences, no U+2026, no backslash-u escapes; the
+  DATABASE_URL derivation and RATE_LIMIT bucket lines were codepoint-
+  verified on disk after writing (the documented-safe expansion shape,
+  no literal credentials anywhere).
+
+**Left for next sessions:**
+
+- Optional stmt/req gate inside perf-check via the session-79/104
+  query-logger windowing (ALTER-before-boot), as a second arm.
+- Run-over-run trend storage (alert_verdicts- or fixture-timings-
+  JSONL-style) so nightly p95 drift is visible, not just verdicts.
+- Phase 13 still open: the `GET /api/search` cache-whitelist decision
+  and "Order again" from CANCELLED orders.
+---
 ## 2026-11-23 20:13 — Session 123 — Rate-limit pressure telemetry: guard-verified per-route 429 tallies + 5th alert rule `rate_limit_pressure` riding fold line + alert-scan (Phase 13 Ops item)
 
 **Built:**

@@ -436,12 +436,29 @@
   contracts registered (ops still 78); +17 tests (101 suites/1361),
   live smoke 38/38 on a 29-migration from-empty DB with a real orders
   bucket 2/600s flood, e2e 126/126 green ×2 fresh-seed, web delta 0.)
-- [ ] Test: make the k6 write ladder a SCHEDULED perf regression — an
+- [x] Test: make the k6 write ladder a SCHEDULED perf regression — an
   `ops/perf-check.sh` (scratch DB + boot + smoke-arm ladder + threshold
   grep, cleanup trap) mirroring the alert-scan exit-code doctrine
   (0 green / 1 regression / 2 broken rig), so "baselines drift" is caught
   by a runner, not by memory. docs/PERFORMANCE.md run section + a
   systemd timer example.
+  (2026-11-24, session 124; runner = preflight+lock → scratch DB →
+  optional fresh build → seed + post-seed window anchor → boot :4110
+  relaxed-bucket → k6 smoke arm in container → `perf-check.analyze.mjs`
+  (k6 exit class 0/99/108/other + summary-JSON rules: p95 ceiling
+  default 120 ms, 429>0, zero orders, capture<95%, failed>1%, checks
+  <0.99, thin/garbage = rig) → EXACT DB cross-check + zero-level-50 log
+  gate → one JSON verdict line, trap drops DB+kills API. All three exit
+  codes proven LIVE on the host (green 29 iters/p95 17.99 ms/crosscheck
+  29/29·29/29·0; regression via tightened ceiling; rig-broken via busy
+  port and held flock); first live run caught+fixed the harness's own
+  seeded-window and jq empty-generator bugs. 18 node:test selftests +
+  CLI exit contract, wired into the CI api job alongside the previously
+  CI-orphaned k6 contract test; `ops/systemd/foodorder-perf-check.{service,
+  timer}` daily 04:20 with TimeoutStartSec=20min; PERFORMANCE.md run
+  section + repaired session-82 recipe line that had carried a
+  sanitizer-swallowed secret export. API/web delta 0 — jest 101/1361
+  green, app source untouched.)
 - [ ] Perf: finish the cache whitelist decision for `GET /api/search` —
   session 103's item text proposed it but the shipped whitelist is the
   THREE list/detail paths; either add search to the store (per-query URL
