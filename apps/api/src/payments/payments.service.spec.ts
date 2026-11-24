@@ -6,6 +6,7 @@ import { PaymentRefund } from './payment-refund.entity';
 import { Order, OrderStatus } from '../orders/order.entity';
 import { PaymentGateway, PaymentRefundGateway } from './payment-gateway.interface';
 import { AppException } from '../common/app-exception';
+import { RequestContext, runWithRequestContext } from '../common/logging/request-context';
 import { UserRole } from '../users/user.entity';
 
 /**
@@ -20,6 +21,8 @@ const PAY_ID = '33333333-3333-4333-8333-333333333333';
 const OWNER = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const OTHER = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 const FOREIGN = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+/** Session 125: the order's restaurant — the ONLY attribution source the payment ladder has. */
+const REST_ID = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
 
 const owner: PaymentActor = { sub: OWNER, role: UserRole.CUSTOMER };
 const admin: PaymentActor = { sub: OTHER, role: UserRole.ADMIN };
@@ -30,6 +33,7 @@ function order(overrides: Partial<Order> = {}): Order {
     id: ORDER_ID,
     code: 'FO-TEST',
     userId: OWNER,
+    restaurantId: REST_ID,
     status: OrderStatus.PENDING,
     totalCents: 4200,
     ...overrides,
@@ -336,6 +340,52 @@ describe('PaymentsService.listForOrder', () => {
     const b = build({ orderRow: order({ userId: OTHER }) });
     await expectAppError(b.service.listForOrder(ORDER_ID, stranger), 404);
     expect(b.paymentsRepo.find).not.toHaveBeenCalled();
+  });
+});
+
+describe('PaymentsService — order-centric attribution stamps (session 125)', () => {
+  it('pay() stamps the ORDER restaurant once the access ladder passed (intent AND replay paths)', async () => {
+    const { service } = build();
+    const ctx: RequestContext = { reqId: 'pay-attr' };
+    await runWithRequestContext(ctx, () => service.pay(ORDER_ID, owner));
+    expect(ctx.attributedRestaurantId).toBe(REST_ID);
+
+    const replay = build({ payments: [payment()] });
+    const ctx2: RequestContext = { reqId: 'pay-replay' };
+    await runWithRequestContext(ctx2, () => replay.service.pay(ORDER_ID, owner));
+    expect(ctx2.attributedRestaurantId).toBe(REST_ID);
+  });
+
+  it('a foreign order 404s BEFORE any stamp — the no-oracle stance holds inside owner telemetry', async () => {
+    const { service } = build();
+    const ctx: RequestContext = { reqId: 'pay-foreign' };
+    await expect(
+      runWithRequestContext(ctx, () => service.pay(ORDER_ID, stranger)),
+    ).rejects.toBeInstanceOf(HttpException);
+    expect(ctx.attributedRestaurantId).toBeUndefined();
+  });
+
+  it('capture() stamps on the normal path; the replayed-SUCCEEDED early return never reads the order and stamps nothing', async () => {
+    const { service } = build({ payments: [payment()] });
+    const ctx: RequestContext = { reqId: 'cap-attr' };
+    await runWithRequestContext(ctx, () => service.capture(PAY_ID, owner));
+    expect(ctx.attributedRestaurantId).toBe(REST_ID);
+
+    const paid = build({ payments: [payment({ status: PaymentStatus.SUCCEEDED })] });
+    const ctx2: RequestContext = { reqId: 'cap-replay' };
+    let replayed: unknown;
+    await runWithRequestContext(ctx2, async () => {
+      replayed = await paid.service.capture(PAY_ID, owner);
+    });
+    expect((replayed as Payment).status).toBe(PaymentStatus.SUCCEEDED);
+    expect(ctx2.attributedRestaurantId).toBeUndefined();
+  });
+
+  it('listForOrder() stamps the ORDER restaurant (receipt ladder parity)', async () => {
+    const { service } = build({ payments: [payment()] });
+    const ctx: RequestContext = { reqId: 'list-attr' };
+    await runWithRequestContext(ctx, () => service.listForOrder(ORDER_ID, owner));
+    expect(ctx.attributedRestaurantId).toBe(REST_ID);
   });
 });
 

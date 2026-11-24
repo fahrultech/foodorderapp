@@ -3,6 +3,7 @@ import { Repository } from 'typeorm';
 import { Order, OrderStatus } from './order.entity';
 import { UserRole } from '../users/user.entity';
 import { OrdersService, normalizeContactEmail } from './orders.service';
+import { RequestContext, runWithRequestContext } from '../common/logging/request-context';
 
 /**
  * Phase 6 ownership fix for the public receipt read (`GET /orders/:id`):
@@ -136,6 +137,67 @@ describe('OrdersService.findOneForViewer — receipt access ladder', () => {
       where: { id: ORDER_ID },
       relations: { items: true, restaurant: true },
     });
+  });
+});
+
+/**
+ * Order-centric metrics attribution (Phase 8, session 125): the receipt
+ * read addresses the restaurant one join away (order.restaurantId), so the
+ * AUTHORIZED rungs stamp it explicitly for the finish-time fold — while a
+ * denied viewer (the same 404 as an unknown id) must stamp NOTHING, so
+ * the no-existence-oracle doctrine holds inside the owner's traffic view.
+ */
+describe('OrdersService.findOneForViewer — order-centric attribution stamp (session 125)', () => {
+  const ATTR_RID = '12121212-1212-4121-8121-121212121212';
+
+  it('every authorized rung stamps the loaded restaurant', async () => {
+    let ctx: RequestContext = { reqId: 'own-1' };
+    await runWithRequestContext(ctx, () =>
+      build(owned({ restaurantId: ATTR_RID })).findOneForViewer(ORDER_ID, {
+        sub: OTHER_ID,
+        role: UserRole.ADMIN,
+      }),
+    );
+    expect(ctx.attributedRestaurantId).toBe(ATTR_RID);
+
+    ctx = { reqId: 'own-2' };
+    await runWithRequestContext(ctx, () =>
+      build(owned({ restaurantId: ATTR_RID })).findOneForViewer(ORDER_ID, {
+        sub: OWNER_ID,
+        role: UserRole.CUSTOMER,
+      }),
+    );
+    expect(ctx.attributedRestaurantId).toBe(ATTR_RID);
+
+    ctx = { reqId: 'own-3' };
+    await runWithRequestContext(ctx, () =>
+      build(owned({ restaurantId: ATTR_RID })).findOneForViewer(ORDER_ID, undefined, 'GUEST@example.com '),
+    );
+    expect(ctx.attributedRestaurantId).toBe(ATTR_RID);
+  });
+
+  it('a denied viewer 404s and stamps NOTHING (probes cannot even top up the owner 4xx row)', async () => {
+    const ctx: RequestContext = { reqId: 'own-deny' };
+    await expect(
+      runWithRequestContext(ctx, () =>
+        build(owned({ restaurantId: ATTR_RID })).findOneForViewer(ORDER_ID, {
+          sub: OTHER_ID,
+          role: UserRole.CUSTOMER,
+        }),
+      ),
+    ).rejects.toThrow(NotFoundException);
+    expect(ctx.attributedRestaurantId).toBeUndefined();
+  });
+
+  it('an order without a restaurant id (legacy null) stays inert, never a junk bucket', async () => {
+    const ctx: RequestContext = { reqId: 'own-null' };
+    await runWithRequestContext(ctx, () =>
+      build(owned({ restaurantId: null })).findOneForViewer(ORDER_ID, {
+        sub: OWNER_ID,
+        role: UserRole.CUSTOMER,
+      }),
+    );
+    expect(ctx.attributedRestaurantId).toBeUndefined();
   });
 });
 

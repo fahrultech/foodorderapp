@@ -15,6 +15,7 @@ import { Order, OrderStatus } from './order.entity';
 import { OrderStatusAudit, OrderStatusAuditSource } from './order-status-audit.entity';
 import { Payment, PaymentStatus } from '../payments/payment.entity';
 import { AppException } from '../common/app-exception';
+import { attributeRequestRestaurant } from '../common/metrics/restaurant-attribution';
 import { confirmGateEnabled } from './payment-confirm-gate';
 import { UserRole } from '../users/user.entity';
 import { OrderItem } from './order-item.entity';
@@ -266,6 +267,14 @@ export class OrdersService {
     const contact = await this.resolveContact(dto, userId);
     const restaurant = await this.restaurants.findOne(dto.restaurantId);
     if (!restaurant) throw new NotFoundException('Restaurant not found');
+    // EXPLICIT order-centric attribution (session 125, Phase 8): POST /orders
+    // carries the restaurant in the BODY and its matched template has no
+    // restaurant param, so the service stamps the resolved row for the
+    // metrics middleware at finish time. Stamped BEFORE pricing/validation
+    // so the later 400/409 branches top up the owner's view (bucket MINTING
+    // stays 2xx-only — an unknown restaurant already threw, junk cannot
+    // mint; the hook itself re-gates uuid shape).
+    attributeRequestRestaurant(restaurant.id);
 
     const menuItems = await this.menu.findByIds(dto.items.map((i) => i.menuItemId));
     const byId = new Map(menuItems.map((m) => [m.id, m]));
@@ -520,15 +529,20 @@ export class OrdersService {
     contactEmail?: string,
   ) {
     const order = await this.findOne(id);
-    if (viewer?.role === UserRole.ADMIN) return this.attachDeliveryView(order);
-    if (viewer && order.userId && order.userId === viewer.sub) {
-      return this.attachDeliveryView(order);
-    }
     const proof = normalizeContactEmail(contactEmail);
-    if (proof && order.contactEmail && proof === order.contactEmail) {
-      return this.attachDeliveryView(order);
-    }
-    throw new NotFoundException('Order not found');
+    const authorized =
+      viewer?.role === UserRole.ADMIN ||
+      (viewer != null && order.userId != null && order.userId === viewer.sub) ||
+      (proof != null && order.contactEmail != null && proof === order.contactEmail);
+    if (!authorized) throw new NotFoundException('Order not found');
+    // EXPLICIT receipt-read attribution (session 125): GET /orders/:id
+    // addresses the restaurant one join away (order.restaurantId). Stamped
+    // only on the AUTHORIZED rungs — a rung-missing 404 stays global-only,
+    // so probes cannot even top up a restaurant's 4xx row with guesses
+    // about orders they cannot see (no-oracle doctrine, extended to the
+    // owner's traffic view).
+    attributeRequestRestaurant(order.restaurantId);
+    return this.attachDeliveryView(order);
   }
 
   /**

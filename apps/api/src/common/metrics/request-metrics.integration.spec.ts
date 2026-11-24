@@ -11,6 +11,7 @@ import { createHttpLoggingMiddleware } from '../logging/http-logging';
 import { createRootLogger, PinoLoggerService } from '../logging/pino-logger';
 import { requestIdMiddleware } from '../logging/request-id.middleware';
 import { markRateLimited } from '../rate-limit/rate-limit.marker';
+import { attributeRequestRestaurant } from './restaurant-attribution';
 import { RequestMetricsRegistry } from './request-metrics';
 import { createRequestMetricsMiddleware } from './request-metrics.middleware';
 import { RequestMetricsService } from './request-metrics.service';
@@ -92,6 +93,16 @@ class RestaurantProbeController {
     return { id };
   }
 
+  @Get('wins')
+  wins(): { ok: boolean } {
+    // Session 125: a service on a restaurant-SCOPED template stamps a
+    // DIFFERENT restaurant anyway (a buggy/hostile opt-in call). The
+    // template match must win — attribution can only ever COVER routes
+    // the template never resolves, never override one it does.
+    attributeRequestRestaurant(ATTR_B);
+    return { ok: true };
+  }
+
   @Get('menu')
   menu(): { menu: true } {
     return { menu: true };
@@ -119,7 +130,45 @@ class RestaurantProbeController {
   }
 }
 
-@Module({ controllers: [ProbeController, RestaurantProbeController, HealthController] })
+/** Session 125 attribution probes: restaurant ids used by the explicit hook. */
+const ATTR_A = 'ab12cd34-ef56-4789-8abc-def012345678';
+const ATTR_B = 'cd34ef56-ab12-4899-9abc-def012345679';
+
+/**
+ * Session 125 "order-centric attribution": routes whose matched TEMPLATE
+ * carries NO restaurant param — the exact POST /orders / payments / receipt-
+ * read shape — driven purely through the explicit service-side opt-in hook,
+ * over the REAL middleware chain (ALS captured at entry, read at finish).
+ */
+@Controller('attrib')
+class AttributionProbeController {
+  @Get('plain')
+  plain(): { ok: boolean } {
+    attributeRequestRestaurant(ATTR_A);
+    return { ok: true };
+  }
+
+  @Get('fail-a')
+  failA(): never {
+    attributeRequestRestaurant(ATTR_A);
+    throw AppException.conflict('ATTR_PROBE_CONFLICT', 'stamped failure', {});
+  }
+
+  @Get('fail-b')
+  failB(): never {
+    attributeRequestRestaurant(ATTR_B);
+    throw AppException.conflict('ATTR_PROBE_CONFLICT', 'stamped failure', {});
+  }
+
+  @Get('junk')
+  junk(): { ok: boolean } {
+    // Hook contract: non-uuid stamps are inert, never a minted bucket.
+    attributeRequestRestaurant('not-a-uuid-at-all');
+    return { ok: true };
+  }
+}
+
+@Module({ controllers: [ProbeController, RestaurantProbeController, AttributionProbeController, HealthController] })
 class ProbeModule {}
 
 function request(app: INestApplication, method: string, path: string): Promise<number> {
@@ -363,6 +412,49 @@ describe('request metrics — live middleware chain', () => {
     await drain();
     expect(registry.snapshot().totals.restaurantKeys).toBe(1);
     expect(routeRow('GET /api/restaurants/:id/metrics')?.requests).toBe(1); // still exempt
+  });
+
+  it('order-centric attribution: the explicit service stamp folds NO-param routes into the bucket (session 125)', async () => {
+    // 409 AFTER a stamp CANNOT MINT: bucket B stays a zero, no keys exist.
+    expect(await request(app, 'GET', '/api/attrib/fail-b')).toBe(409);
+    await drain();
+    expect(registry.restaurantSnapshot(ATTR_B).totals.requests).toBe(0);
+    expect(registry.snapshot().totals.restaurantKeys).toBe(0);
+
+    // A junk (non-uuid) stamp is inert even through the real chain.
+    expect(await request(app, 'GET', '/api/attrib/junk')).toBe(200);
+    await drain();
+    expect(registry.snapshot().totals.restaurantKeys).toBe(0);
+
+    // A fresh 2xx MINTS A on the ORDER-CENTRIC route key...
+    expect(await request(app, 'GET', '/api/attrib/plain')).toBe(200);
+    await drain();
+    const a = registry.restaurantSnapshot(ATTR_A);
+    expect(a.totals.requests).toBe(1);
+    expect(a.routes.map((r) => r.route)).toEqual(['GET /api/attrib/plain']);
+
+    // ...and the next stamped 409 TOPS UP the existing bucket — owners see
+    // failures on their surfaces, same rule as the template channel.
+    expect(await request(app, 'GET', '/api/attrib/fail-a')).toBe(409);
+    await drain();
+    const a2 = registry.restaurantSnapshot(ATTR_A);
+    expect(a2.totals.requests).toBe(2);
+    expect(a2.totals.byStatus['4xx']).toBe(1);
+    expect(a2.routes.map((r) => r.route)).toEqual(['GET /api/attrib/fail-a', 'GET /api/attrib/plain']);
+    // GLOBAL rows are untouched by the fold — attribution is ADDITIVE.
+    expect(routeRow('GET /api/attrib/plain')?.requests).toBe(1);
+    expect(routeRow('GET /api/attrib/fail-a')?.byStatus['4xx']).toBe(1);
+  });
+
+  it('a matched template BEATS a service stamp — attribution can never override (session 125)', async () => {
+    expect(await request(app, 'GET', `/api/restaurants/${ATTR_A}/wins`)).toBe(200);
+    await drain();
+    const a = registry.restaurantSnapshot(ATTR_A);
+    expect(a.totals.requests).toBe(1);
+    expect(a.routes.map((r) => r.route)).toEqual(['GET /api/restaurants/:id/wins']);
+    // The foreign stamp never minted B: one bucket, the honest one.
+    expect(registry.restaurantSnapshot(ATTR_B).totals.requests).toBe(0);
+    expect(registry.snapshot().totals.restaurantKeys).toBe(1);
   });
 
   it('throttle tally: guard-marked 429s count, UNMARKED 429s never do (session 123)', async () => {

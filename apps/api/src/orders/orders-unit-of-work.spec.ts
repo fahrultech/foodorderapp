@@ -1,4 +1,5 @@
 import { Repository } from 'typeorm';
+import { NotFoundException } from '@nestjs/common';
 import { OrdersService } from './orders.service';
 import { Order, OrderStatus } from './order.entity';
 import { OrderEventsService } from './order-events.service';
@@ -7,6 +8,7 @@ import { RestaurantsService } from '../restaurants/restaurants.service';
 import { PromosService } from '../promos/promos.service';
 import { AddressesService } from '../users/addresses.service';
 import { AppException } from '../common/app-exception';
+import { RequestContext, runWithRequestContext } from '../common/logging/request-context';
 
 /**
  * Unit-of-work (docs/ROADMAP.md Phase 5, session 71): create() must run
@@ -99,7 +101,7 @@ function buildTx(opts: {
   const events = { publish } as unknown as OrderEventsService;
   const addresses = { getOwned: jest.fn() } as unknown as AddressesService;
   const service = new OrdersService(repo, menu, restaurants, events, promos, addresses);
-  return { service, repo, fakeEm, calls, query, emSave, recordUsage, publish, transaction };
+  return { service, repo, fakeEm, calls, query, emSave, recordUsage, publish, transaction, restaurants };
 }
 
 const dto = (items: Array<{ menuItemId: string; quantity: number }>, promoCode?: string) =>
@@ -257,6 +259,45 @@ describe('OrdersService.create — unit-of-work transaction (session 71)', () =>
     });
     await service.create(dto([{ menuItemId: 'm1', quantity: 2 }]));
     expect(calls).toEqual(['tx:begin', 'stock:m1x2', 'save', 'tx:end']);
+  });
+});
+
+describe('OrdersService.create — order-centric metrics attribution (session 125)', () => {
+  it('stamps the RESOLVED restaurant onto the active request context', async () => {
+    const { service } = buildTx({ items: [item('m1')] });
+    const ctx: RequestContext = { reqId: 'uow-attr' };
+    await runWithRequestContext(ctx, () =>
+      service.create(dto([{ menuItemId: 'm1', quantity: 2 }]), USER_ID),
+    );
+    expect(ctx.attributedRestaurantId).toBe(REST_ID);
+  });
+
+  it('a later INSUFFICIENT_STOCK 409 keeps the stamp — the owner view may top up on failures (minting is the middleware 2xx-only rule)', async () => {
+    const { service } = buildTx({ items: [item('m1', { stock: 1 })], stockOutcome: [] });
+    const ctx: RequestContext = { reqId: 'uow-attr-409' };
+    await expect(
+      runWithRequestContext(ctx, () =>
+        service.create(dto([{ menuItemId: 'm1', quantity: 2 }]), USER_ID),
+      ),
+    ).rejects.toBeInstanceOf(AppException);
+    expect(ctx.attributedRestaurantId).toBe(REST_ID);
+  });
+
+  it('an unknown restaurant 404s BEFORE any stamp — junk can never mint a bucket', async () => {
+    const { service, restaurants } = buildTx({ items: [item('m1')] });
+    (restaurants as unknown as { findOne: jest.Mock }).findOne.mockResolvedValue(null);
+    const ctx: RequestContext = { reqId: 'uow-attr-404' };
+    await expect(
+      runWithRequestContext(ctx, () =>
+        service.create(dto([{ menuItemId: 'm1', quantity: 2 }]), USER_ID),
+      ),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(ctx.attributedRestaurantId).toBeUndefined();
+  });
+
+  it('outside a request context (scripts, schedulers) the stamp is a silent no-op', async () => {
+    const { service } = buildTx({ items: [item('m1')] });
+    await expect(service.create(dto([{ menuItemId: 'm1', quantity: 2 }]), USER_ID)).resolves.toBeDefined();
   });
 });
 

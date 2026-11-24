@@ -27,7 +27,14 @@
  * polling their own traffic never inflates it.
  * A per-restaurant snapshot can NEVER contain unattributed or foreign
  * samples — that separation is the OWNER-rung safety contract (session 85
- * decision: the global snapshot stays ADMIN-only).
+ * decision: the global snapshot stays ADMIN-only). Session 125 (Phase 8
+ * "order-centric attribution") added the SECOND, explicit mint channel: a
+ * service whose unit of work concerns a restaurant WITHOUT a restaurant
+ * path param (POST /orders, the payment ladder, receipt reads) stamps the
+ * loaded id via `attributeRequestRestaurant` (common/metrics/restaurant-
+ * attribution.ts) and the middleware folds the sample into that bucket at
+ * finish time ONLY when the matched template is not restaurant-scoped —
+ * template attribution always wins, and no url heuristic is involved.
  *
  * Rate-limit dimension (session 123, Phase 13 "rate-limit pressure
  * telemetry"): a sample may additionally carry `throttled = true`, set by
@@ -135,8 +142,17 @@ export function restaurantScopeOf(req: {
   const template = `${req.baseUrl ?? ''}${req.route.path ?? ''}`;
   if (RESTAURANT_METRICS_TEMPLATE_RE.test(template)) return null; // observer exemption
   if (!RESTAURANT_TEMPLATE_RE.test(template)) return null;
-  const seg = (req.url ?? '').split('?')[0].split('/')[3];
-  return seg && UUID_SHAPE_RE.test(seg) ? seg.toLowerCase() : null;
+  return restaurantBucketKeyOf((req.url ?? '').split('?')[0].split('/')[3]);
+}
+
+/**
+ * Canonical restaurant BUCKET KEY for a raw id: uuid-shaped and lowercased,
+ * else null. ONE gate shared by the template path (restaurantScopeOf) and
+ * the explicit service-side opt-in hook (restaurant-attribution.ts,
+ * session 125) — junk from either source can never mint a bucket.
+ */
+export function restaurantBucketKeyOf(raw: string | null | undefined): string | null {
+  return raw && UUID_SHAPE_RE.test(raw) ? raw.toLowerCase() : null;
 }
 
 export interface HistogramBucket {

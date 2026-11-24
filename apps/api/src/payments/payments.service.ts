@@ -18,6 +18,7 @@ import {
   supportsRefunds,
 } from './payment-gateway.interface';
 import { AppException } from '../common/app-exception';
+import { attributeRequestRestaurant } from '../common/metrics/restaurant-attribution';
 import { isUuid } from '../common/uuid';
 import { UserRole } from '../users/user.entity';
 
@@ -71,6 +72,14 @@ export class PaymentsService {
    */
   async pay(orderId: string, actor: PaymentActor): Promise<PaymentInitiation> {
     const order = await this.getOrderForActor(orderId, actor);
+    // EXPLICIT order-centric attribution (session 125, Phase 8): POST /payments
+    // addresses the restaurant one join away (order.restaurantId) and its
+    // matched template has no restaurant param. Stamped once the access
+    // ladder passed — foreign-order 404s (getOrderForActor throws BEFORE
+    // returning) are never attributed, keeping the no-existence-leak stance
+    // intact in the owner's traffic view too. The already-paid/not-payable
+    // 409s below DO top up an existing bucket (minting stays 2xx-only).
+    attributeRequestRestaurant(order.restaurantId);
 
     // Row state is consulted BEFORE the order-status gate: "already paid" or
     // "there is a live attempt" describes reality better than the status of
@@ -182,6 +191,13 @@ export class PaymentsService {
     }
 
     const order = await this.orders.findOne({ where: { id: payment.orderId } });
+    // EXPLICIT order-centric attribution (session 125, Phase 8): the capture
+    // route addresses the restaurant through the payment's ORDER — stamped on
+    // the normal path where the order row is already loaded for the
+    // cancelled gate. The early replay/409 branches (succeeded, refunded,
+    // failed, no-intent) never load the order and are NOT attributed:
+    // attribution never invents an extra DB read for telemetry.
+    attributeRequestRestaurant(order?.restaurantId);
     if (order?.status === OrderStatus.CANCELLED) {
       throw AppException.conflict(
         'ORDER_CANCELLED',
@@ -211,6 +227,8 @@ export class PaymentsService {
   /** All payment attempts for one order (same access rules as `pay`). */
   async listForOrder(orderId: string, actor: PaymentActor): Promise<Payment[]> {
     const order = await this.getOrderForActor(orderId, actor);
+    // Receipt-read payment list: same join-away attribution as pay() above.
+    attributeRequestRestaurant(order.restaurantId);
     return this.payments.find({
       where: { orderId: order.id },
       order: { createdAt: 'DESC' },

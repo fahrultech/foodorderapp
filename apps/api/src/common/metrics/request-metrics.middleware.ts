@@ -1,4 +1,5 @@
 import type { NextFunction, Request, Response } from 'express';
+import { currentRequestContext } from '../logging/request-context';
 import { rateLimitedBucketOf } from '../rate-limit/rate-limit.marker';
 import { RequestMetricsRegistry, restaurantScopeOf, routeKeyOf, shouldTrackUrl, statusClassOf, HISTOGRAM_BOUNDS_MS, type StatusClass } from './request-metrics';
 
@@ -37,6 +38,16 @@ export function createRequestMetricsMiddleware(registry: RequestMetricsRegistry)
       return;
     }
     const startedAt = process.hrtime.bigint();
+    // Session 125: capture the ALS context OBJECT HERE, in the synchronous
+    // phase that still runs inside requestIdMiddleware's storage.run. The
+    // 'finish' callback fires far outside that scope, so it must read the
+    // captured reference, never a late getStore(). Services call
+    // attributeRequestRestaurant during the handler; at finish the sample
+    // folds into restaurantScopeOf(req) ?? ctx?.attributedRestaurantId —
+    // the TEMPLATE match always wins (attribution only covers routes whose
+    // template carries no restaurant param; the metrics-read exemption is
+    // never reached by the hook because no attributed service serves it).
+    const ctx = currentRequestContext();
     res.on('finish', () => {
       const durationMs = Number(process.hrtime.bigint() - startedAt) / 1e6;
       // req.route is resolved by now (routing finished long before 'finish'),
@@ -49,7 +60,13 @@ export function createRequestMetricsMiddleware(registry: RequestMetricsRegistry)
       // response finished 429 — both halves are required, so no other 429
       // producer (and no stamp that never reached the wire) inflates it.
       const throttled = rateLimitedBucketOf(req) !== null && res.statusCode === 429;
-      registry.record(routeKeyOf(req), res.statusCode, durationMs, restaurantScopeOf(req), throttled);
+      registry.record(
+        routeKeyOf(req),
+        res.statusCode,
+        durationMs,
+        restaurantScopeOf(req) ?? ctx?.attributedRestaurantId ?? null,
+        throttled,
+      );
       (res as Response & { metrics?: MetricsLogSummary }).metrics = {
         bucket: bucketLabel(durationMs),
         status_class: statusClassOf(res.statusCode),
