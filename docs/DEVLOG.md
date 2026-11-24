@@ -3,6 +3,93 @@
 Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
+## 2026-11-24 12:55 — Session 125 — Order-centric attribution: explicit service-side opt-in hook folds POST /orders, payments and receipt reads into the per-restaurant bucket (Phase 8 lock item, queue-closer)
+
+**Built:**
+
+- API: `apps/api/src/common/metrics/restaurant-attribution.ts` —
+  `attributeRequestRestaurant(restaurantId)`, the EXPLICIT opt-in hook the
+  Phase 8 item demanded (never a url heuristic). A DI-free
+  AsyncLocalStorage call: it re-gates the id through the ONE canonical
+  shape rule (new export `restaurantBucketKeyOf` in request-metrics.ts,
+  shared by the template path AND the hook, so junk from either channel
+  can never mint a bucket), then stamps the mutable
+  `RequestContext.attributedRestaurantId` that requestIdMiddleware
+  already activates around the whole pipeline.
+- API: `request-metrics.middleware.ts` captures the context OBJECT at
+  entry (its synchronous phase runs inside storage.run) and at finish
+  folds `restaurantScopeOf(req) ?? ctx?.attributedRestaurantId` into the
+  unchanged `registry.record()` — reference capture, not a late
+  getStore(), is what makes the finish-time read race-free. Template
+  match ALWAYS wins: attribution can only cover routes the template
+  never resolves, never override one it does. The metrics-read exemption
+  is untouched (no attributed service serves that route).
+- API call sites (five): `OrdersService.create` stamps the RESOLVED
+  restaurant right after its existence guard (so later 400/409/500
+  branches top up the owner view — minting stays 2xx-only);
+  `findOneForViewer` stamps only on the AUTHORIZED rungs (ladder
+  rewritten to a single authorized boolean — 404 semantics byte-equal;
+  the no-oracle doctrine now extends into the owner's traffic view);
+  `PaymentsService.pay`/`listForOrder` stamp after the access ladder
+  passes (foreign 404s throw BEFORE any stamp); `capture` stamps on the
+  normal path where the order row is already loaded for the cancelled
+  gate — the replayed-SUCCEEDED early return never reads the order and
+  stays unattributed: attribution NEVER invents an extra DB read for
+  telemetry.
+- Test: +1 suite / +19 tests (102/1380). New
+  `restaurant-attribution.spec.ts` (6): no-op outside a request,
+  canonicalization, inert junk/null/empty, last-write-wins, and the
+  reference-capture finish semantics the middleware relies on. Two REAL
+  middleware-chain pins in `request-metrics.integration.spec.ts` via a
+  new `AttributionProbeController` (`GET /attrib/plain|fail-a|fail-b|junk`
+  + a wins route on the restaurant template): stamped 409 cannot mint,
+  stamped 2xx mints on the ORDER-CENTRIC route keys, the next stamped
+  409 tops up after the mint, junk stamps are inert wire-wide, and the
+  template-beats-stamp override guard. Service specs: 4 in
+  orders-unit-of-work (happy stamp, INSUFFICIENT_STOCK keeps the stamp,
+  unknown-restaurant 404 stamps nothing, no-context create is a silent
+  no-op), 3 in orders-ownership (all three authorized rungs stamp,
+  denial stamps nothing, legacy-null restaurantId inert), 4 in
+  payments.service (intent + replay + capture + list stamp; foreign
+  intent stamps nothing).
+
+**Verified:**
+
+- `npm run build` + full jest: 102 suites / 1380 tests green — the
+  delta vs session 124's 101/1361 is exactly +1/+19, all this
+  increment.
+- Live smoke 22/22 on a 29-migration from-empty scratch DB: exact
+  per-bucket arithmetic on the OWNER rung (`POST /api/orders` 2xx 2 —
+  authed + guest creates; intents 2xx 1 with 4xx 0 despite a foreign
+  404; capture 2xx 1; payments list 2xx 1; receipt reads 2xx 2 with
+  4xx 0 despite THREE receipt denials) + the GLOBAL view still tallies
+  every denial (GET /api/orders/:id 4xx 3, POST /api/payments 4xx 1) +
+  `restaurantKeys == 1` (only the exercised restaurant minted) +
+  untouched RID2 zero + DB deltas (2 orders, 1 succeeded payment) +
+  zero level-50 log lines. Two smoke iterations were HARNESS bugs,
+  both caught before any claim: `.payment.id` (the controller flattens
+  `{...payment, clientSecret}`, id at top level) and a plus-sign in
+  the proof email (a raw query string decodes it to a space — the
+  rung-3 read then honestly 404s; the earlier global-4xx==4 reading is
+  what exposed it).
+- Full e2e: see the push — the owner traffic panel's pins ride the
+  payload's OWN response (session-85/99 rule) and no spec reads
+  `restaurantKeys`, so the new bucket keys are cross-checked, never
+  absolute-counted.
+
+**Left for next sessions:**
+
+- Refund routes (`POST /payments/:id/refund`, `GET /payments/:id/refunds`)
+  stay unattributed: the payment row carries no restaurantId and
+  attribution must not invent a join. If owner views ever need admin
+  refund traffic, the honest fix is storing restaurantId on the payment
+  row at intent time (a migration), not a read here.
+- Queue note: this closes the LAST open Phase 8 sub-item. The top-down
+  queue now sits at Phase 13 (the `GET /api/search` cache-whitelist
+  decision, then "Order again" from CANCELLED orders) plus the
+  payment-adapter items, which stay blocked on real API keys.
+
+---
 ## 2026-11-24 10:35 — Session 124 — Scheduled perf regression runner: ops/perf-check.sh over the k6 write ladder with exit-code doctrine + analyzer selftests in CI + systemd timer example (Phase 13 Test item)
 
 **Built:**

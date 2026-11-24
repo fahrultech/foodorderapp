@@ -661,7 +661,20 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   restaurant-scoped controllers (`/api/restaurants/:id/...` or the
   `:restaurantId` menu variant — template-driven so a dish/order uuid can
   never be misread as a restaurant) and the url segment is a uuid
-  (lowercased). Buckets are MINTED by 2xx only (session 103 tightened the
+  (lowercased). Session 125 added an explicit SECOND channel for the
+  order-centric surfaces (`POST /orders`, the payment ladder — intent,
+  capture, the payments list — and AUTHORIZED receipt reads): their
+  matched templates carry no restaurant param, so the SERVICE stamps the
+  resolved row id through `attributeRequestRestaurant`
+  (`common/metrics/restaurant-attribution.ts`, an AsyncLocalStorage hook
+  on the request-id context; the metrics middleware captures the context
+  reference at entry and folds `template ?? stamped` at finish). A
+  template match ALWAYS wins (attribution can only cover routes the
+  template never resolves, never override one it does); authorization
+  denials and foreign-order 404s stamp NOTHING — the no-existence-oracle
+  doctrine extends into the owner's own traffic view — and the channel
+  never invents an extra DB read for telemetry. Explicit service-side
+  opt-in, never a url heuristic. Buckets are MINTED by 2xx only (session 103 tightened the
   original 2xx/3xx rule: a 304 proves a browser cache, not this boot
   serving the page) — random-uuid probes
   404 and never grow the key space — while 3xx/4xx/5xx may top up an existing
