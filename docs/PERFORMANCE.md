@@ -495,6 +495,50 @@ naming the simulated collision is now asserted, not the status code alone).
 Smoke arm for the shape: 1 VU x 30 s, 29 iterations, 147 requests,
 4.84 req/s, 352/352 checks, p95 16.6 ms, 0 429s.
 
+## Search-shaped whitelist coverage — November 24, 2026 (session 126)
+
+Phase 13's cache-whitelist decision item, resolved as **KEEP**: session
+103 already whitelisted `GET /api/search` (full-URL keys, shared
+500-entry evict-oldest store, template attribution) — the open part was
+the explicit decision record (now in ARCHITECTURE.md) and the fact that
+**no k6 profile ever rode the search route** (the list `search=` filter
+is a different template; session 104's own leftover said so). Both
+rotations gained a `/search?q=nasi&limit=10` leg: public browse is now a
+FIVE-shape rotation, conditional replay a FOUR-shape one;
+`ops/load-test.contract.test.mjs` pins every replay shape against the
+`cacheTargetOf` template set (exact-path + uuid-gated mirror).
+
+Live proof on a from-empty 29-migration scratch DB (TTL=60, snapshot
+writer off, production dist on :4010; query-logger windows, run-unique
+markers; 44/44 asserts, zero product bugs, zero 5xx, zero writes):
+
+| Window | Outcome | Statements |
+|---|---|---|
+| `?q=nasi` capture | 200, strong quoted ETag, `public, max-age=60` | 3 |
+| repeat within TTL, no INM | 200 served from store | **0** |
+| `If-None-Match` within TTL | **304**, empty body | **0** |
+| distinct `?q=sushi` first read | 200, DIFFERENT ETag (per-query keys) | 3 |
+| bearer read | 200, NO Cache-Control (full opt-out) | 3 |
+| anon repeat after bearer | still served, same ETag | **0** |
+| 499 unique-query flood | every one captured | 998 (2/query) |
+| newest flood entry replay | 304 — resident | **0** |
+| OLDEST entry after the flood crossed the cap | 304, but honest re-read | 3 |
+| 501st set: it evicted S2 too | capedge + S2 both re-read | 5 |
+
+The eviction rows are the decision's spine: fan-out is real (a unique
+`q` never hits), but the bounded store makes the worst case exactly a
+re-read — never stale serving, never unbounded memory. Attribution
+closes arithmetically: `GET /api/search` answered 6 requests as
+`{2xx:5, 3xx:1}` after the ladder, 510 with `2xx+3xx` matching the total
+after the churn, and the two k6 smoke arms grew the row to 579 with the
+search legs included (conditional arm 74 iters / 223 reqs / 100% checks,
+p95 2.15 ms — capture p95 3.90 vs replay p95 1.55; browse arm 75 iters /
+76 reqs, 100% checks). These are SMOKE-arm numbers on a TTL=60 boot —
+they do not restate session 104's load table, whose rotation recorded
+there deliberately excludes the search leg as measured at the time.
+
+API source untouched (jest delta 0, 102/1380), web delta 0.
+
 ## First Load JS+CSS budget gate — November 21, 2026 (session 115); ancestor-chain revision November 23, 2026 (session 118)
 
 Phase 11 roadmap item "Perf: First Load JS budget gate". A zero-dep node

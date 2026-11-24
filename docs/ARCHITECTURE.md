@@ -782,6 +782,19 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   `e2e/playwright.config.ts` boots the API with `HTTP_CACHE_TTL_SEC=0` —
   the suite's write-then-assert flows and seed-absolute counts must never
   read a cached copy.
+  DECISION (Phase 13, session 126 — recorded explicitly per the roadmap):
+  `GET /api/search` STAYS in the whitelist. Query-parameter fan-out is
+  real but bounded: the store keys on the FULL request URL, so every
+  distinct `?q=` is its own entry (a repeated query within the TTL is the
+  zero-SQL 304/200 path; a unique query costs exactly its own capture),
+  and the shared 500-entry evict-oldest cap converts a unique-query flood
+  into honest re-reads, never unbounded memory or stale-serving —
+  live-proven with exact arithmetic (newest-flood replay 0 statements;
+  the evicted oldest re-reads; `GET /api/search` metrics row closes
+  2xx+3xx at the request total). Both k6 browse rotations now ride a
+  `/search?q=nasi&limit=10` leg so the whole whitelist is measured, not
+  just list/detail; `ops/load-test.contract.test.mjs` pins every replay
+  shape against the `cacheTargetOf` template set.
 - **Browse gzip layer (`common/http-cache/browse-compression.ts`)** —
   registered BEFORE the cache middleware (the order IS the contract): it
   patches `res.end` first, so the bytes the cache serves straight from

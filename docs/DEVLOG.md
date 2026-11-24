@@ -3,6 +3,76 @@
 Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
+## 2026-11-24 14:28 — Session 126 — Search-shaped whitelist coverage: Phase 13 cache-whitelist decision recorded KEEP; both k6 browse rotations now ride the /api/search leg (ops, Phase 13)
+
+**Built:**
+
+- Ground-truth verdict BEFORE code, because the item's premise was
+  half-stale: `cacheTargetOf` (session 103) ALREADY whitelists
+  `GET /api/search` with full-URL keys, the shared 500-entry
+  evict-oldest cap and template attribution — what was genuinely open
+  is the explicit DECISION record and session 104's own leftover: no
+  k6 profile ever rode the search ROUTE (the list `search=` filter is
+  a different template; the contract-test comment had even mislabeled
+  the three replay shapes as "the three URL shapes session 103
+  whitelisted", hiding the gap).
+- ops: `browsePath` rotation gained a fifth shape
+  `/search?q=nasi&limit=10` (public browse) and `cacheBrowsePath` a
+  fourth (conditional replay) — every whitelisted route template now
+  has capture AND replay traffic. `load-test-conditional.js` endpoint
+  tagging split three ways (`search` vs `restaurants-list` vs
+  `restaurant-detail`) so the k6 tag set mirrors the whitelist.
+- Test: `ops/load-test.contract.test.mjs` re-pinned both rotations by
+  index AND added a pure mirror of the `cacheTargetOf` exact-path
+  truth — every replay shape must resolve to `/restaurants`,
+  `/restaurants/<uuid>` or `/search` (sub-path refusal included), so
+  a future rotation edit that slips in a transparent path fails at
+  test time, not as a silent non-304 leg.
+- docs: ARCHITECTURE.md gained the explicit KEEP decision (fan-out is
+  real but bounded; the cap makes the worst case exactly a re-read);
+  PERFORMANCE.md gained a session-126 section with the full
+  statement-window table and the eviction arithmetic.
+
+**Verified:**
+
+- `node --test ops/load-test.contract.test.mjs` green (1 test file,
+  all pins).
+- Live smoke **44/44** on a 29-migration from-empty scratch DB
+  (production dist booted on :4010, `HTTP_CACHE_TTL_SEC=60`, snapshot
+  writer OFF): capture window 3 statements / served 0 / fresh-304 0
+  (empty body); per-query keying proven (distinct `?q=` = distinct
+  strong ETag, handler ran); bearer full opt-out proven (no
+  Cache-Control, bypassed store, and the anon entry SURVIVED the
+  bearer read — zero-SQL repeat after it); 499-unique-query flood
+  = 998 statements (2/query, nothing polluted), newest entry replayed
+  304 with **0** statements while the evicted oldest honestly
+  re-read (3); the 501st/502nd set evictions verified (S2
+  re-captured); metrics closed arithmetically — `GET /api/search`
+  6 requests `{2xx:5,3xx:1}` post-ladder, 510 post-churn with
+  `2xx+3xx == total`, 5xx never non-zero; the two k6 smoke arms grew
+  the row to 579 (conditional 74 iters / 223 reqs / 100% checks /
+  p95 2.15 ms — capture 3.90 vs replay 1.55; browse 75 iters / 76
+  reqs / 100% checks). Read-only proven: 10 seeded orders untouched,
+  0 snapshot rows, zero level-50 API lines. The FIRST smoke iteration
+  was 42/2 — both FAILs harness arithmetic (my hand count of the
+  search metrics total was off by one: the newest-flood phase
+  re-GETs the URL before replaying it; plus summary-export counters
+  expose `.count`, not `.value`), the 510 total reconciled exactly
+  against the wire before any claim.
+- API: `npm run build` green; full jest **102 suites / 1380 tests** —
+  delta 0 vs session 125 (no app source touched). Web delta 0.
+
+**Left for next sessions:**
+
+- Phase 13's remaining open item: "Order again" from CANCELLED orders.
+- A full LOAD arm on the new 5-shape browse rotation would replace the
+  smoke-arm numbers recorded above — deliberately NOT restating
+  session 104's load table (whose rotation shipped without search).
+- Session 104's other leftover still stands: a mixed hit/miss RATIO
+  profile (real fleets interleave capture and revalidation) for the
+  intermediates between the two profiles.
+
+---
 ## 2026-11-24 12:55 — Session 125 — Order-centric attribution: explicit service-side opt-in hook folds POST /orders, payments and receipt reads into the per-restaurant bucket (Phase 8 lock item, queue-closer)
 
 **Built:**

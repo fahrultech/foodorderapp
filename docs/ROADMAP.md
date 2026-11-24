@@ -459,13 +459,29 @@
   section + repaired session-82 recipe line that had carried a
   sanitizer-swallowed secret export. API/web delta 0 — jest 101/1361
   green, app source untouched.)
-- [ ] Perf: finish the cache whitelist decision for `GET /api/search` —
+- [x] Perf: finish the cache whitelist decision for `GET /api/search` —
   session 103's item text proposed it but the shipped whitelist is the
   THREE list/detail paths; either add search to the store (per-query URL
   key + bounds on the store cap + metrics attribution like the three) or
   record WHY NOT (query-parameter fan-out makes hit rates worthless) in
   ARCHITECTURE.md — an explicit decision either way, plus the k6 browse
   profile extended to whichever shape ships.
+  (2026-11-24, session 126; ground-truth verdict: session 103 SHIPPED
+  search in the whitelist already — the open half was the explicit
+  decision record and session 104's leftover that NO k6 profile ever
+  rode the search route. Decision recorded: KEEP — fan-out is real but
+  the full-URL key + shared 500-entry evict-oldest cap bound the worst
+  case to exactly one honest re-read (live-proven: newest-flood replay
+  0 statements vs evicted-oldest re-read 3; metrics row closed 510
+  requests with 2xx+3xx == total). Both rotations gained
+  `/search?q=nasi&limit=10` (browse 5 shapes, replay 4) + a
+  cacheTargetOf-mirror pin in the ops contract test so a slipped
+  transparent path fails at test time; ARCHITECTURE.md DECISION
+  paragraph + PERFORMANCE.md statement-window section. Live smoke
+  44/44 on a 29-migration from-empty DB (first iteration 42/2 — both
+  harness arithmetic, reconciled on the wire), k6 smoke arms 74/223
+  and 75/76 at 100% checks; app source untouched — jest delta 0
+  (102/1380), web delta 0.)
 - [ ] UX: "Order again" from CANCELLED orders — session 107's ladder is
   COMPLETED-only; a cancelled order is exactly when a customer wants to
   retry. Same `applyOrderAgain` path (no restock semantics needed — the
