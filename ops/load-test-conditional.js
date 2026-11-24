@@ -85,7 +85,11 @@ export default function revalidate(data) {
   const restaurantId = ids[iteration % ids.length];
   const path = cacheBrowsePath(iteration, restaurantId);
   const url = `${baseUrl}${path}`;
-  const detail = path.startsWith('/restaurants/') ? 'restaurant-detail' : 'restaurants-list';
+  const detail = path.startsWith('/restaurants/')
+    ? 'restaurant-detail'
+    : path.startsWith('/search')
+      ? 'search'
+      : 'restaurants-list';
 
   const capture = http.get(url, {
     headers: { 'Accept-Encoding': 'gzip' },

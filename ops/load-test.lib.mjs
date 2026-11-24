@@ -45,12 +45,18 @@ export function restaurantIds(payload) {
   return ids;
 }
 
+// Session 126 (Phase 13 cache-whitelist decision item): the rotation gained
+// the `/api/search` leg — the third whitelisted cache TARGET template never
+// had k6 traffic (session 104's leftover note). `?q=` is this route's param
+// (the restaurant LIST filter is `search=` — different route, different
+// param; mixing them up silently measures the wrong surface).
 export function browsePath(iteration, restaurantId) {
   const paths = [
     '/restaurants?sort=rating&limit=20',
     '/restaurants/meta/cuisines',
     `/restaurants/${restaurantId}`,
     '/restaurants?search=rice&limit=20',
+    '/search?q=nasi&limit=10',
   ];
   return paths[iteration % paths.length];
 }
@@ -173,18 +179,23 @@ export function orderPayload(restaurantId, lines, identity) {
 // ---------------------------------------------------------------------------
 
 /**
- * Pure: pick a replayable browse path. These MUST stay exactly the three
- * URL shapes session 103 whitelisted in `cacheTargetOf` (restaurant list,
- * uuid detail, list-with-search). `/restaurants/meta/cuisines` is a SUB-PATH
- * the whitelist deliberately excludes — it can never answer 304, so slipping
- * it in here would make the honest 304 checks below fail at runtime, not
- * silently measure the wrong thing. The contract test pins that invariant.
+ * Pure: pick a replayable browse path. Session 126 (Phase 13 cache-whitelist
+ * decision) completed the rotation with the FOURTH URL shape: `/api/search`
+ * — the third route template `cacheTargetOf` whitelists (restaurant list,
+ * uuid detail, list-with-search all rode here since session 104, but the
+ * search route itself had zero replay traffic: the list `search=` filter is
+ * a DIFFERENT route). `/restaurants/meta/cuisines` stays OUT: the whitelist
+ * deliberately excludes SUB-PATHS, it can never answer 304, and slipping it
+ * in here would make the honest 304 checks fail at runtime, not silently
+ * measure the wrong thing. The contract test pins every shape here IS a
+ * cacheTargetOf hit.
  */
 export function cacheBrowsePath(iteration, restaurantId) {
   const paths = [
     '/restaurants?sort=rating&limit=20',
     `/restaurants/${restaurantId}`,
     '/restaurants?search=rice&limit=20',
+    '/search?q=nasi&limit=10',
   ];
   return paths[iteration % paths.length];
 }

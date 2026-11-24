@@ -23,7 +23,8 @@ assert.equal(browsePath(0, 'abc'), '/restaurants?sort=rating&limit=20');
 assert.equal(browsePath(1, 'abc'), '/restaurants/meta/cuisines');
 assert.equal(browsePath(2, 'abc'), '/restaurants/abc');
 assert.equal(browsePath(3, 'abc'), '/restaurants?search=rice&limit=20');
-assert.equal(browsePath(4, 'abc'), '/restaurants?sort=rating&limit=20');
+assert.equal(browsePath(4, 'abc'), '/search?q=nasi&limit=10');
+assert.equal(browsePath(5, 'abc'), '/restaurants?sort=rating&limit=20');
 
 const smoke = loadProfile('smoke');
 assert.equal(smoke.browse.executor, 'constant-vus');
@@ -113,23 +114,40 @@ assert.throws(() => authProfile('unknown'), /profile/i);
 
 assert.equal(REPLAYS_PER_ITERATION, 2);
 
-// The replay paths MUST stay the exact three URL shapes session 103
-// whitelisted in cacheTargetOf; meta/cuisines can never 304.
+// The replay rotation must cover EVERY route template session 103
+// whitelisted in cacheTargetOf — session 126 added the fourth URL shape,
+// /api/search (the rotation previously only "searched" through the list
+// `search=` filter, a DIFFERENT route; meta/cuisines can never 304 and
+// stays OUT).
 assert.equal(cacheBrowsePath(0, 'abc'), '/restaurants?sort=rating&limit=20');
 assert.equal(cacheBrowsePath(1, 'abc'), '/restaurants/abc');
 assert.equal(cacheBrowsePath(2, 'abc'), '/restaurants?search=rice&limit=20');
-assert.equal(cacheBrowsePath(3, 'abc'), '/restaurants?sort=rating&limit=20');
+assert.equal(cacheBrowsePath(3, 'abc'), '/search?q=nasi&limit=10');
+assert.equal(cacheBrowsePath(4, 'abc'), '/restaurants?sort=rating&limit=20');
 for (let i = 0; i < 12; i += 1) {
   const p = cacheBrowsePath(i, 'abc');
   assert.ok(!p.includes('/meta/'), `replay path ${p} is not cache-whitelisted`);
 }
-// session-103 cacheTargetOf truth: '/restaurants/<id>' is only a cache target
-// when the id is a uuid — the replay profile must never hand it anything else.
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+// Mirror of the cacheTargetOf EXACT-PATH truth (query string stripped):
+// every replay path must map to one of the three whitelisted templates —
+// '/api/restaurants', '/api/restaurants/<uuid>' or '/api/search'. Anything
+// else would be a transparent pass-through whose replay 200s and fails the
+// profile's own abort contract; the pin catches the mistake at test time.
 const contractIds = [
   'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
   'ffffffff-1111-2222-3333-444444444444',
 ];
+const CACHE_TEMPLATES = new Set(['/restaurants', '/search']);
+for (let i = 0; i < 12; i += 1) {
+  const p = cacheBrowsePath(i, contractIds[i % 2]);
+  const pathOnly = p.split('?')[0];
+  if (CACHE_TEMPLATES.has(pathOnly)) continue;
+  assert.ok(pathOnly.startsWith('/restaurants/'), `replay path ${p} matches no whitelist template`);
+  assert.equal(pathOnly.split('/').length, 3, `replay path ${p} is a sub-path`);
+}
+// session-103 cacheTargetOf truth: '/restaurants/<id>' is only a cache target
+// when the id is a uuid — the replay profile must never hand it anything else.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 for (let i = 0; i < 12; i += 1) {
   const p = cacheBrowsePath(i, contractIds[i % 2]);
   const seg = p.startsWith('/restaurants/') ? p.slice('/restaurants/'.length) : null;
