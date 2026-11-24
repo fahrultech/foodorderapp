@@ -3,6 +3,90 @@
 Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
+## 2026-11-24 20:10 — Session 129 — restock_repair_backlog: the 6th DI-free alert rule rides the session-73 orphan predicate (Ops, Phase 14 #2)
+
+**Built:**
+
+- API: `ops/alerts.ts` gained rule 6 `restock_repair_backlog` —
+  warning severity, fires when the whole-table count of cancelled orders
+  past the repair grace STRICTLY exceeds `ALERT_RESTOCK_BACKLOG_MAX`
+  (default 0: the repair chain drains every orphan it can see, so any
+  backlog means the scheduler is dead or capped and reserved stock stays
+  locked). Same caller-supplied-observation doctrine as snapshot_stale
+  (session 109): the engine stays DI-free; `evaluateAlerts` takes an
+  optional 4th arg `RestockBacklogInput { backlog, graceMinutes,
+  storeError? }` — a missing observation (the synchronous fold line) or an
+  unreadable count is an honest NOT-evaluated, never a false fire and
+  never a fabricated zero.
+- API: `countRestockOrphans(manager, cutoff)` in
+  `orders/stock-restock-repair.ts` reuses the private ORPHAN_WHERE
+  fragment verbatim (cancelled + marker NULL + jsonb_typeof array + array
+  length > 0 + updatedAt past the cutoff) with NO batch cap — a backlog
+  larger than RESTOCK_REPAIR_BATCH must still alert; the alert number and
+  the drained number can never drift because there is ONE predicate.
+  `count(*)::int` folded through rowsOfQueryResult (session-71 tuple
+  truth applied to mocks too).
+- API: new `RestockBacklogObserver` provider (common/metrics, injects the
+  TypeORM DataSource like account-data.service): resolves the cutoff from
+  `resolveRestockRepairConfig` (RESTOCK_REPAIR_GRACE_MINUTES, garbage
+  falls back), never throws (failed read degrades to storeError + warn).
+  Wired into MetricsModule; supplied by BOTH async consumers —
+  `GET /admin/alerts` and the persisted-verdict tick (persistNow + the
+  history currentStatus read), so the fire lands in the `alert_verdicts`
+  series and the alert-scan HTTP poll inherits it with zero script
+  changes (its header doc now lists all six rules).
+- API: `ALERT_RESTOCK_BACKLOG_MAX` added to env.validation, the
+  RequestMetricsService boot map, and the swagger response models
+  (thresholds property + rule-id enum). The route @ApiOperation text
+  now describes six rules and "the two DB-backed observations".
+- Tests: +1 suite / +13 tests (103 suites / 1393 tests): 8 new
+  rule-6 evaluator cases (presence SIXTH, fold honesty, UNREADABLE,
+  strict-above arithmetic at 0 and tightened ceilings, >batch backlog,
+  env-parse matrix, compact-verdict ride) + 2 `countRestockOrphans`
+  SQL-shape/result-shape pins (asserts NO LIMIT/ORDER BY — the cap-less
+  property IS the contract) + 3 observer cases (cutoff arithmetic with a
+  tolerance window, garbage-grace fallback, never-throws storeError).
+  All 5-key threshold literals in existing specs re-pinned with
+  `restockBacklogMax: 0` (admin fixture + mirror pin now carry six
+  rules), swagger.spec + admin.controller.spec + verdicts.spec gained the
+  new provider/fake as the constructor arity demanded.
+- Docs: ARCHITECTURE six-rules paragraph (incl. the shipped-cadence note:
+  the repair timer is 30min vs the 10min grace, so post-crash the warning
+  can legitimately ride up to ~20min until the drain — tune via the
+  ceiling or the timer), ROADMAP tick, alert-scan header rule list.
+
+**Verified (all live, 29-migration from-empty scratch DB, API on :4033):**
+
+- `cd apps/api && npm run build` green; full jest 103 suites / 1393
+  tests (+1 suite / +13 vs session 127's newest recorded count of
+  102/1380 — session 128 was ops-only and never moved it).
+- Live smoke 34/34, every claim asserted EXACT: baseline rule present
+  SIXTH quiet observed 0 (seeded FO-SEED6 cancelled order provably does
+  NOT count — its snapshot is NULL); real crash state minted via API
+  create + cancel (marker stamped, units returned to 50) then SQL rewind
+  (marker NULL, updatedAt -15min, units re-locked to 40); rule fires as
+  the ONLY firing rule observed 1 with the detail naming count + grace;
+  the request_metrics FOLD line stayed status ok with the backlog rule
+  provably absent from its firing list (honest not-evaluated, never a
+  false fire); a persisted `alert_verdicts` row recorded
+  firingRules == ["restock_repair_backlog"] verbatim; `npm run
+  alert-scan` exited 1 and named the rule; ADMIN POST
+  /orders/ops/restock-repair drained it (scanned 1 / repaired 1, stock
+  back to 50, marker re-stamped), alerts quiet again, scan exited 0.
+  Grace-boundary phase: marker-NULL INSIDE grace counted 0; the same row
+  pushed past 10min counted 1; snapshot set NULL after that counted 0
+  again (decremented-nothing exclusion holds live).
+
+**Left for next session:**
+
+- Nothing blocks Phase 14; the next item is
+  "per-user notification channel settings" (bigger — plan a scope split).
+- Possible refinement: a partial expression index matching ORPHAN_WHERE
+  if orders ever grows large enough that the cap-less alert count shows
+  up in a perf arm (today it is one indexed-status-table count per pull
+  tick; session 128 arms never flagged it).
+
+---
 ## 2026-11-24 18:22 — Session 128 — Five-shape browse LOAD re-baseline + shipped mixed hit/miss RATIO profile: Phase 14 opens on the cache-era leftovers (Perf, ops-only, Phase 14 #1)
 
 **Built:**

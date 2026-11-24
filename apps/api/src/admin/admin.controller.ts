@@ -18,6 +18,7 @@ import { AdminService } from './admin.service';
 import { RequestMetricsService } from '../common/metrics/request-metrics.service';
 import { MetricsPersistenceService } from '../common/metrics/metrics-persistence.service';
 import { AlertVerdictsService } from '../common/metrics/alert-verdicts.service';
+import { RestockBacklogObserver } from '../common/metrics/restock-backlog.observer';
 
 @Controller('admin')
 @ApiTags('admin')
@@ -27,6 +28,7 @@ export class AdminController {
     private readonly metrics: RequestMetricsService,
     private readonly persistence: MetricsPersistenceService,
     private readonly verdicts: AlertVerdictsService,
+    private readonly restockBacklog: RestockBacklogObserver,
   ) {}
 
   @Get('overview')
@@ -81,17 +83,23 @@ export class AdminController {
       '(5xx rate vs the 99.5% availability SLO), p95_latency (histogram estimate vs ceiling), ' +
       'route_key_overflow (cardinality-cap folding), snapshot_stale (the session-89 ' +
       'durability writer going silently dead — evaluated from a metrics_snapshots read, ' +
-      'writer-disabled is exempt) and rate_limit_pressure (guard-throttled 429 share over the ' +
-      'same sample floor, ALERT_RATE_LIMIT_PCT_MAX). Cumulative-since-boot ' +
+      'writer-disabled is exempt), rate_limit_pressure (guard-throttled 429 share over the ' +
+      'same sample floor, ALERT_RATE_LIMIT_PCT_MAX) and restock_repair_backlog (cancelled ' +
+      'orders past the restock-repair grace still awaiting stock return, ALERT_RESTOCK_' +
+      'BACKLOG_MAX; evaluated from an orphan count over the session-73 predicate). ' +
+      'Cumulative-since-boot ' +
       'totals inherited from GET /admin/metrics; the periodic `request_metrics` fold line ' +
-      'carries the same verdict compactly (without the DB-backed staleness observation). ' +
+      'carries the same verdict compactly (without the two DB-backed observations). ' +
       'ADMIN only.',
   })
   @ApiOkResponse({ type: AdminAlertsReportResponse })
   @ApiError(401, 'Missing/invalid/expired access token.')
   @ApiError(403, 'Valid token but role is not ADMIN.')
   async alerts() {
-    return this.metrics.alerts(await this.persistence.freshnessInput());
+    return this.metrics.alerts(
+      await this.persistence.freshnessInput(),
+      await this.restockBacklog.input(),
+    );
   }
 
   @Get('alerts/history')

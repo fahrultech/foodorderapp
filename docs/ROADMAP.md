@@ -512,12 +512,19 @@
   unique /search q keys, RUN_TAG fail-loud, contract-pinned helpers;
   mixed arm: 44,239 reqs @ 245.7 req/s, every revalidation resident-304,
   zero 5xx; ops+docs only — API/web delta 0.)
-- [ ] Ops: `restock_repair_backlog` alert rule — orphaned cancelled
+- [x] Ops: `restock_repair_backlog` alert rule — orphaned cancelled
   orders (non-NULL snapshot + NULL `stockRestockedAt` past the repair
   grace, session 73's own predicate) are invisible between cron runs;
   count them, feed a 6th DI-free rule into `ops/alerts.ts` (env
   threshold, warning severity), ride the fold line + persisted verdicts
   + alert-scan exit codes like the other five. Unit + live smoke.
+  (2026-11-24, session 129; whole-table `countRestockOrphans` sharing the
+  ORPHAN_WHERE fragment (no batch cap by design), `RestockBacklogObserver`
+  caller-supplied observation on the pull route + verdict tick (fold line
+  honestly not-evaluated), `ALERT_RESTOCK_BACKLOG_MAX` default 0 fires
+  strictly above; 103 suites / 1393 tests (+13) + live smoke 34/34 incl.
+  grace boundary, NULL-snapshot exclusion, persisted-row fire, scan
+  exit 1 -> repair drain -> exit 0.)
 - [ ] Product: per-user notification channel settings — the email ladder
   is all-or-nothing today (authed orders get status emails whenever SMTP
   is configured; session 122's guest path has no opt-out at all) while

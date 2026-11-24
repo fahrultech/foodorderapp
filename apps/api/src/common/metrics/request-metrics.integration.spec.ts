@@ -346,6 +346,7 @@ describe('request metrics — live middleware chain', () => {
       minRequests: 50,
       rateLimitPctMax: 5,
       snapshotStaleAfterSec: null,
+      restockBacklogMax: 0,
     });
     metricsService.logSnapshot();
     await drain();

@@ -9,6 +9,7 @@ import {
   resolveSnapshotRetentionSec,
 } from './metrics-persistence.service';
 import { RequestMetricsService } from './request-metrics.service';
+import { RestockBacklogObserver } from './restock-backlog.observer';
 import { blankToUndefined, clampToIntRange } from '../int-range';
 import { AlertReport } from '../../ops/alerts';
 
@@ -95,6 +96,7 @@ export class AlertVerdictsService implements OnModuleDestroy {
     config: ConfigService,
     private readonly metrics: RequestMetricsService,
     private readonly persistence: MetricsPersistenceService,
+    private readonly restockBacklog: RestockBacklogObserver,
     @InjectRepository(AlertVerdictRow)
     private readonly repo: Repository<AlertVerdictRow>,
   ) {
@@ -130,7 +132,10 @@ export class AlertVerdictsService implements OnModuleDestroy {
     if (!this.enabled) return 'disabled';
     try {
       const capturedAt = new Date();
-      const report = this.metrics.alerts(await this.persistence.freshnessInput());
+      const report = this.metrics.alerts(
+        await this.persistence.freshnessInput(),
+        await this.restockBacklog.input(),
+      );
       await this.repo.save(
         this.repo.create({
           capturedAt,
@@ -202,9 +207,12 @@ export class AlertVerdictsService implements OnModuleDestroy {
       },
     };
 
-    // The live verdict rides the SAME engine + freshness observation as
+    // The live verdict rides the SAME engine + observations as
     // GET /admin/alerts — one implementation, every consumer agrees.
-    const live = this.metrics.alerts(await this.persistence.freshnessInput());
+    const live = this.metrics.alerts(
+      await this.persistence.freshnessInput(),
+      await this.restockBacklog.input(),
+    );
     view.streak.currentStatus = live.status;
 
     if (!this.enabled) {

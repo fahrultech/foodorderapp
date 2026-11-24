@@ -5,6 +5,7 @@ import { AlertVerdictsService } from './alert-verdicts.service';
 import { MetricsPersistenceService } from './metrics-persistence.service';
 import { MetricsSnapshotRow } from './metrics-snapshot.entity';
 import { RequestMetricsService } from './request-metrics.service';
+import { RestockBacklogObserver } from './restock-backlog.observer';
 
 /**
  * Process-lifetime singleton by design: one registry per Node instance,
@@ -18,7 +19,7 @@ import { RequestMetricsService } from './request-metrics.service';
  */
 @Module({
   imports: [TypeOrmModule.forFeature([MetricsSnapshotRow, AlertVerdictRow])],
-  providers: [RequestMetricsService, MetricsPersistenceService, AlertVerdictsService],
-  exports: [RequestMetricsService, MetricsPersistenceService, AlertVerdictsService],
+  providers: [RequestMetricsService, MetricsPersistenceService, AlertVerdictsService, RestockBacklogObserver],
+  exports: [RequestMetricsService, MetricsPersistenceService, AlertVerdictsService, RestockBacklogObserver],
 })
 export class MetricsModule {}

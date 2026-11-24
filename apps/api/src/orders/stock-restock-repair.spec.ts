@@ -2,6 +2,7 @@ import { Repository } from 'typeorm';
 import {
   resolveRestockRepairConfig,
   findRestockOrphans,
+  countRestockOrphans,
   runRestockRepair,
   RestockRepairOptions,
   DEFAULT_RESTOCK_REPAIR_BATCH,
@@ -126,6 +127,34 @@ describe('findRestockOrphans — the orphan predicate', () => {
     const { manager } = fakeManager({ orphans: [] });
     const rows = await findRestockOrphans(manager, new Date(), 10);
     expect(rows).toEqual([]);
+  });
+});
+
+describe('countRestockOrphans — the alert-rule observation (Phase 14)', () => {
+  it('pins the SQL shape: the SAME orphan predicate as the repair scan, no ORDER BY, no LIMIT', async () => {
+    const query = jest.fn(async (_sql: string, _params?: unknown[]) => [[{ n: 3 }], 1]);
+    const cutoff = new Date('2026-11-09T10:00:00Z');
+    expect(await countRestockOrphans({ query } as any, cutoff)).toBe(3);
+    const [sql, params] = query.mock.calls[0];
+    expect(sql).toContain(`WHERE "status" = 'cancelled'`);
+    expect(sql).toContain('"stockRestockedAt" IS NULL');
+    expect(sql).toContain(`jsonb_typeof("stockDecrements") = 'array'`);
+    expect(sql).toContain(`jsonb_array_length("stockDecrements") > 0`);
+    expect(sql).toContain('"updatedAt" < $1');
+    // Whole-table count by design: no batch cap (a backlog larger than the
+    // repair batch must still alert) and no per-row ordering.
+    expect(sql).not.toContain('LIMIT');
+    expect(sql).not.toContain('ORDER BY');
+    expect(params).toEqual([cutoff]);
+  });
+
+  it('reads BOTH result shapes and pg bigint strings; an empty result is zero, never NaN', async () => {
+    const tuple = jest.fn(async () => [[{ n: '7' }], 1]); // string bigint fold
+    expect(await countRestockOrphans({ query: tuple } as any, new Date())).toBe(7);
+    const flat = jest.fn(async () => [{ n: 2 }]); // plain rows shape
+    expect(await countRestockOrphans({ query: flat } as any, new Date())).toBe(2);
+    const empty = jest.fn(async () => []);
+    expect(await countRestockOrphans({ query: empty } as any, new Date())).toBe(0);
   });
 });
 

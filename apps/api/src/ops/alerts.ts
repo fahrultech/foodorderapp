@@ -19,6 +19,11 @@
  * is a synchronous consumer with no DB handle — there the rule reports an
  * honest "not evaluated" verdict (never a false fire, never a false ok).
  *
+ * The 6th rule needs the SAME caller-supplied treatment (Phase 14): its
+ * observation is a DB count of orphaned cancelled orders, so the ADMIN pull
+ * route and the persisted-verdict tick pass `RestockBacklogInput` and the
+ * synchronous fold line reports an honest "not evaluated".
+ *
  * Rules (all thresholds operator-tunable via env, defaults below):
  *   - error_budget: 5xx share of requests vs the 99.5% availability SLO →
  *     a budget of 0.5% server errors. Only evaluated once the sample reaches
@@ -51,6 +56,17 @@
  *     header-carrying refusal), but sustained pressure means customers are
  *     being turned away — capacity/config attention, not an outage. Still
  *     flips the verdict, the fold line and the alert-scan exit code.
+ *   - restock_repair_backlog (Phase 14): the session-73 repair pass returns
+ *     stock units for cancelled orders whose restock transaction never
+ *     committed (crash between the status commit and the restock commit),
+ *     but only when a scheduler actually RUNS it. Between runs the backlog
+ *     is invisible. The caller supplies a DB count of orphans past the
+ *     repair grace; the rule fires when it STRICTLY exceeds
+ *     ALERT_RESTOCK_BACKLOG_MAX (default 0 — a healthy repair chain drains
+ *     every orphan it can see, so any backlog at all means the scheduler is
+ *     not running, is slower than the grace window, or is capped, and
+ *     reserved stock stays locked). WARNING severity: nothing user-facing
+ *     has failed yet — a human action (or cron) is late.
  *
  * Cumulative-since-boot caveat inherited from the registry (session 85):
  * an early 5xx burst keeps the budget rule lit until traffic dilutes it.
@@ -69,7 +85,8 @@ export type AlertRuleId =
   | 'p95_latency'
   | 'route_key_overflow'
   | 'snapshot_stale'
-  | 'rate_limit_pressure';
+  | 'rate_limit_pressure'
+  | 'restock_repair_backlog';
 export type AlertSeverity = 'error' | 'warning';
 export type AlertStatus = 'ok' | 'alerting';
 
@@ -93,6 +110,25 @@ export interface SnapshotFreshnessInput {
   nowMs?: number;
 }
 
+/**
+ * The repair-backlog observation the restock_repair_backlog rule needs
+ * (Phase 14). Supplied by the ADMIN pull route and the persisted-verdict
+ * tick; the synchronous fold line has no DB handle and omits it.
+ *
+ * `backlog` reuses the session-73 orphan predicate EXACTLY (cancelled +
+ * NULL marker + non-empty snapshot + past the grace window), counted over
+ * the WHOLE table rather than capped at one batch — a backlog larger than
+ * RESTOCK_REPAIR_BATCH must still alert, that is the point.
+ */
+export interface RestockBacklogInput {
+  /** Orphan count over the whole table (no batch cap); null when unreadable. */
+  backlog: number | null;
+  /** Grace window applied to the count, minutes (mirrors the repair config). */
+  graceMinutes: number;
+  /** The count read FAILED — reported as "unreadable", never as a zero. */
+  storeError?: boolean;
+}
+
 export interface AlertThresholds {
   /** Percent (0-100). Rule fires when the 5xx rate STRICTLY exceeds it. */
   fiveXxRatePctMax: number;
@@ -113,6 +149,14 @@ export interface AlertThresholds {
    * integer from ALERT_SNAPSHOT_STALE_AFTER_SEC overrides the multiplier.
    */
   snapshotStaleAfterSec: number | null;
+  /**
+   * Maximum orphaned-cancelled orders past the repair grace the
+   * restock_repair_backlog rule tolerates before firing (Phase 14).
+   * Default 0 = "any backlog alerts": the repair chain drains every orphan
+   * it can see, so a non-empty backlog means the scheduler is dead, slow or
+   * capped. Fires STRICTLY above; integer semantics (rows, not percent).
+   */
+  restockBacklogMax: number;
 }
 
 export const DEFAULT_ALERT_THRESHOLDS: AlertThresholds = {
@@ -135,6 +179,13 @@ export const DEFAULT_ALERT_THRESHOLDS: AlertThresholds = {
   // a single hiccup (one failed save, immediately retried next tick) is
   // noise, a silently dead writer is exactly two-tick silence.
   snapshotStaleAfterSec: null,
+  // Any backlog alerts (see AlertThresholds.restockBacklogMax). The alert
+  // fires only for rows OLDER than the repair grace window, so a healthy
+  // chain that simply has not run its next tick yet stays quiet; 0 is a
+  // legal tightened ceiling and 5 legal noise tolerance for fleets whose
+  // repair cron runs slower than the grace window. Tune with
+  // ALERT_RESTOCK_BACKLOG_MAX.
+  restockBacklogMax: 0,
 };
 
 export interface AlertRuleResult {
@@ -218,6 +269,12 @@ export function resolveAlertThresholds(
     ),
     minRequests: positiveIntThreshold(env.ALERT_MIN_REQUESTS, DEFAULT_ALERT_THRESHOLDS.minRequests),
     snapshotStaleAfterSec: positiveIntOrNull(env.ALERT_SNAPSHOT_STALE_AFTER_SEC),
+    // Whole-rows ceiling: thresholdNumber keeps the floor-0 policy (garbage/
+    // negative/blank fall back, 0 is legal and IS the default), floor() folds
+    // a fractional 2.9 into 2 like ALERT_MIN_REQUESTS does.
+    restockBacklogMax: Math.floor(
+      thresholdNumber(env.ALERT_RESTOCK_BACKLOG_MAX, DEFAULT_ALERT_THRESHOLDS.restockBacklogMax, 0),
+    ),
   };
 }
 
@@ -226,6 +283,7 @@ export function evaluateAlerts(
   snapshot: MetricsSnapshot,
   thresholds: AlertThresholds = DEFAULT_ALERT_THRESHOLDS,
   freshness?: SnapshotFreshnessInput | null,
+  restock?: RestockBacklogInput | null,
 ): AlertReport {
   const { totals } = snapshot;
 
@@ -349,6 +407,33 @@ export function evaluateAlerts(
         `${thresholds.rateLimitPctMax}% ceiling`;
   }
 
+  // ── rule 6: restock-repair backlog (Phase 14) ──────────────────────────
+  // Orphaned cancelled orders = stock units still reserved although the
+  // order is cancelled. The repair pass (cron + ADMIN route) drains them
+  // through the session-73 predicate; between runs nothing else sees them.
+  // Same caller-supplied-observation doctrine as snapshot_stale: no
+  // observation (the synchronous fold line) or an unreadable count is an
+  // honest NOT-evaluated — never a false fire, never a fabricated zero.
+  let rbFiring = false;
+  let rbObserved: number | null = null;
+  let rbDetail: string;
+  if (!restock) {
+    rbDetail = 'no repair-backlog observation supplied — rule not evaluated';
+  } else if (restock.storeError || restock.backlog === null) {
+    rbDetail =
+      `orders repair backlog UNREADABLE (count failed) — rule not evaluated ` +
+      `(grace ${restock.graceMinutes}min)`;
+  } else {
+    rbObserved = restock.backlog;
+    rbFiring = restock.backlog > thresholds.restockBacklogMax;
+    rbDetail = rbFiring
+      ? `${restock.backlog} cancelled order(s) past the ${restock.graceMinutes}min repair ` +
+        `grace still await restock, above the ${thresholds.restockBacklogMax} ceiling — the ` +
+        `restock-repair scheduler is not draining the backlog and their stock stays reserved`
+      : `${restock.backlog} past-grace orphans within the ${thresholds.restockBacklogMax} ` +
+        `ceiling (grace ${restock.graceMinutes}min)`;
+  }
+
   const rules: AlertRuleResult[] = [
     {
       id: 'error_budget',
@@ -389,6 +474,14 @@ export function evaluateAlerts(
       observed: rlObserved,
       threshold: thresholds.rateLimitPctMax,
       detail: rlDetail,
+    },
+    {
+      id: 'restock_repair_backlog',
+      firing: rbFiring,
+      severity: 'warning',
+      observed: rbObserved,
+      threshold: thresholds.restockBacklogMax,
+      detail: rbDetail,
     },
   ];
 

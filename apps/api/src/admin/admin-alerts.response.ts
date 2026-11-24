@@ -44,12 +44,27 @@ export class AlertThresholdsResponse {
       'comes from ALERT_SNAPSHOT_STALE_AFTER_SEC (positive seconds; 0/garbage fall back to null).',
   })
   snapshotStaleAfterSec: number | null;
+  @ApiProperty({
+    type: 'number',
+    description:
+      'restock_repair_backlog ceiling in rows (session Phase 14, ALERT_RESTOCK_BACKLOG_MAX, ' +
+      'default 0 = any backlog alerts). Cancelled orders past RESTOCK_REPAIR_GRACE_MINUTES ' +
+      'still awaiting stock return fire the rule when the count STRICTLY exceeds this value.',
+  })
+  restockBacklogMax: number;
 }
 
 export class AlertRuleResultResponse {
   @ApiProperty({
     type: 'string',
-    enum: ['error_budget', 'p95_latency', 'route_key_overflow', 'snapshot_stale', 'rate_limit_pressure'],
+    enum: [
+      'error_budget',
+      'p95_latency',
+      'route_key_overflow',
+      'snapshot_stale',
+      'rate_limit_pressure',
+      'restock_repair_backlog',
+    ],
   })
   id: string;
 

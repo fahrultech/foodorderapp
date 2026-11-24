@@ -11,6 +11,7 @@ import {
   MIN_ALERT_HISTORY_WINDOW_SEC,
 } from './alert-verdicts.service';
 import { MetricsPersistenceService } from './metrics-persistence.service';
+import { RestockBacklogObserver } from './restock-backlog.observer';
 import { RequestMetricsService } from './request-metrics.service';
 import { AlertReport, AlertRuleId } from '../../ops/alerts';
 
@@ -26,6 +27,7 @@ function report(status: 'ok' | 'alerting', firingRules: AlertRuleId[]): AlertRep
       minRequests: 50,
       rateLimitPctMax: 5,
       snapshotStaleAfterSec: null,
+      restockBacklogMax: 0,
     },
     rules: [],
   };
@@ -63,29 +65,38 @@ function makeFakes(
     // (session 89 TypeORM refusal, carried to every newest-row read).
     find: jest.fn(async (_q?: Record<string, unknown>) => [] as AlertVerdictRow[]),
   };
+  const restockBacklogInput = jest.fn(async () => ({ backlog: 0, graceMinutes: 10 }));
+  const restockBacklog = { input: restockBacklogInput } as unknown as RestockBacklogObserver;
   const metrics = { alerts } as unknown as RequestMetricsService;
   const persistence = {
     freshnessInput,
     enabled: env.METRICS_SNAPSHOT_INTERVAL_SEC !== '0',
   } as unknown as MetricsPersistenceService;
   const config = { get: (key: string) => env[key] } as unknown as ConfigService;
-  const svc = new AlertVerdictsService(config, metrics, persistence, repo as unknown as Repository<AlertVerdictRow>);
-  return { svc, repo, alerts, freshnessInput, liveReport };
+  const svc = new AlertVerdictsService(
+    config,
+    metrics,
+    persistence,
+    restockBacklog,
+    repo as unknown as Repository<AlertVerdictRow>,
+  );
+  return { svc, repo, alerts, freshnessInput, restockBacklogInput, liveReport };
 }
 
 describe('AlertVerdictsService.persistNow', () => {
   it('disabled writer: no evaluation, no repo touch', async () => {
-    const { svc, repo, alerts, freshnessInput } = makeFakes({ METRICS_SNAPSHOT_INTERVAL_SEC: '0' });
+    const { svc, repo, alerts, freshnessInput, restockBacklogInput } = makeFakes({ METRICS_SNAPSHOT_INTERVAL_SEC: '0' });
     await expect(svc.persistNow()).resolves.toBe('disabled');
     expect(alerts).not.toHaveBeenCalled();
     expect(freshnessInput).not.toHaveBeenCalled();
+    expect(restockBacklogInput).not.toHaveBeenCalled();
     expect(repo.save).not.toHaveBeenCalled();
     expect(repo.createQueryBuilder).not.toHaveBeenCalled();
     svc.onModuleDestroy();
   });
 
   it('appends the verdict row with the LIVE engine output verbatim, then prunes past retention', async () => {
-    const { svc, repo, liveReport, freshnessInput, alerts } = makeFakes(
+    const { svc, repo, liveReport, freshnessInput, alerts, restockBacklogInput } = makeFakes(
       { METRICS_SNAPSHOT_RETENTION_SEC: '3600' },
       { liveStatus: 'alerting', liveFiring: ['p95_latency'] },
     );
@@ -95,7 +106,10 @@ describe('AlertVerdictsService.persistNow', () => {
     // The DB-backed freshness observation is supplied, exactly like the
     // GET /admin/alerts route does (one engine, no second path).
     expect(freshnessInput).toHaveBeenCalled();
-    expect(alerts).toHaveBeenCalledWith(await freshnessInput());
+    // Phase 14: the backlog observation rides the tick too — a persisted
+    // verdict without it could never record a restock_repair_backlog fire.
+    expect(restockBacklogInput).toHaveBeenCalled();
+    expect(alerts).toHaveBeenCalledWith(await freshnessInput(), await restockBacklogInput());
 
     const created = repo.create.mock.calls[0][0];
     expect(created.status).toBe('alerting');

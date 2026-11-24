@@ -7,6 +7,7 @@ import {
   AlertThresholds,
   evaluateAlerts,
   resolveAlertThresholds,
+  RestockBacklogInput,
   SnapshotFreshnessInput,
   summarizeAlerts,
 } from '../../ops/alerts';
@@ -53,6 +54,7 @@ export class RequestMetricsService implements OnModuleDestroy {
       ALERT_RATE_LIMIT_PCT_MAX: config.get<string>('ALERT_RATE_LIMIT_PCT_MAX'),
       ALERT_MIN_REQUESTS: config.get<string>('ALERT_MIN_REQUESTS'),
       ALERT_SNAPSHOT_STALE_AFTER_SEC: config.get<string>('ALERT_SNAPSHOT_STALE_AFTER_SEC'),
+      ALERT_RESTOCK_BACKLOG_MAX: config.get<string>('ALERT_RESTOCK_BACKLOG_MAX'),
     });
     if (this.intervalSec > 0) {
       this.timer = setInterval(() => this.logSnapshot(), this.intervalSec * 1000);
@@ -90,9 +92,16 @@ export class RequestMetricsService implements OnModuleDestroy {
    * .freshnessInput() so the pull consumers (admin, alert-scan) inherit it;
    * without an observation (the synchronous fold line below) the rule
    * reports an honest "not evaluated".
+   * The optional `restock` observation (Phase 14) powers the
+   * restock_repair_backlog rule the SAME way: RestockBacklogObserver.input()
+   * from the pull route and the persisted-verdict tick; absent on the
+   * synchronous fold line, which honestly reports the rule not-evaluated.
    */
-  alerts(freshness?: SnapshotFreshnessInput | null): AlertReport {
-    return evaluateAlerts(this.registry.snapshot(), this.alertThresholds, freshness);
+  alerts(
+    freshness?: SnapshotFreshnessInput | null,
+    restock?: RestockBacklogInput | null,
+  ): AlertReport {
+    return evaluateAlerts(this.registry.snapshot(), this.alertThresholds, freshness, restock);
   }
 
   logSnapshot(): void {

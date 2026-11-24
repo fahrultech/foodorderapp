@@ -228,6 +228,16 @@ export class EnvVars {
   @IsString()
   ALERT_SNAPSHOT_STALE_AFTER_SEC?: string;
 
+  // restock_repair_backlog ceiling (Phase 14) — maximum cancelled orders
+  // past the RESTOCK_REPAIR_GRACE_MINUTES window still awaiting stock
+  // return before the rule fires. Default 0 = "any backlog alerts" (the
+  // repair chain drains every orphan it can see; a non-empty backlog means
+  // the scheduler is dead or capped). Fires STRICTLY above; garbage/
+  // negative falls back, 0 is legal.
+  @IsOptional()
+  @IsString()
+  ALERT_RESTOCK_BACKLOG_MAX?: string;
+
   // ── Rate limiting (all optional) ─────────────────────────────────────────
   @IsOptional()
   @IsString()

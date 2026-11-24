@@ -709,7 +709,7 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   the OWNER rung through it even by accident, and the panel chunk stays
   code-split behind the `traffic != null` render gate (session 90 rule).
   On top of the snapshots sits the DI-free alert engine
-  `ops/alerts.ts` (session 86): five rules — `error_budget` (5xx rate vs
+  `ops/alerts.ts` (session 86): six rules — `error_budget` (5xx rate vs
   the 99.5% availability SLO, gated by a minimum sample), `p95_latency`
   (histogram estimate vs ceiling), `route_key_overflow` (cardinality-cap
   folding, a warning), `snapshot_stale` (session 109: fires while the
@@ -725,15 +725,29 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   floor — 429s hide inside the 4xx class, so without this a store silently
   shedding customers looked healthy between the limiter headers and the
   complaint; warning severity on purpose: the 429 itself means the limiter
-  WORKED, sustained pressure means customers are being turned away) — evaluated from
+  WORKED, sustained pressure means customers are being turned away) and
+  `restock_repair_backlog` (session 129: cancelled orders carrying a
+  non-empty `stockDecrements` snapshot with `stockRestockedAt` still NULL
+  past the repair grace — the exact session-73 orphan predicate, counted
+  over the WHOLE table (no batch cap: a backlog larger than
+  RESTOCK_REPAIR_BATCH must still alert) — fire STRICTLY above
+  `ALERT_RESTOCK_BACKLOG_MAX`, default 0 = any backlog alerts; warning
+  severity: reserved stock stays locked but nothing user-facing has
+  failed. NOTE the shipped cadence interaction: the repair timer runs
+  every 30min vs a 10min grace, so after a crash this warning can legitimately
+  ride for up to ~20min until the next drain; raise the ceiling or shorten
+  the timer to tune that) — evaluated from
   env-resolved thresholds (`ALERT_5XX_RATE_PCT_MAX` / `ALERT_P95_MS_MAX` /
   `ALERT_RATE_LIMIT_PCT_MAX` /
-  `ALERT_MIN_REQUESTS` / `ALERT_SNAPSHOT_STALE_AFTER_SEC`,
+  `ALERT_MIN_REQUESTS` / `ALERT_SNAPSHOT_STALE_AFTER_SEC` /
+  `ALERT_RESTOCK_BACKLOG_MAX`,
   read once at boot; garbage falls back, never crash-boots). ONE engine,
   three consumers that can never disagree: ADMIN pull route
   `GET /admin/alerts` (full report; the staleness rule reads
-  `MetricsPersistenceService.freshnessInput()` there — the synchronous
-  fold line has no DB handle and honestly reports the rule as
+  `MetricsPersistenceService.freshnessInput()` and the backlog rule reads
+  `RestockBacklogObserver.input()` (same caller-supplied-observation
+  doctrine, DI-free engine) there — the synchronous
+  fold line has no DB handle and honestly reports BOTH rules as
   not-evaluated, never as a false ok), the compact `{status, firing}`
   verdict folded into every `request_metrics` line (push), and the
   scheduler poller

@@ -160,6 +160,27 @@ export async function findRestockOrphans(
 }
 
 /**
+ * Count the orphan backlog over the WHOLE table — the alert-rule
+ * observation (Phase 14). Deliberately the SAME ORPHAN_WHERE predicate as
+ * the repair scan (and the ADMIN dry-run count), so the number the alert
+ * reports and the number the repair drains can never drift apart. Unlike
+ * findRestockOrphans there is NO batch cap here: a backlog larger than
+ * RESTOCK_REPAIR_BATCH must still alert — that backlog IS the signal.
+ */
+export async function countRestockOrphans(
+  manager: Pick<EntityManager, 'query'>,
+  cutoff: Date,
+): Promise<number> {
+  const rows = rowsOfQueryResult(
+    await manager.query(
+      `SELECT count(*)::int AS n FROM "orders" ${ORPHAN_WHERE}`,
+      [cutoff],
+    ),
+  );
+  return Number(rows[0]?.n ?? 0);
+}
+
+/**
  * Find and repair the crashed-cancel orphans. Runs one restock transaction
  * per orphan through the shared exactly-once primitive; each report entry
  * carries the units the order's own snapshot accounts for.

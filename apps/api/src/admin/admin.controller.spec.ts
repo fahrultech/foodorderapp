@@ -18,6 +18,7 @@ import { MetricsPersistenceService } from '../common/metrics/metrics-persistence
 import { MetricsSnapshotRow } from '../common/metrics/metrics-snapshot.entity';
 import { AlertVerdictRow } from '../common/metrics/alert-verdict.entity';
 import { AlertVerdictsService } from '../common/metrics/alert-verdicts.service';
+import { RestockBacklogObserver } from '../common/metrics/restock-backlog.observer';
 import { RequestMetricsRegistry } from '../common/metrics/request-metrics';
 import { DEFAULT_ALERT_THRESHOLDS, evaluateAlerts } from '../ops/alerts';
 
@@ -26,6 +27,11 @@ const JWT_TEST = 'admin-controller-http-test-key';
 // Registry boot anchor for the durability fixtures (session 89).
 const BOOT_ISO = '2026-11-12T02:00:00.000Z';
 const BOOT_MS = Date.parse(BOOT_ISO);
+
+// Phase 14: the fake RestockBacklogObserver's canned observation — an
+// EMPTY backlog (healthy repair chain). The route call pin below proves
+// the observation actually reaches the evaluator.
+const RESTOCK_BACKLOG_FIXTURE = { backlog: 0, graceMinutes: 10 };
 
 describe('AdminController HTTP', () => {
   let app: INestApplication;
@@ -66,6 +72,9 @@ describe('AdminController HTTP', () => {
         // (same fake-store style as the metrics repo above).
         { provide: getRepositoryToken(AlertVerdictRow), useValue: verdictRepo },
         { provide: ConfigService, useValue: { get: () => undefined } }, // defaults: interval 300, retention 24h
+        // Phase 14 fake: the route's backlog observation (empty backlog —
+        // the call-shape pin below proves the route PASSES it through).
+        { provide: RestockBacklogObserver, useValue: { input: async () => RESTOCK_BACKLOG_FIXTURE } },
         MetricsPersistenceService,
         AlertVerdictsService,
         JwtAuthGuard,
@@ -369,6 +378,7 @@ describe('AdminController HTTP', () => {
       minRequests: 50,
       rateLimitPctMax: 5,
       snapshotStaleAfterSec: null,
+      restockBacklogMax: 0,
     },
     rules: [
       {
@@ -411,6 +421,14 @@ describe('AdminController HTTP', () => {
         threshold: 5,
         detail: '4 guard-throttled 429s (0.8%) within the 5% ceiling',
       },
+      {
+        id: 'restock_repair_backlog',
+        firing: false,
+        severity: 'warning',
+        observed: 0,
+        threshold: 0,
+        detail: '0 past-grace orphans within the 0 ceiling (grace 10min)',
+      },
     ],
   };
 
@@ -447,11 +465,14 @@ describe('AdminController HTTP', () => {
     // Session 109 wiring: the route supplies the DB-backed freshness
     // observation (BASE_ROW via the real persistence service) — without
     // this pin the snapshot_stale rule could silently un-wire itself.
-    expect(alerts).toHaveBeenCalledWith({
-      enabled: true,
-      intervalSec: 300,
-      lastCapturedAtMs: BASE_ROW.capturedAt.getTime(),
-    });
+    expect(alerts).toHaveBeenCalledWith(
+      {
+        enabled: true,
+        intervalSec: 300,
+        lastCapturedAtMs: BASE_ROW.capturedAt.getTime(),
+      },
+      RESTOCK_BACKLOG_FIXTURE,
+    );
   });
 
   // --- GET /admin/alerts/history (Phase 11 Ops: the persisted series) ---

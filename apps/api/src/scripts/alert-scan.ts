@@ -11,7 +11,8 @@ import 'dotenv/config';
  *
  *   0 = healthy (status ok)         — cron stays silent
  *   1 = ALERTING (any rule fires: error_budget / p95_latency /
- *     route_key_overflow / snapshot_stale)  — cron/systemd mail transport notifies
+ *     route_key_overflow / snapshot_stale / rate_limit_pressure /
+ *     restock_repair_backlog)  — cron/systemd mail transport notifies
  *   2 = the SCAN itself failed      — API down, bad creds, unexpected shape
  *
  * Exit 1 vs exit 2 is the point: "the building is on fire" and "the smoke

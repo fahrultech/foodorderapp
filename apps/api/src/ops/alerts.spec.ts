@@ -57,6 +57,7 @@ describe('resolveAlertThresholds', () => {
       minRequests: 1,
       rateLimitPctMax: 5,
       snapshotStaleAfterSec: null,
+      restockBacklogMax: 0,
     });
     expect(resolveAlertThresholds({ ALERT_5XX_RATE_PCT_MAX: '-0.1' }).fiveXxRatePctMax).toBe(0.5);
   });
@@ -153,7 +154,7 @@ describe('evaluateAlerts — error_budget', () => {
 
   it('zero threshold + min 1: a lone 5xx out of one request is a verdict', () => {
     const snap = registrySnapshot(many('GET /api/x', 1, 500, 10));
-    const report = evaluateAlerts(snap, { fiveXxRatePctMax: 0, p95MsMax: 100000, minRequests: 1, rateLimitPctMax: 5, snapshotStaleAfterSec: null });
+    const report = evaluateAlerts(snap, { fiveXxRatePctMax: 0, p95MsMax: 100000, minRequests: 1, rateLimitPctMax: 5, snapshotStaleAfterSec: null, restockBacklogMax: 0 });
     expect(rule(report, 'error_budget')).toMatchObject({ firing: true, observed: 100 });
   });
 
@@ -237,7 +238,7 @@ describe('evaluateAlerts — snapshot_stale (session 109)', () => {
 
   it('no observation (the synchronous fold-line consumer): rule present, NOT firing, honest detail', () => {
     const report = evaluateAlerts(snap(999999));
-    expect(report.rules).toHaveLength(5);
+    expect(report.rules).toHaveLength(6);
     const s = rule(report, 'snapshot_stale');
     expect(s).toMatchObject({ firing: false, severity: 'warning', observed: null });
     expect(s.detail).toMatch(/not evaluated/);
@@ -340,7 +341,7 @@ describe('evaluateAlerts — rate_limit_pressure (session 123)', () => {
 
   it('rule is present FIFTH with default ceiling 5% and warning severity', () => {
     const report = evaluateAlerts(registrySnapshot(() => undefined));
-    expect(report.rules).toHaveLength(5);
+    expect(report.rules).toHaveLength(6);
     expect(report.rules[4].id).toBe('rate_limit_pressure');
     expect(report.rules[4]).toMatchObject({ firing: false, severity: 'warning', threshold: 5 });
   });
@@ -406,23 +407,112 @@ describe('evaluateAlerts — rate_limit_pressure (session 123)', () => {
   });
 });
 
+describe('evaluateAlerts — restock_repair_backlog (Phase 14)', () => {
+  const snap = () => registrySnapshot(() => undefined);
+
+  it('rule is present SIXTH with default ceiling 0 and warning severity', () => {
+    const report = evaluateAlerts(snap());
+    expect(report.rules).toHaveLength(6);
+    expect(report.rules[5].id).toBe('restock_repair_backlog');
+    expect(report.rules[5]).toMatchObject({ firing: false, severity: 'warning', threshold: 0 });
+  });
+
+  it('no observation (the synchronous fold-line consumer): NOT evaluated, honest detail', () => {
+    const report = evaluateAlerts(snap(), DEFAULT_ALERT_THRESHOLDS, null);
+    const rb = rule(report, 'restock_repair_backlog');
+    expect(rb).toMatchObject({ firing: false, observed: null });
+    expect(rb.detail).toMatch(/no repair-backlog observation supplied .*not evaluated/);
+    expect(report.status).toBe('ok');
+  });
+
+  it('UNREADABLE count reports honestly as unreadable — never a false fire, never a zero', () => {
+    const report = evaluateAlerts(snap(), DEFAULT_ALERT_THRESHOLDS, null, {
+      backlog: null,
+      graceMinutes: 10,
+      storeError: true,
+    });
+    const rb = rule(report, 'restock_repair_backlog');
+    expect(rb).toMatchObject({ firing: false, observed: null });
+    expect(rb.detail).toMatch(/UNREADABLE/);
+    expect(rb.detail).not.toMatch(/0 past-grace/);
+    expect(report.status).toBe('ok');
+  });
+
+  it('default ceiling 0: zero orphans quiet, ONE past-grace orphan fires with numbers', () => {
+    const quiet = evaluateAlerts(snap(), DEFAULT_ALERT_THRESHOLDS, null, { backlog: 0, graceMinutes: 10 });
+    expect(rule(quiet, 'restock_repair_backlog')).toMatchObject({ firing: false, observed: 0 });
+    expect(quiet.status).toBe('ok');
+
+    const over = evaluateAlerts(snap(), DEFAULT_ALERT_THRESHOLDS, null, { backlog: 1, graceMinutes: 10 });
+    const rb = rule(over, 'restock_repair_backlog');
+    expect(rb).toMatchObject({ firing: true, severity: 'warning', observed: 1, threshold: 0 });
+    expect(rb.detail).toMatch(/1 cancelled order\(s\) past the 10min repair grace/);
+    expect(over.status).toBe('alerting');
+    expect(over.firingRules).toEqual(['restock_repair_backlog']);
+  });
+
+  it('fires STRICTLY above the ceiling: backlog AT the ceiling stays quiet', () => {
+    const at = evaluateAlerts(
+      snap(),
+      { ...DEFAULT_ALERT_THRESHOLDS, restockBacklogMax: 2 },
+      null,
+      { backlog: 2, graceMinutes: 10 },
+    );
+    expect(rule(at, 'restock_repair_backlog')).toMatchObject({ firing: false, observed: 2, threshold: 2 });
+    const over = evaluateAlerts(
+      snap(),
+      { ...DEFAULT_ALERT_THRESHOLDS, restockBacklogMax: 2 },
+      null,
+      { backlog: 3, graceMinutes: 10 },
+    );
+    expect(rule(over, 'restock_repair_backlog')).toMatchObject({ firing: true, observed: 3 });
+    expect(over.firingRules).toEqual(['restock_repair_backlog']);
+  });
+
+  it('a backlog LARGER than the repair batch still alerts (whole-table count, no cap)', () => {
+    const report = evaluateAlerts(snap(), DEFAULT_ALERT_THRESHOLDS, null, {
+      backlog: 501,
+      graceMinutes: 10,
+    });
+    expect(rule(report, 'restock_repair_backlog')).toMatchObject({ firing: true, observed: 501 });
+  });
+
+  it('ALERT_RESTOCK_BACKLOG_MAX parsing: integers pass, garbage/negative/blank fall back to 0, 0 legal', () => {
+    expect(resolveAlertThresholds({ ALERT_RESTOCK_BACKLOG_MAX: '3' }).restockBacklogMax).toBe(3);
+    expect(resolveAlertThresholds({ ALERT_RESTOCK_BACKLOG_MAX: '2.9' }).restockBacklogMax).toBe(2);
+    expect(resolveAlertThresholds({ ALERT_RESTOCK_BACKLOG_MAX: '0' }).restockBacklogMax).toBe(0);
+    expect(resolveAlertThresholds({ ALERT_RESTOCK_BACKLOG_MAX: 'half' }).restockBacklogMax).toBe(0);
+    expect(resolveAlertThresholds({ ALERT_RESTOCK_BACKLOG_MAX: '-1' }).restockBacklogMax).toBe(0);
+    expect(resolveAlertThresholds({ ALERT_RESTOCK_BACKLOG_MAX: '' }).restockBacklogMax).toBe(0);
+    expect(resolveAlertThresholds({}).restockBacklogMax).toBe(0);
+  });
+
+  it('summarizeAlerts carries the backlog rule into the compact verdict shape', () => {
+    const report = evaluateAlerts(snap(), DEFAULT_ALERT_THRESHOLDS, null, {
+      backlog: 4,
+      graceMinutes: 10,
+    });
+    expect(summarizeAlerts(report)).toEqual({ status: 'alerting', firing: ['restock_repair_backlog'] });
+  });
+});
+
 describe('evaluateAlerts — combinations', () => {
   it('multiple simultaneous breaches list every firing rule in rule order', () => {
     const reg = new RequestMetricsRegistry(3);
     for (const p of ['/a', '/b', '/c', '/d']) reg.record(`GET ${p}`, 500, 3000);
     // min sample 1: this is a tiny synthetic registry, the budget rule is
     // otherwise (correctly) gated for n=4.
-    const report = evaluateAlerts(reg.snapshot(), { fiveXxRatePctMax: 0.5, p95MsMax: 1000, minRequests: 1, rateLimitPctMax: 5, snapshotStaleAfterSec: null });
+    const report = evaluateAlerts(reg.snapshot(), { fiveXxRatePctMax: 0.5, p95MsMax: 1000, minRequests: 1, rateLimitPctMax: 5, snapshotStaleAfterSec: null, restockBacklogMax: 0 });
     expect(report.status).toBe('alerting');
     expect(report.firingRules).toEqual(['error_budget', 'p95_latency', 'route_key_overflow']);
-    expect(report.rules).toHaveLength(5);
+    expect(report.rules).toHaveLength(6);
     expect(summarizeAlerts(report)).toEqual({
       status: 'alerting',
       firing: ['error_budget', 'p95_latency', 'route_key_overflow'],
     });
   });
 
-  it('all FIVE rules can fire and the list stays in rule order', () => {
+  it('all SIX rules can fire and the list stays in rule order', () => {
     const reg = new RequestMetricsRegistry(3);
     for (const p of ['/a', '/b', '/c', '/d']) reg.record(`GET ${p}`, 500, 3000);
     // One guard-marked 429 (folds into `other` past the cap — the throttle
@@ -430,8 +520,9 @@ describe('evaluateAlerts — combinations', () => {
     reg.record('GET /throttled', 429, 10, null, true);
     const report = evaluateAlerts(
       { ...reg.snapshot(), uptimeSec: 999999 },
-      { fiveXxRatePctMax: 0.5, p95MsMax: 1000, minRequests: 1, rateLimitPctMax: 5, snapshotStaleAfterSec: null },
+      { fiveXxRatePctMax: 0.5, p95MsMax: 1000, minRequests: 1, rateLimitPctMax: 5, snapshotStaleAfterSec: null, restockBacklogMax: 0 },
       { enabled: true, intervalSec: 300, lastCapturedAtMs: null },
+      { backlog: 1, graceMinutes: 10 },
     );
     expect(report.firingRules).toEqual([
       'error_budget',
@@ -439,6 +530,7 @@ describe('evaluateAlerts — combinations', () => {
       'route_key_overflow',
       'snapshot_stale',
       'rate_limit_pressure',
+      'restock_repair_backlog',
     ]);
   });
 

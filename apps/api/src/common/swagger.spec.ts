@@ -53,6 +53,7 @@ import { AdminService } from '../admin/admin.service';
 import { RequestMetricsService } from '../common/metrics/request-metrics.service';
 import { MetricsPersistenceService } from '../common/metrics/metrics-persistence.service';
 import { AlertVerdictsService } from '../common/metrics/alert-verdicts.service';
+import { RestockBacklogObserver } from '../common/metrics/restock-backlog.observer';
 import { SearchController } from '../search/search.controller';
 import { SearchService } from '../search/search.service';
 
@@ -111,6 +112,9 @@ const mockedProviders = [
   { provide: AdminService, useValue: empty() },
   { provide: RequestMetricsService, useValue: { snapshot: () => ({}) } },
   { provide: MetricsPersistenceService, useValue: { decorate: async (s) => s } },
+  // Phase 14: AdminController now also injects the backlog observation
+  // supplier — same fake-provider style as the metrics services above.
+  { provide: RestockBacklogObserver, useValue: { input: async () => ({ backlog: 0, graceMinutes: 10 }) } },
   { provide: AlertVerdictsService, useValue: empty() },
   { provide: SearchService, useValue: empty() },
   { provide: DataSource, useValue: { query: async () => [] } },
