@@ -382,10 +382,13 @@ export default function MyOrdersPage() {
                       </Link>
                     </div>
                   </div>
-                  {/* "Order again" (session 107): completed orders only. A
-                      block BELOW the action row so the ladder's result /
+                  {/* "Order again" (session 107, extended to CANCELLED cards
+                      session 127): a cancelled order is exactly when a
+                      customer wants to retry, and the ladder reads only the
+                      frozen snapshot, so no restock semantics are involved.
+                      A block BELOW the action row so the ladder's result /
                       replace-confirmation panel has the full card width. */}
-                  {order.status === 'completed' && (
+                  {(order.status === 'completed' || order.status === 'cancelled') && (
                     <div className="mt-3 border-t border-stone-100 pt-3">
                       <OrderAgainButton order={order} />
                     </div>

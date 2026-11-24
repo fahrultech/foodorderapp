@@ -22,6 +22,9 @@ import {
  *    frozen option selection rides at CURRENT prices;
  *  - a foreign cart always goes through the inline replace confirmation
  *    (cancel keeps the old cart untouched);
+ *  - CANCELLED orders (session 127) offer the SAME button on the history
+ *    card (Cancelled tab) and the receipt — the ladder never reads
+ *    restock/state fields, only the frozen snapshot;
  *  - the ID chrome renders localized.
  *
  * History assertions ride the Completed FILTER TAB (pinned via the stable
@@ -235,4 +238,69 @@ test('ID chrome: the same ladder speaks Indonesian', async ({ page }) => {
     'Subtotal keranjang $5.00 di bawah minimum pesanan restoran ini sebesar $10.00.',
   );
   await expect(panel.getByTestId('order-again-continue')).toHaveText('Ke Warung Nusantara');
+});
+
+test('cancelled order: history card and receipt both offer the same retry', async ({
+  page,
+  request,
+}) => {
+  // Fresh-seed-safe by construction: the card is pinned to this run's own
+  // order code, and the demo account has NO seeded cancelled order (FO-SEED6
+  // belongs to a guest), so the Cancelled tab's page 1 is deterministic.
+  const nasi = await menuDish(request, 'Nasi Goreng Spesial');
+  const demoToken = await loginToken(request, DEMO);
+  const order = await timed('orderAgain.createCancelled', async () => {
+    const res = await request.post(`${API}/orders`, {
+      data: {
+        restaurantId: nasi.restaurantId,
+        items: [{ menuItemId: nasi.dish.id, quantity: 1 }],
+        customerName: 'Cancel Retry Tester',
+        contactPhone: '081200001270',
+        contactEmail: DEMO,
+        deliveryAddress: '12 Retry Street, Jakarta',
+      },
+      headers: bearer(demoToken),
+    });
+    expect(res.status(), await res.text()).toBe(201);
+    return (await res.json()) as { id: string; code: string };
+  });
+  // Self-cancel while still pending (no payment needed on this rung).
+  await timed('orderAgain.cancelOrder', async () => {
+    const res = await request.post(`${API}/orders/${order.id}/cancel`, {
+      headers: bearer(demoToken),
+    });
+    expect(res.status(), await res.text()).toBe(201);
+  });
+
+  await signInUi(page, DEMO, { goto: '/login?next=/orders/my' });
+  await page.locator('#orders-tab-cancelled').click();
+  await expect(page.locator('#orders-tab-cancelled')).toHaveAttribute('aria-selected', 'true');
+  const card = page.locator(`[data-testid="order-card-${order.code}"]`);
+  await expect(card).toBeVisible();
+  const pill = card.getByTestId(`order-again-${order.code}`);
+  await expect(pill).toBeVisible();
+  await expect(pill).toHaveText('Order again');
+
+  // Clean plan (1x Nasi Goreng $18.00 over the $10.00 min, nothing drifted)
+  // -> the same auto-route contract as completed orders.
+  await pill.click();
+  await expect(page).toHaveURL(/\/restaurants\//, { timeout: 15_000 });
+  await expect(page.getByRole('heading', { level: 1, name: 'Warung Nusantara' })).toBeVisible();
+  await expect(page.locator('header a[href="/cart"] span')).toHaveText('1');
+
+  // The bare-URL receipt (guest proof via contactEmail) mirrors the card:
+  // button present, and clicking merges onto the matching cart line.
+  await page.goto(`/orders/${order.id}?email=${encodeURIComponent(DEMO)}`);
+  const block = page.locator(`[data-testid="order-again-${order.code}"]`);
+  await expect(block).toBeVisible();
+  await block.click();
+  await expect(page).toHaveURL(/\/restaurants\//, { timeout: 15_000 });
+  await expect(page.locator('header a[href="/cart"] span')).toHaveText('2');
+
+  // ID chrome on the cancelled receipt (SSR reads the locale cookie).
+  await page.context().addCookies([{ name: 'locale', value: 'id', url: 'http://localhost:3000' }]);
+  await page.goto(`/orders/${order.id}?email=${encodeURIComponent(DEMO)}`);
+  await expect(
+    page.locator(`[data-testid="order-again-${order.code}"]`),
+  ).toHaveText('Pesan lagi');
 });

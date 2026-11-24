@@ -204,11 +204,12 @@ export default async function OrderPage({
         </Link>
       </div>
 
-      {/* "Order again" (session 107): the receipt mirrors the history-card
-          action for COMPLETED orders. Client island — the cart is
+      {/* "Order again" (session 107, extended to CANCELLED receipts
+          session 127): the receipt mirrors the history-card action for
+          COMPLETED and CANCELLED orders. Client island — the cart is
           localStorage-backed, so it works for guests too (checkout already
           supports guest carts). */}
-      {order.status === 'completed' && (
+      {(order.status === 'completed' || order.status === 'cancelled') && (
         <div className="mt-2 text-center">
           <OrderAgainButton order={order} variant="block" />
         </div>

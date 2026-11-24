@@ -11,9 +11,11 @@ import { planOrderAgain, type OrderAgainPlan, type OrderAgainSkipReason } from '
 import { fallbackMessage } from '@/lib/locale-strings';
 
 interface Props {
-  /** A COMPLETED order. Only `code`, `restaurant.{id,name}` and the frozen
-   *  `items` rows (menuItemId + optionSelections) are read — safe to pass
-   *  the plain JSON the pages already hold (works from a server component). */
+  /** A COMPLETED or CANCELLED order (session 127 widened the gate — the
+   *  ladder never reads money/status fields). Only `code`,
+   *  `restaurant.{id,name}` and the frozen `items` rows (menuItemId +
+   *  optionSelections) are read — safe to pass the plain JSON the pages
+   *  already hold (works from a server component). */
   order: Order;
   /** History cards use the compact pill; the receipt gets the block button. */
   variant?: 'pill' | 'block';
