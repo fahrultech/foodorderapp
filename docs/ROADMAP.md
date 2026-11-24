@@ -499,12 +499,19 @@
 
 ## Phase 14 — Load truth, repair telemetry & receipt reach (opened 2026-11-24, Phase 13 exhausted; from the Perf / Ops / UX / Test / Product evergreen loops)
 
-- [ ] Perf: full k6 LOAD arms for the session-126 5-shape browse rotation
+- [x] Perf: full k6 LOAD arms for the session-126 5-shape browse rotation
   (smoke-arm numbers were recorded instead of a load table) PLUS the
   session-104 leftover mixed hit/miss RATIO profile — real fleets
   interleave capture and revalidation; record both as new rows in
   docs/PERFORMANCE.md with the statement-window cross-check like
-  session 126's table.
+  session 126's table. (2026-11-24, session 128; three load arms on one
+  29-migration scratch DB — control 2.400 / cached 0.229 / mixed 0.667
+  stmt/req, ALL closing arithmetically (per-shape probe constants 2/1/5/1/3
+  reconstruct the control window to the statement); new shipped
+  `ops/load-test-mixed.js` 1:1:1 capture:revalidate:recycle profile on
+  unique /search q keys, RUN_TAG fail-loud, contract-pinned helpers;
+  mixed arm: 44,239 reqs @ 245.7 req/s, every revalidation resident-304,
+  zero 5xx; ops+docs only — API/web delta 0.)
 - [ ] Ops: `restock_repair_backlog` alert rule — orphaned cancelled
   orders (non-NULL snapshot + NULL `stockRestockedAt` past the repair
   grace, session 73's own predicate) are invisible between cron runs;

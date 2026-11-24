@@ -60,6 +60,7 @@ With k6 installed:
 BASE_URL=http://127.0.0.1:4000/api PROFILE=smoke k6 run ops/load-test.js
 BASE_URL=http://127.0.0.1:4000/api PROFILE=load k6 run ops/load-test.js
 BASE_URL=http://127.0.0.1:4000/api PROFILE=smoke k6 run ops/load-test-conditional.js
+BASE_URL=http://127.0.0.1:4000/api RUN_TAG=k128demo PROFILE=smoke k6 run ops/load-test-mixed.js  # RUN_TAG required (lowercase alnum)
 BASE_URL=http://127.0.0.1:4100/api PROFILE=smoke k6 run ops/load-test-write.js   # scratch rig!
 ```
 
@@ -539,6 +540,96 @@ there deliberately excludes the search leg as measured at the time.
 
 API source untouched (jest delta 0, 102/1380), web delta 0.
 
+## Five-shape browse LOAD re-baseline + mixed hit/miss ratio arms — November 24, 2026 (session 128)
+
+Phase 14 #1, closing BOTH cache-era leftovers: session 126 recorded only
+SMOKE-arm numbers for the new five-shape rotation (the load table still
+described session 104's four shapes), and session 104's note that "a real
+fleet interleaves capture and revalidation — a mixed hit/miss ratio
+profile could cover intermediates" had never been built. Environment:
+same host (2 vCPU EPYC, 1.9 GiB RAM, Node 22.23.2, PostgreSQL 16.15,
+canonical 6-restaurant seed, k6 v2.3.0 via `--network host`), fresh
+29-migration from-empty scratch DB, production dist on :4100, snapshot
+writer OFF (`METRICS_SNAPSHOT_INTERVAL_SEC=0`) so every logged statement
+belongs to the fleet, query logger ALTER DATABASE-scoped BEFORE boot,
+marker-bracketed run-unique windows per arm.
+
+Results (all thresholds green on every arm; 0.00% failed requests —
+no 429s, no 5xx lines in any arm's API log):
+
+| Profile | Arm | Iterations | Requests | Throughput | avg | p95 | p99 | Max | Checks |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| browse `load` | TTL=0 control (5 shapes) | 14,906 | 14,907 | 82.78 req/s | 3.69 ms | 8.33 ms | 15.09 ms | 65.63 ms | 44,719 |
+| browse `load` | **TTL=15 cached (5 shapes)** | 15,104 | 15,105 | 83.90 req/s | 1.10 ms | **2.78 ms** | 5.57 ms | 29.45 ms | 45,313 |
+| mixed `load` | 1 miss : 1 reval : 1 served, TTL=15 | 14,746 | 44,239 | **245.67 req/s** | 1.78 ms | 5.44 ms | 9.94 ms | 63.83 ms | 162,207 |
+
+The cached arm reproduces session 104's headline on the completed
+rotation: p95 8.33 to 2.78 ms at identical iteration rate (the added
+search leg costs the control 2.4 stmt/req instead of 2.0, so only the
+shape-comparable columns match the old table directly).
+
+**The mixed ratio profile** (`ops/load-test-mixed.js`, shipped) cycles
+three request classes per iteration on the SAME just-discovered URL — a
+per-(VU, iteration) unique `/api/search?q=` key (the only whitelisted
+template with an unbounded key space, i.e. what real misses are):
+unconditional capture (true miss, handler runs, bytes stored),
+`If-None-Match` revalidation (resident hit, 304, empty body), and an
+unconditional recycle (fresh hit, 200 served from the store, zero SQL).
+Measured composition: 14,746 of each class — every single revalidation
+answered 304 (`revalidate_answered_200` absent, i.e. zero: no TTL or
+eviction edge was hit in 44k requests) — and the latency split per
+class: miss avg 3.74 ms / p95 7.84 / max 63.8; revalidation avg 0.84 /
+p95 2.48; served avg 0.75 / p95 2.11.
+
+Statements-per-request, from the query-logger windows (same method as
+session 79/104: `LOG: (statement|execute)` lines between run-unique
+markers, marker queries and DETAILs excluded):
+
+| Arm (load profile) | Requests | Statements | stmt/req |
+|---|---:|---:|---:|
+| browse TTL=0 (5-shape control) | 14,907 | 35,776 | **2.400** — closes arithmetically, see constants below |
+| browse TTL=15 | 15,105 | 3,460 | **0.229** (cuisines leg 3,021 + TTL re-captures 439, model 435) |
+| mixed 1:1:1 | 44,239 | 29,494 | **0.667** = exactly 2 per iteration + 2 bootstrap |
+
+Per-shape statement constants were PROBED on the same rig (five
+marker-bracketed windows of 20 sequential curls, TTL=0 so every request
+runs the handler): rating list 2, cuisines 1, restaurant detail 5, list
+`search=` filter 1, `/search?q=nasi` 3 (matching q pays one more
+statement than the 2 of a non-matching flood query — session 126's
+flood truth). The control arm then closes EXACTLY, no fudge: 14,906
+visits split 2,982 rating-list + 2,981 of each other shape, so
+2,982 x 2 + 2,981 x (1 + 5 + 1 + 3) = 35,774, plus the 2 statements of
+the k6 bootstrap list read = 35,776 measured.
+
+The mixed arm's arithmetic is the whole point of a ratio profile: the
+server cost is PREDICTED by the composition — miss fraction (1/3) times
+statements per non-matching search capture (2) plus zero for both hit
+classes — and the measured window equals the model to the last
+statement (14,746 x 2 + 2 = 29,494). The bounded 500-entry store never
+evicted a just-captured key out from under its own follow-up legs: at
+plateau the insert rate is ~82.8 unique keys/s, so the eviction horizon
+is ~6 s while the revalidate/recycle legs follow within 1 s of their
+capture. That is session 126's KEEP decision confirmed at load rate —
+fan-out misses are real, resident hits are free, and the worst case
+stays exactly a re-read (it never even materialized here).
+
+Reading notes:
+
+- Wire bytes tell the 304 story: the mixed arm received 18 MB across
+  44,239 requests (~406 B/req — two thirds empty 304s and tiny
+  non-matching-search payloads) against the control's 43 MB across
+  14,907 (~2.9 KB/req).
+- `RUN_TAG` is REQUIRED (lowercase alnum, loud abort in setup): it keys
+  the unique q so a rerun can never warm-survey an earlier arm's
+  entries; the contract test pins the fail-loud matrix and the
+  1:1:1 cycle order (`mixedLegKind` drives the legs, browse-identical
+  VU stages, URL shape whitelist mirror).
+- Ops-only increment: no API/web source touched (jest delta 0, web
+  delta 0); `node --test ops/load-test.contract.test.mjs` green, and
+  the CI ops gate (ci.yml line 55) runs the new pins automatically.
+
+API source untouched. Scratch DB dropped after the runs.
+
 ## First Load JS+CSS budget gate — November 21, 2026 (session 115); ancestor-chain revision November 23, 2026 (session 118)
 
 Phase 11 roadmap item "Perf: First Load JS budget gate". A zero-dep node
@@ -783,3 +874,10 @@ available:
    (DONE: session 104 — re-baseline above; p95 5.07 → 2.52 ms at TTL=15,
    stmt/req 2.000 → 0.262, and the shipped `ops/load-test-conditional.js`
    replay profile measures the 304 path head-on at 0.003 stmt/req.)
+7. Cover the FLEET RATIOS between the all-capture browse and the
+   all-revalidation arms — real traffic interleaves misses,
+   revalidations and unconditional hits on one store.
+   (DONE: session 128 — shipped `ops/load-test-mixed.js` cycles
+   capture : revalidate : recycle 1:1:1 on unique `/search?q=` keys;
+   measured stmt/req 0.667 = miss fraction x statements-per-miss to
+   the last statement.)

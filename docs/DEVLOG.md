@@ -3,6 +3,86 @@
 Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
+## 2026-11-24 18:22 — Session 128 — Five-shape browse LOAD re-baseline + shipped mixed hit/miss RATIO profile: Phase 14 opens on the cache-era leftovers (Perf, ops-only, Phase 14 #1)
+
+**Built:**
+
+- ops: `ops/load-test-mixed.js` — the profile session 104 left open
+  ("a real fleet interleaves capture and revalidation"). Each iteration
+  discovers ONE per-(VU,iteration) unique `/api/search?q=` key and rides
+  three request classes on it in a fixed cycle: unconditional capture
+  (true miss, handler runs, bytes captured), `If-None-Match`
+  revalidation (resident hit, 304, empty body), unconditional recycle
+  (fresh hit, 200 served from the store, ZERO SQL) — long-run
+  composition exactly 1:1:1 (2/3 hit ratio, one handler run per
+  iteration). Per-class Trend splits (miss_ms/revalidate_ms/served_ms)
+  and response counters (captured / revalidate_304 /
+  revalidate_answered_200 / served_200) mirror session 108's leg-trend
+  doctrine; a missing/invalid `RUN_TAG` is a loud setup abort (a rerun
+  must never warm-survey an earlier arm's entries), and every leg
+  carries the abort-on-wrong-shape contract (capture without a
+  cacheable strong ETag, revalidate answering 5xx, recycle != 200 all
+  stop the test instead of quietly measuring nothing).
+- ops: pure helpers in `load-test.lib.mjs` (`MIXED_LEGS`,
+  `mixedLegKind`, `mixSearchUrl`, `mixedProfile`) — the script's leg
+  loop is DRIVEN by `mixedLegKind` (contract-pinned order, capture
+  first because the other two legs reuse its ETag), the load stages are
+  byte-identical to the browse profile so latency columns compare
+  directly, and `mixSearchUrl` fails loudly on any non-`[a-z0-9]`
+  run tag.
+- Test: `ops/load-test.contract.test.mjs` gained the mixed section
+  (cycle wrap + 60-iteration order sweep, URL byte-stability and
+  per-(vu,iter) uniqueness, the five-case RUN_TAG fail-loud matrix,
+  whitelist-mirror shape pins, profile-shape equality with browse) —
+  and CI runs the whole file automatically (ci.yml ops gate line 55).
+- docs: PERFORMANCE.md gained the session-128 section (three load arms
+  + the statement-window arithmetic + per-shape probe constants) and
+  recommendation 7 closed as DONE; ROADMAP Phase 14 #1 ticked.
+
+**Verified (all live, one 29-migration from-empty scratch DB, snapshot
+writer off so every logged statement belongs to the fleet):**
+
+- `node --test ops/load-test.contract.test.mjs` green (existing pins
+  untouched + the mixed section).
+- Mixed SMOKE arm first (73 iters / 220 reqs / 804 checks 100%): every
+  revalidation answered 304, statement window 148 = 73x2 + bootstrap,
+  proving the script AND the marker-window parser before the long runs.
+- Browse LOAD TTL=0 control: 14,906 iters / 14,907 reqs / 82.78 req/s,
+  p95 8.33 p99 15.09 max 65.63, 44,719/44,719 checks.
+- Browse LOAD TTL=15 shipped: 15,104 iters / 15,105 reqs / 83.90 req/s,
+  p95 2.78, 45,313/45,313 checks — session 104's cached-vs-control p95
+  split REPRODUCED on the completed five-shape rotation.
+- Mixed LOAD 1:1:1 (RUN_TAG unique): 14,746 iters / 44,239 reqs /
+  245.67 req/s, 162,207/162,207 checks, per class 14,746 capture +
+  14,746 revalidate_304 + 14,746 served_200 and revalidate_answered_200
+  ABSENT (= zero) — not one TTL/eviction edge in 44k requests. Latency
+  split: miss p95 7.84 ms vs 304 p95 2.48 vs served p95 2.11.
+- Statement windows (ALTER DATABASE log_statement='all' before boot,
+  run-unique markers, statement|execute lines counted with markers +
+  DETAILs excluded): control 35,776 = 2.400 stmt/req and it CLOSES
+  EXACTLY per-shape (probe windows of 20 curls each: rating list 2,
+  cuisines 1, detail 5, list-search 1, matched /search 3 — and
+  2,982x2 + 2,981x(1+5+1+3) + 2 bootstrap = 35,776 to the statement);
+  TTL=15 browse 3,460 = 0.229 (cuisines 3,021 + TTL re-captures 439 vs
+  the 12.1-sweeps x 36 model 435); mixed 29,494 = 0.667 = EXACTLY
+  14,746 x 2 + 2 — the ratio profile's predicted server cost hit the
+  measurement with zero fudge. k6 exit 0 (thresholds) on all three
+  arms, 0.00% failed requests, zero error(50) lines in every arm's API
+  log. Scratch DB dropped after; sanitizer scan clean on all 325 added
+  lines; API + web source untouched (jest delta 0, bundle delta 0).
+
+**Left for next sessions:**
+
+- Phase 14 #2 (restock_repair_backlog alert rule) and the rest of the
+  open items.
+- The mixed profile could later gain a tunable ratio knob (e.g.
+  MIX_REVALIDATE_SHARE env) to sweep intermediates instead of pinning
+  1:1:1 — deliberately NOT built today: one honest ratio table first.
+- Session 104's control-vs-cached table used the FOUR-shape rotation;
+  the session-128 table supersedes it for the five-shape truth (only
+  shape-comparable columns match across the two).
+
+---
 ## 2026-11-24 16:25 — Session 127 — Order-again widened to CANCELLED orders: both surfaces gain the retry button through the unchanged snapshot ladder (UX, Phase 13 closer)
 
 **Built:**
