@@ -300,3 +300,38 @@ test('route set beyond the table is ignored (only the committed set is budgeted)
   assert.match(r.stdout, /vs 1 baseline routes/);
   rmSync(rig.dir, { recursive: true, force: true });
 });
+
+test('CI annotations: per-route LEVEL = verdict (session 124, run-159 lesson)', () => {
+  // Exactly one route over budget on GITHUB_ACTIONS: the violated route
+  // publishes ::error for both its budget row and its chain listing;
+  // within-budget rows (including exact-at-budget) publish ::notice — a
+  // postmortem must not read informational rows as failures. A fully
+  // passing gate publishes no ::error at all.
+  const ciEnv = (dir, extra = {}) => ({
+    ...process.env,
+    BUNDLE_NEXT_DIR: dir.nextDir,
+    BUNDLE_BASELINE_FILE: dir.baselinePath,
+    GITHUB_ACTIONS: 'true',
+    ...extra,
+  });
+  const overRig = makeRig({
+    ...TWO_ROUTES,
+    baselineRows: [['/', SHARED_GZ + A_GZ - 1], ['/cart', SHARED_GZ + B_GZ + CSS_GZ]],
+  });
+  const over = spawnSync(process.execPath, [SCRIPT], { env: ciEnv(overRig), encoding: 'utf8' });
+  assert.equal(over.status, 1);
+  assert.match(over.stderr, /^::error title=bundle-budget \//m);
+  assert.match(over.stderr, /^::error title=bundle-chain \//m);
+  assert.match(over.stderr, /^::notice title=bundle-budget \/cart::measured=/m);
+  assert.match(over.stderr, /^::notice title=bundle-chain \/cart::/m);
+  assert.ok(!/^::error title=bundle-budget \/cart/m.test(over.stderr), 'exact-at-budget row must not be an error');
+  rmSync(overRig.dir, { recursive: true, force: true });
+  const okRig = makeRig({
+    ...TWO_ROUTES,
+    baselineRows: [['/', SHARED_GZ + A_GZ], ['/cart', SHARED_GZ + B_GZ + CSS_GZ]],
+  });
+  const ok = spawnSync(process.execPath, [SCRIPT], { env: ciEnv(okRig), encoding: 'utf8' });
+  assert.equal(ok.status, 0, ok.stderr);
+  assert.ok(!ok.stderr.includes('::error'), `passing gate emitted an ::error: ${ok.stderr}`);
+  rmSync(okRig.dir, { recursive: true, force: true });
+});

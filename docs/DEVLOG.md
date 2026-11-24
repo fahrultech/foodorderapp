@@ -86,6 +86,20 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
   DATABASE_URL derivation and RATE_LIMIT bucket lines were codepoint-
   verified on disk after writing (the documented-safe expansion shape,
   no literal credentials anywhere).
+- CI follow-through (post-push): run 160 (my commit) went GREEN on all
+  jobs — the new ops-selftests step included. Its predecessor run 159
+  (yesterday's DOCS-ONLY plan commit) was found RED on the web job: the
+  bundle gate measured `/cart` 139311 = +5 B over its row on an untouched
+  web tree, while the next run measured it back INSIDE — the session-120
+  ±5 wobble, now proven two-sided. Fixed in-session: `/cart` re-adopted
+  to the failing run's CI-measured 139311 (untouched rows keep their
+  headroom), and the gate's annotation semantics repaired — a red run
+  used to publish EVERY row as `::error`, which made exact-at-budget
+  routes indistinguishable from the single real violation and cost the
+  postmortem real minutes; rows now carry per-route LEVEL (::error only
+  for violations, ::notice within budget), pinned as the 16th
+  `node --test` case (16/16 green locally; scripts-only change, zero
+  app-code, bundle sums unaffected).
 
 **Left for next sessions:**
 

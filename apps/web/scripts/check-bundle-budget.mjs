@@ -181,7 +181,14 @@ if (process.argv[1] && resolve(process.argv[1]) === resolve(fileURLToPath(import
     if (process.env.GITHUB_ACTIONS === 'true') {
       for (const { route, baselineBytes } of rows) {
         const r = firstLoadBytes(pages, route, NEXT_DIR);
-        console.error(`::error title=bundle-budget ${route}::measured=${r.bytes ?? r.error} budget=${baselineBytes}`);
+        // Session 124: annotation LEVEL = per-route verdict. Run 159's
+        // postmortem burned real minutes because EVERY row published
+        // ::error once any route failed — routes measured exactly AT
+        // budget read as failures next to the single genuine +5 B
+        // overage. Rows within budget stay fully visible as ::notice.
+        const violated = r.error ? true : baselineBytes - r.bytes < 0;
+        const lvl = violated ? 'error' : 'notice';
+        console.error(`::${lvl} title=bundle-budget ${route}::measured=${r.bytes ?? r.error} budget=${baselineBytes}`);
         // Session 118: permanent diagnostic. Absolute gzip sums are
         // PATH-SENSITIVE (main-app/app-layout chunk module ids embed the
         // checkout path), so a CI RED can mean runner drift, not a real
@@ -193,7 +200,7 @@ if (process.argv[1] && resolve(process.argv[1]) === resolve(fileURLToPath(import
             .filter((f) => /\.(js|css)$/.test(f))
             .map((f) => `${f}=${gzipSync(readFileSync(join(NEXT_DIR, f)), { level: 9 }).length}`)
             .join(',');
-          console.error(`::error title=bundle-chain ${route}::${files}`);
+          console.error(`::${lvl} title=bundle-chain ${route}::${files}`);
         }
       }
     }

@@ -565,7 +565,7 @@ their split decisions separately.
 |---|---|
 | `/` | 135778 |
 | `/restaurants/[id]` | 138849 |
-| `/cart` | 139306 |
+| `/cart` | 139311 |
 | `/checkout` | 142338 |
 | `/map` | 137016 |
 | `/orders/[id]` | 159683 |
@@ -580,11 +580,23 @@ session 119's "runner Node patch drift" attribution is NOT the sole
 stabilizer; the untouched rows deliberately keep that +5 headroom rather
 than re-measuring a wobbly number down onto the baseline.
 
+Session-124 note: CI run 159 (a DOCS-ONLY commit — zero web files) measured
+`/cart` 139311, +5 B over the row, and failed the gate; the very next run
+(160, same untouched web tree) passed it. The ±5 band is therefore
+two-sided and live, exactly as session 120 suspected — `/cart` re-adopted
+ONE LAST time to the failing run's CI-measured 139311 (session-120
+ritual), untouched rows keep their incidental headroom. Postmortem of that
+run also drove a gate fix: every row used to publish `::error` annotations
+once ANY route violated, so exact-at-budget routes read as failures beside
+the single real +5 B — annotations now carry per-route LEVEL (violated
+`::error`, within-budget `::notice`, a passing gate emits zero `::error`),
+pinned as the 16th selftest case.
+
 The gate is dead-gate-proofed (session-106 doctrine): it fails on a missing
 manifest, missing/empty/duplicate-row/unparseable baseline table, a baseline
 route absent from the build (renamed/deleted route would otherwise freeze
 the table silently), and a listed chunk absent on disk. The full decision
-table lives in `scripts/check-bundle-budget.test.mjs` (15 node:test cases,
+table lives in `scripts/check-bundle-budget.test.mjs` (16 node:test cases,
 browser-free, spawned via the `BUNDLE_NEXT_DIR`/`BUNDLE_BASELINE_FILE`
 knobs), INCLUDING the deliberate over-budget negative test (1 B over ->
 exit 1 naming the route) the roadmap asked for, and since session 118 the
