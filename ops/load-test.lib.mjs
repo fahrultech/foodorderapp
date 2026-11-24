@@ -219,6 +219,96 @@ export function isStrongEtag(value) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Mixed hit/miss RATIO scenario (session 128, Phase 14 #1 — session 104's
+// "intermediates" leftover). The browse profile is (steady-state) an all-
+// capture fleet, the conditional profile is capture+revalidation; a REAL
+// fleet interleaves: every page view is a fresh URL (miss -> capture),
+// back-navigation revalidates the etag (hit -> 304), and plain refresh
+// re-requests unconditionally (hit -> 200 served from the store, zero SQL).
+// This scenario cycles exactly one leg of each class per iteration on the
+// SAME URL, so the long-run composition is 1 miss : 1 revalidation : 1
+// served — a 2/3 hit ratio with EXACTLY ONE handler run per iteration.
+// The statement-window cross-check can therefore PREDICT the server cost:
+// ~2 statements per capture and (near) zero elsewhere, and any drift IS
+// the eviction/TTL-edge signal the profile exists to expose.
+//
+// Discoveries are unique `/api/search?q=` URLs because that whitelisted
+// template is the only one with an unbounded key space — which is precisely
+// what real fleet misses are (session 126's KEEP-decision fan-out, now
+// measured at LOAD rate). The recycle/revalidate legs follow within ~ms on
+// the just-captured URL, so they ride the RESIDENT entry (the bounded 500-
+// entry store at these insert rates keeps recent keys alive for seconds).
+// ---------------------------------------------------------------------------
+
+/** The deterministic per-iteration leg cycle for the mixed profile. */
+export const MIXED_LEGS = Object.freeze(['capture', 'revalidate', 'recycle']);
+
+/**
+ * Pure: which leg class runs at position `legIndex` of the fleet cycle.
+ * 0 -> capture (unconditional GET on a fresh URL, MUST 200 + capture),
+ * 1 -> revalidate (If-None-Match with the just-captured tag, MUST 304
+ *      within the resident window; a 200 means the entry vanished first —
+ *      honest TTL/eviction signal, counted, never hidden),
+ * 2 -> recycle (same URL, NO If-None-Match — the "fresh hit" served
+ *      straight from the store: 200, full bytes, zero SQL).
+ */
+export function mixedLegKind(legIndex) {
+  const i = ((legIndex % MIXED_LEGS.length) + MIXED_LEGS.length) % MIXED_LEGS.length;
+  return MIXED_LEGS[i];
+}
+
+/**
+ * Pure: build the per-(VU, iteration) discovery URL — unique `q` keyed on
+ * the run tag so two runs on one scratch DB can never share a store entry
+ * (and a forgotten RUN_TAG is a loud error, not a silent warm-cache lie).
+ * The q token is lowercase [a-z0-9]+ separators only: safe in a query
+ * string without encoding, and the search route's sanitizer keeps it
+ * index-served (session 84/126 doctrine).
+ */
+export function mixSearchUrl(runTag, vuId, iteration) {
+  if (!/^[a-z0-9]+$/.test(String(runTag || ''))) {
+    throw new Error(`RUN_TAG must be lowercase alphanumeric, got: ${runTag}`);
+  }
+  return `/search?q=${runTag}.${vuId}.${iteration}&limit=5`;
+}
+
+const MIXED_PROFILES = Object.freeze({
+  smoke: Object.freeze({
+    mixed: Object.freeze({
+      executor: 'constant-vus',
+      vus: 1,
+      duration: '15s',
+      gracefulStop: '5s',
+    }),
+  }),
+  load: Object.freeze({
+    mixed: Object.freeze({
+      executor: 'ramping-vus',
+      startVUs: 0,
+      // Same VU shape as the public browse load profile so the latency
+      // columns compare directly; each iteration carries 3 requests
+      // (one per leg class), like the conditional replay profile.
+      stages: Object.freeze([
+        Object.freeze({ duration: '30s', target: 10 }),
+        Object.freeze({ duration: '1m', target: 25 }),
+        Object.freeze({ duration: '1m', target: 25 }),
+        Object.freeze({ duration: '30s', target: 0 }),
+      ]),
+      gracefulRampDown: '10s',
+      gracefulStop: '10s',
+    }),
+  }),
+});
+
+export function mixedProfile(name) {
+  const profile = MIXED_PROFILES[name];
+  if (!profile) {
+    throw new Error(`Unknown mixed load-test profile: ${name}. Expected smoke or load.`);
+  }
+  return profile;
+}
+
 const REVALIDATE_PROFILES = Object.freeze({
   smoke: Object.freeze({
     revalidate: Object.freeze({

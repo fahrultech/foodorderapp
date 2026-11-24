@@ -1,12 +1,16 @@
 import assert from 'node:assert/strict';
 import {
   MAX_LINE_QTY,
+  MIXED_LEGS,
   REPLAYS_PER_ITERATION,
   authProfile,
   browsePath,
   cacheBrowsePath,
   isStrongEtag,
   loadProfile,
+  mixSearchUrl,
+  mixedLegKind,
+  mixedProfile,
   orderPayload,
   planCart,
   restaurantIds,
@@ -199,4 +203,62 @@ assert.deepEqual(
   'planCart must stay deterministic for cross-baseline comparability',
 );
 
-console.log('load-test contract: ok (browse + auth + conditional + write)');
+// --- mixed hit/miss RATIO scenario (session 128, Phase 14 #1) --------------
+
+assert.deepEqual(MIXED_LEGS, ['capture', 'revalidate', 'recycle']);
+// The leg cycle is one of each class per iteration in exactly this order:
+// 'capture' FIRST (the ETag the other two legs reuse comes from it), and
+// the long-run composition is a 1:1:1 miss/revalidation/served fleet —
+// the "intermediate" session 104 left open.
+assert.equal(mixedLegKind(0), 'capture');
+assert.equal(mixedLegKind(1), 'revalidate');
+assert.equal(mixedLegKind(2), 'recycle');
+assert.equal(mixedLegKind(3), 'capture', 'cycle wraps to capture');
+for (let i = 0; i < 60; i += 1) {
+  const kinds = [0, 1, 2].map((l) => mixedLegKind(i * 3 + l)).join(',');
+  assert.equal(kinds, 'capture,revalidate,recycle', `iteration ${i} leg order`);
+}
+
+// Discovery URL: unique q keyed on (runTag, vu, iteration) — the ONLY
+// whitelisted template with an unbounded key space is /api/search (the
+// bounded store's eviction behavior is the point at load rate). Byte-stable
+// for identical inputs, and NEVER carrying meta/ or a sub-path.
+assert.equal(mixSearchUrl('k128run', 3, 17), '/search?q=k128run.3.17&limit=5');
+assert.equal(mixSearchUrl('k128run', 3, 17), mixSearchUrl('k128run', 3, 17));
+assert.notEqual(mixSearchUrl('k128run', 3, 17), mixSearchUrl('k128run', 3, 18));
+assert.notEqual(mixSearchUrl('k128run', 3, 17), mixSearchUrl('k128run', 4, 17));
+for (const args of [
+  ['', 1, 1],
+  ['Bad-Tag', 1, 1],
+  ['UPPER', 1, 1],
+  [null, 1, 1],
+  ['tag.dotted', 1, 1],
+]) {
+  assert.throws(
+    () => mixSearchUrl(...args),
+    /RUN_TAG/i,
+    `runTag ${JSON.stringify(args[0])} must fail loudly, not silently warm the cache`,
+  );
+}
+const UUID_MIRROR = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+for (let i = 0; i < 30; i += 1) {
+  const p = mixSearchUrl('k128pin', i % 25, i);
+  assert.ok(p.startsWith('/search?q='), `mixed discovery path ${p} is not search-shaped`);
+  assert.ok(!p.includes('/meta/'), `mixed path ${p} is not cache-whitelisted`);
+  assert.ok(!UUID_MIRROR.test(p.split('?')[0].slice('/search'.length)), 'no sub-path');
+}
+
+const mixedSmoke = mixedProfile('smoke');
+assert.equal(mixedSmoke.mixed.executor, 'constant-vus');
+assert.equal(mixedSmoke.mixed.vus, 1);
+assert.equal(mixedSmoke.mixed.duration, '15s');
+const mixedLoad = mixedProfile('load');
+assert.equal(mixedLoad.mixed.executor, 'ramping-vus');
+assert.deepEqual(
+  mixedLoad.mixed.stages,
+  loadProfile('load').browse.stages,
+  'mixed load must keep the browse VU shape for comparable latency columns',
+);
+assert.throws(() => mixedProfile('unknown'), /profile/i);
+
+console.log('load-test contract: ok (browse + auth + conditional + write + mixed)');
