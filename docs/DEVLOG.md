@@ -41,8 +41,14 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 - Web: `npm run build` green. Bundle A/B IN-PATH (stash-clean build
   vs tree, same checkout): `/orders/[id]` +0 B (server-component
   condition — no client chunk change), `/orders/my` +7 B gz, the
-  other five budgeted routes byte-identical; both order routes sit
-  41-49 B UNDER their committed CI rows, so the table stays as is.
+  other five budgeted routes byte-identical. The FIRST CI run (164)
+  then went RED: `/orders/my` measured 144312 vs the committed
+  144309 (+3 B over — the old row's +5 headroom was smaller than the
+  edit's CI-side cost), the five untouched routes a uniform 5 B
+  UNDER their rows (chunk 2619 wobble, session-120 shape). Per the
+  session-118 doctrine ONLY the genuinely-over row was re-adopted to
+  that run's CI-measured number (144312, note in PERFORMANCE.md);
+  untouched rows keep their incidental headroom.
 - Targeted: the new test green standalone (create+cancel fixture
   legs 36/40 ms).
 - Full e2e **126 -> 127 green x2 consecutive** on fresh seeds

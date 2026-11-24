@@ -613,8 +613,15 @@ their split decisions separately.
 | `/checkout` | 142338 |
 | `/map` | 137016 |
 | `/orders/[id]` | 159683 |
-| `/orders/my` | 144309 |
+| `/orders/my` | 144312 |
 <!-- BUNDLE-BASELINE-END -->
+
+Session-127 note: `/orders/my` re-adopted 144309 → 144312 — run 164's
+gate caught the order-again CANCELLED condition at +3 B over the old
+row (local IN-PATH A/B measured +7 B gz for the same edit).
+The five untouched routes measured a uniform 5 B UNDER their rows in
+that run (shared chunk 2619 back at gzip 3385, the session-120
+wobble) and deliberately keep that headroom.
 
 Session-120 note: `/cart` re-adopted to the CI-measured 139306 (the
 `mobile-cart-clear` testid cost +2 B over the old row). The SAME run
