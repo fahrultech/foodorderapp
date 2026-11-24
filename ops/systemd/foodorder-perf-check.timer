@@ -1,0 +1,15 @@
+[Unit]
+Description=FoodOrder perf regression check timer (daily 04:20)
+
+[Timer]
+# Daily in the low-traffic window, 65 min after the backup slot so the two
+# never fight for the box. Persistent=true catches up a missed run after
+# downtime — a week without a perf sample should itself be visible.
+# PERF_CHECK_PROFILE=load (2.5 min ladder) fits comfortably in a daily slot;
+# the smoke arm shipped as the default keeps the nightly cost ~2 min.
+OnCalendar=*-*-* 04:20:00
+RandomizedDelaySec=900
+Persistent=true
+
+[Install]
+WantedBy=timers.target

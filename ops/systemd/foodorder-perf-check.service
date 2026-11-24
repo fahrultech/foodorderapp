@@ -1,0 +1,43 @@
+# systemd unit EXAMPLES for the scheduled FoodOrder perf regression check
+# (not installed — copy to /etc/systemd/system/ and adjust paths for your
+# host). ops/perf-check.sh runs the k6 WRITE LADDER smoke arm against a
+# throwaway scratch DB + boot and exits:
+#   0 green · 1 REGRESSION · 2 rig broken (alert-scan doctrine)
+#
+#   sudo cp ops/systemd/foodorder-perf-check.{service,timer} /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now foodorder-perf-check.timer
+#   systemctl list-timers foodorder-perf-check.timer   # next fire
+#
+# Runtime requirements of the unit (why it runs as root, like the backup
+# unit): docker access for the k6 container AND postgres superuser access
+# (the script uses runuser as root; as a human it needs sudo -n NOPASSWD for
+# the CREATE/DROP of the scratch DB). Credentials are never in these units —
+# perf-check.sh derives the scratch URL from apps/api/.env at runtime.
+#
+# Exit 1 (measured regression) and exit 2 (check itself broken) both fire
+# OnFailure=; they are distinguishable in the journal, so paging policy can
+# differ (a broken rig is not a slow API).
+#
+# The run includes a nest build + full-chain seed + the 30s ladder, so give
+# it a generous start timeout — systemd's 90s default would SIGTERM a
+# perfectly healthy check mid-seed (exit 2 by kill, not by verdict).
+
+[Unit]
+Description=FoodOrder scheduled k6 write-ladder perf regression check
+After=postgresql.service
+Wants=postgresql.service
+# OnFailure=alert-notify@%n.service   # <- plug your transport unit here
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/ubuntu/foodorderapp
+TimeoutStartSec=20min
+# Locking lives in the script (flock); a manual run and the timer can never
+# overlap the scratch port/DB.
+ExecStart=/home/ubuntu/foodorderapp/ops/perf-check.sh
+NoNewPrivileges=false
+PrivateTmp=false
+
+[Install]
+WantedBy=timers.target

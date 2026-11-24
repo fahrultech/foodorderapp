@@ -46,6 +46,13 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: apps/api/package-lock.json
+      - name: Ops script selftests (browser-free, stdlib-only)
+        # The scheduled perf regression runner's verdict logic
+        # (ops/perf-check.analyze.test.mjs, session 124) and the pure k6
+        # helpers (load-test.contract.test.mjs): a dead gate is worse than
+        # no gate, so these run on every push, not only on the host rig.
+        working-directory: .
+        run: node --test ops/perf-check.analyze.test.mjs ops/load-test.contract.test.mjs
       - name: Install (clean, from lockfile)
         run: npm ci
       - name: Build
