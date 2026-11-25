@@ -85,9 +85,19 @@ const STATUS_TIMESTAMP_FIELD: Partial<
  * `contactEmail`) and the read path (`findOneForViewer` compares the
  * presented proof), so the two can never drift on casing/whitespace.
  * Empty/undefined collapse to null.
+ * The typeof guard is the belt-and-braces for non-string wire shapes a raw
+ * `@Query('contactEmail')` can deliver (repeated key => array; bracket form
+ * => nested object). Today the global ValidationPipe's String metatype
+ * coercion happens to flatten those to 'a,b' / '[object Object]' before
+ * this function ever runs (session-132 probe), so nothing reaches here —
+ * but that coercion is a pipe-side accident, not a contract: if the param
+ * is ever typed `any`/DTO-whitelisted away, the array must still collapse
+ * to null (a DENY), never `arr.trim is not a function` => 500 (session-84
+ * non-5xx doctrine). See receipt-proof-sweep.http.spec.ts.
  */
 export function normalizeContactEmail(value: string | undefined | null): string | null {
-  const v = value?.trim().toLowerCase();
+  if (typeof value !== 'string') return null;
+  const v = value.trim().toLowerCase();
   return v ? v : null;
 }
 
