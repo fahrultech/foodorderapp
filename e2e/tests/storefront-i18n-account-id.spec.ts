@@ -70,7 +70,7 @@ test('ID account: signed-out gate with localized title', async ({ page }) => {
   ).toBeVisible();
 });
 
-test('ID account: signed-in chrome — headings, identity line, both cards', async ({ page }) => {
+test('ID account: signed-in chrome — headings, identity line, all three cards', async ({ page }) => {
   await idContext(page);
   await signInId(page, '%2Faccount');
   await expect(page).toHaveURL(/\/account$/);
@@ -78,6 +78,13 @@ test('ID account: signed-in chrome — headings, identity line, both cards', asy
   await expect(page.getByText('Masuk sebagai')).toBeVisible();
   await expect(page.getByRole('heading', { level: 2, name: 'Unduh data Anda' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Unduh data saya' })).toBeVisible();
+  // Session 131 notification card — strictly read-only (no toggle click, so
+  // the demo account's persisted state stays at the column defaults ON/ON).
+  await expect(page.getByRole('heading', { level: 2, name: 'Notifikasi pesanan' })).toBeVisible();
+  await expect(page.getByText('Email status pesanan', { exact: true })).toBeVisible();
+  await expect(page.getByText('Notifikasi push browser', { exact: true })).toBeVisible();
+  await expect(page.getByTestId('account-notify-email')).toBeChecked();
+  await expect(page.getByTestId('account-notify-push')).toBeChecked();
   await expect(page.getByRole('heading', { level: 2, name: 'Hapus akun Anda' })).toBeVisible();
   await expect(page.getByLabel('Kata sandi saat ini', { exact: true })).toBeEditable();
   // The mono DELETE token stays the exact server phrase INSIDE the localized

@@ -436,6 +436,18 @@ export interface AccountDeleteResult {
   unassignedOrders: number;
 }
 
+/**
+ * Response body of GET/PATCH `/users/me/notification-settings` (API shipped
+ * session 130). Both answers are the RE-READ persisted state, never an echo
+ * of the request, so callers replace their whole local copy from the reply.
+ * Column defaults make both flags ON for accounts that never visited the
+ * surface — the pre-feature behavior.
+ */
+export interface NotificationSettings {
+  orderEmail: boolean;
+  orderPush: boolean;
+}
+
 /** Response of register/login/refresh — one auth session. */
 export interface Session {
   access_token: string;
@@ -996,6 +1008,28 @@ export const api = {
       method: 'DELETE',
       headers: bearer(accessToken),
       body: JSON.stringify({ endpoint }),
+    }),
+
+  // --- per-user notification channels (API shipped session 130; surface session 131) ---
+  /**
+   * Current channel toggles (`GET /users/me/notification-settings`).
+   * Defaults both ON; a 404 only happens if the account row vanished.
+   */
+  getNotificationSettings: (accessToken: string) =>
+    request<NotificationSettings>('/users/me/notification-settings', {
+      headers: bearer(accessToken),
+    }),
+  /**
+   * Flip one or both channels (`PATCH /users/me/notification-settings`).
+   * Strict JSON booleans — 0/"false"/null are 400 and an empty patch 400s;
+   * the answer is the re-read persisted state (both flags), so a partial
+   * patch still refreshes the full local copy.
+   */
+  updateNotificationSettings: (accessToken: string, patch: Partial<NotificationSettings>) =>
+    request<NotificationSettings>('/users/me/notification-settings', {
+      method: 'PATCH',
+      headers: bearer(accessToken),
+      body: JSON.stringify(patch),
     }),
 
   // --- GDPR self-service (API shipped session 63; this is the in-app surface) ---

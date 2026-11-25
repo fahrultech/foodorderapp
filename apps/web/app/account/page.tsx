@@ -1,11 +1,11 @@
 'use client';
 
 import Link from 'next/link';
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { useAuth } from '@/lib/auth';
 import { authedCall } from '@/lib/authed-call';
-import { ApiError, api, type AccountDeleteResult } from '@/lib/api';
+import { ApiError, api, type AccountDeleteResult, type NotificationSettings } from '@/lib/api';
 
 /**
  * In-app GDPR self-service (the session-63 API endpoints finally get a
@@ -37,6 +37,55 @@ export default function AccountPage() {
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleted, setDeleted] = useState<AccountDeleteResult | null>(null);
+
+  // --- notification channel toggles (session 131 surface of session 130's API) ---
+  /** Last PERSISTED state (GET or PATCH reply); null until the first read lands. */
+  const [notify, setNotify] = useState<NotificationSettings | null>(null);
+  const [notifyLoading, setNotifyLoading] = useState(true);
+  const [notifyLoadError, setNotifyLoadError] = useState<string | null>(null);
+  const [notifyBusy, setNotifyBusy] = useState(false);
+  const [notifySaveError, setNotifySaveError] = useState<string | null>(null);
+  /** Label of the channel whose last write persisted (transient role=status). */
+  const [savedChannel, setSavedChannel] = useState<string | null>(null);
+
+  const loadNotificationSettings = useCallback(async () => {
+    setNotifyLoading(true);
+    setNotifyLoadError(null);
+    const res = await authedCall(getAccessToken, logout, (tok) => api.getNotificationSettings(tok));
+    if (res.ok) setNotify(res.data);
+    else if (res.kind === 'error') setNotifyLoadError(res.message);
+    // signedOut: the provider cleared the session; the guest card takes over.
+    setNotifyLoading(false);
+  }, [getAccessToken, logout]);
+
+  useEffect(() => {
+    if (status !== 'signedIn') return;
+    // Never show a previous session's checkboxes mid-refetch.
+    setNotify(null);
+    void loadNotificationSettings();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status]);
+
+  async function onToggleChannel(field: keyof NotificationSettings, next: boolean) {
+    if (notifyBusy) return;
+    setNotifyBusy(true);
+    setNotifySaveError(null);
+    setSavedChannel(null);
+    const res = await authedCall(getAccessToken, logout, (tok) =>
+      api.updateNotificationSettings(tok, { [field]: next }),
+    );
+    if (res.ok) {
+      // The reply is the re-read persisted row — replace the WHOLE copy,
+      // not just the clicked field (a racing write elsewhere shows up).
+      setNotify(res.data);
+      setSavedChannel(field === 'orderEmail' ? t('notifyEmailLabel') : t('notifyPushLabel'));
+    } else if (res.kind === 'error') {
+      // No optimistic local write was made: the checkboxes are controlled
+      // off the last persisted state, so a failed write SELF-REVERTS.
+      setNotifySaveError(res.message);
+    }
+    setNotifyBusy(false);
+  }
 
   async function onExport() {
     setExporting(true);
@@ -186,6 +235,76 @@ export default function AccountPage() {
         {exportError && (
           <p role="alert" data-testid="account-export-error" className="mt-3 rounded-xl bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
             {exportError}
+          </p>
+        )}
+      </div>
+
+      {/* --- notification channels --- */}
+      <div className="mt-8 rounded-2xl border border-stone-200 bg-white p-6" data-testid="account-notify-card">
+        <h2 className="text-lg font-bold text-stone-800">{t('notifyTitle')}</h2>
+        <p className="mt-1 text-sm text-stone-600">
+          {t('notifyBody')}
+        </p>
+
+        {notifyLoading ? (
+          <p data-testid="account-notify-loading" aria-busy="true" className="mt-4 text-sm text-stone-500">
+            {t('notifyLoading')}
+          </p>
+        ) : notify ? (
+          <div className="mt-4 space-y-4">
+            <label className="flex items-start gap-3">
+              <input
+                type="checkbox"
+                checked={notify.orderEmail}
+                disabled={notifyBusy}
+                onChange={(e) => void onToggleChannel('orderEmail', e.target.checked)}
+                data-testid="account-notify-email"
+                className="mt-1 h-4 w-4 shrink-0 rounded border-stone-300"
+              />
+              <span>
+                <span className="block text-sm font-semibold text-stone-700">{t('notifyEmailLabel')}</span>
+                <span className="block text-xs text-stone-500">{t('notifyEmailHint')}</span>
+              </span>
+            </label>
+            <label className="flex items-start gap-3">
+              <input
+                type="checkbox"
+                checked={notify.orderPush}
+                disabled={notifyBusy}
+                onChange={(e) => void onToggleChannel('orderPush', e.target.checked)}
+                data-testid="account-notify-push"
+                className="mt-1 h-4 w-4 shrink-0 rounded border-stone-300"
+              />
+              <span>
+                <span className="block text-sm font-semibold text-stone-700">{t('notifyPushLabel')}</span>
+                <span className="block text-xs text-stone-500">{t('notifyPushHint')}</span>
+              </span>
+            </label>
+          </div>
+        ) : (
+          <div className="mt-4">
+            <p role="alert" data-testid="account-notify-load-error" className="rounded-xl bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
+              {notifyLoadError ?? t('notifyLoadFailed')}
+            </p>
+            <button
+              type="button"
+              onClick={() => void loadNotificationSettings()}
+              data-testid="account-notify-retry"
+              className="mt-3 rounded-xl border border-stone-300 px-4 py-2 text-sm font-semibold text-stone-700 hover:bg-stone-50"
+            >
+              {t('notifyRetry')}
+            </button>
+          </div>
+        )}
+
+        {savedChannel && (
+          <p role="status" data-testid="account-notify-saved" className="mt-3 text-sm font-medium text-emerald-700">
+            {t('notifySaved', { item: savedChannel })}
+          </p>
+        )}
+        {notifySaveError && (
+          <p role="alert" data-testid="account-notify-save-error" className="mt-3 rounded-xl bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
+            {notifySaveError}
           </p>
         )}
       </div>

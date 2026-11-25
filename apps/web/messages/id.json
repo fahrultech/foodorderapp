@@ -757,7 +757,17 @@
     "deletedOrders": "{count, plural, other {# pesanan}} dianonimkan",
     "detachedSuffix": ", {count} restoran dilepas",
     "releasedSuffix": ", {count} penugasan pengiriman dilepaskan",
-    "backCta": "Kembali ke restoran"
+    "backCta": "Kembali ke restoran",
+    "notifyTitle": "Notifikasi pesanan",
+    "notifyBody": "Pilih cara kami menghubungi Anda saat status pesanan dari akun ini berubah. Checkout tamu tidak terpengaruh \u2014 alamat kontak yang diisi saat checkout tetap menerima pembaruan sendiri.",
+    "notifyLoading": "Memuat pengaturan notifikasi Anda...",
+    "notifyLoadFailed": "Tidak dapat memuat pengaturan notifikasi Anda.",
+    "notifyRetry": "Coba lagi",
+    "notifyEmailLabel": "Email status pesanan",
+    "notifyEmailHint": "Konfirmasi dan setiap perubahan status pesanan Anda, dikirim ke email akun Anda.",
+    "notifyPushLabel": "Notifikasi push browser",
+    "notifyPushHint": "Pembaruan status pesanan di perangkat yang mengizinkan push. Langganan per perangkat tetap berlaku.",
+    "notifySaved": "{item} disimpan"
   },
   "OrderAgain": {
     "button": "Pesan lagi",

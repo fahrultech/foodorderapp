@@ -757,7 +757,17 @@
     "deletedOrders": "{count, plural, =1 {# retained order} other {# retained orders}} anonymized",
     "detachedSuffix": ", {count} restaurant(s) detached",
     "releasedSuffix": ", {count} delivery assignment(s) released",
-    "backCta": "Back to restaurants"
+    "backCta": "Back to restaurants",
+    "notifyTitle": "Order notifications",
+    "notifyBody": "Choose how we reach you when an order placed with this account changes status. Guest checkouts are unaffected \u2014 the contact address typed at checkout keeps receiving its own updates.",
+    "notifyLoading": "Loading your notification settings...",
+    "notifyLoadFailed": "Could not load your notification settings.",
+    "notifyRetry": "Try again",
+    "notifyEmailLabel": "Order status emails",
+    "notifyEmailHint": "Confirmation and every status change for your orders, sent to your account email.",
+    "notifyPushLabel": "Browser push alerts",
+    "notifyPushHint": "Order status updates on devices where you allowed push. Per-device subscriptions still apply.",
+    "notifySaved": "{item} saved"
   },
   "OrderAgain": {
     "button": "Order again",
