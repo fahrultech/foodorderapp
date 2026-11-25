@@ -698,15 +698,25 @@ their split decisions separately.
 <!-- BUNDLE-BASELINE-START -->
 | Route | Baseline First Load JS+CSS, full chain (B, CI-measured, node 22.23.5) |
 |---|---|
-| `/` | 135806 |
-| `/restaurants/[id]` | 138877 |
-| `/cart` | 139339 |
-| `/checkout` | 142366 |
-| `/map` | 137044 |
-| `/orders/[id]` | 159711 |
-| `/orders/my` | 144345 |
+| `/` | 135809 |
+| `/restaurants/[id]` | 138880 |
+| `/cart` | 139342 |
+| `/checkout` | 142369 |
+| `/map` | 137047 |
+| `/orders/[id]` | 159714 |
+| `/orders/my` | 144348 |
 <!-- BUNDLE-BASELINE-END -->
 
+Session-133 note: ALL SEVEN rows +3 B (run 175 gate: 135806→135809,
+138877→138880, 139339→139342, 142366→142369, 137044→137047 for the five
+CI-named routes; the annotation feed truncated the two /orders rows as
+in runs 171/173, so 159714/144348 are the uniform-shift extrapolation
+from session 133's `api.getOrder` edit folding into the shared lib chunk
+all seven chains carry — corrected from the next run's annotations if
+anything disagrees). The SAME run's e2e job failed on the spec-side
+`.env` read (CI has no untracked .env; the fixture now resolves the
+secret like the API does: process env first, .env fallback — proven
+4/4 on both arms locally before this push).
 Session-132 note: ALL SEVEN routes re-adopted +28 B each
 (135778→135806, 138849→138877, 139311→139339, 142338→142366,
 137016→137044; then run 173's gate caught the remaining two:

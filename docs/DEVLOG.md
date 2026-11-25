@@ -90,18 +90,40 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
   goes uniformly red, re-adopt ALL table rows to the failing run's
   annotation numbers, not just the enumerated ones.
 
+**CI postscript (same session):**
+
+- Run 175 came back red in exactly the two known classes: (1) the
+  bundle gate went UNIFORM +3 B on every route it named (the
+  lib/api shared-chunk fold, session-132 class; the annotation feed
+  truncated the two /orders rows AGAIN, so all seven rows re-adopted
+  with the /orders pair as honest uniform extrapolation), and (2)
+  the e2e job failed on MY new spec's fixture: it read the untracked
+  apps/api/.env for the minting secret, which CI does not have —
+  ENOENT on all four tests. Root-caused by REPRODUCING the CI shape
+  on the dev host (.env moved away + exported secret -> 4/4 red),
+  fixed by resolving the secret with the API's own precedence
+  (process env first, .env dev fallback, loud fail if neither),
+  then 4/4 green on BOTH arms before this push. API job + both PG
+  matrix arms (15/16) were green on the first try — jest 107/1479,
+  drift check, full migration chain.
+
 **Left for next sessions:**
 
-- CI verdict on the shared-chunk bundle shift (re-adopt if red, same
-  +N to every row; the two /orders routes hide behind annotation
-  truncation — prove via rerun before adopting wobble, session-132
-  lesson).
+- Honest note caught during the repro: the pino ACCESS line logs
+  `req.url` verbatim, so an `?rt=` token lands in structured logs
+  (same exposure class the `?contactEmail=` proof already had since
+  session 76 — the log stream is trusted-ops territory either way).
+  If redaction ever matters, it is one scrub in the logger mixin,
+  not a token-format change.
 - Phase 15 filed: mail-delivery telemetry, rt token-structure fuzz
   sweep, one-click-pay-vs-read-capability DECISION item, receipt
   offline resilience, cache hit-rate visibility card.
 - Possible refinement: include the magic link in the PUSH payload url
   too (bearer rung makes it unnecessary today; revisit if push ever
   reaches signed-out taps).
+
+---
+
 ## 2026-11-25 15:30 — Session 132 — receipt proof-param sweep: the wire ladder pinned over real HTTP + the non-string collapse hardened (Test, Phase 14 #4)
 
 **Built:**
