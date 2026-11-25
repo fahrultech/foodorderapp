@@ -562,11 +562,21 @@
     smoke defaults/PATCH/export/401 all-exact with demo state restored;
     named zz-* after a first-run admin.spec ordering catch — its
     no-separator card text pin silently depends on seed user totals.)
-- [ ] Test: receipt proof-param sweep — property tests over
+- [x] Test: receipt proof-param sweep — property tests over
   `?email=`/`?contactEmail=` normalization edges pinned against the real
   presenter ladder (trim, case folding incl. non-ASCII, the raw-`+`
   wire-decodes-to-space trap, already-known dot-address fixtures),
   asserting the SAME 404 shape for every denial (no oracle drift).
+  (2026-11-25, session 132; new HTTP wire-level suite (real controller +
+  real service + real pipe + live sockets): raw-plus trap, double-encode,
+  full JS trim-class padding, NUL/oversize, NULL-stored rows, non-ASCII
+  fold edges (i+U+0307 round trip, Turkish dotless asymmetry, ß is not
+  'ss', homoglyphs distinct), 9-family byte-exact no-drift denial sweep,
+  160-case normalizer-agreement + 60-case write-chain seeded property
+  sweeps; probe-established truth that the String-metatype pipe coercion
+  (not the service) is what flattens repeated-key arrays today — the
+  typeof guard now pins the same collapse at the helper; 105 suites /
+  1442 tests (+29) + live smoke 24/24, e2e untouched by design.)
 - [ ] Product: magic-link receipt access — the order-confirmation emails
   (session 122 now reaches guests too) link the order page, but a bare
   link still demands a typed proof email; embed a short-lived signed

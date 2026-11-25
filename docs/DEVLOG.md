@@ -3,6 +3,96 @@
 Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
+## 2026-11-25 15:30 — Session 132 — receipt proof-param sweep: the wire ladder pinned over real HTTP + the non-string collapse hardened (Test, Phase 14 #4)
+
+**Built:**
+
+- test: `src/orders/receipt-proof-sweep.http.spec.ts` (new suite, 29
+  tests) — property sweep of the guest receipt proof on
+  `GET /api/orders/:id?contactEmail=` (and by chain the web `?email=`
+  param, which `lib/api.ts` always percent-encodes) against the REAL
+  presenter ladder: real OrdersController + real
+  `OrdersService.findOneForViewer` + real global ValidationPipe + real
+  ErrorFormatFilter over live HTTP (`orders-ownership.spec.ts` pins the
+  service edge with a mocked transport; this spec pins what only a real
+  query parser teaches). Matrix: encoded mixed-case unlock; the
+  raw-plus wire trap (an unencoded `+` decodes to a SPACE before
+  normalizeContactEmail ever runs, so a plus-email must arrive
+  percent-encoded to unlock — an echo of session 76's dot-address
+  smoke, now pinned as product truth at unit level too); %252B
+  double-encode denies; full ASCII case folding; the whole JS trim class
+  as padding (space/tab/CRLF/VT/FF/NBSP/THIN/IDEOGRAPHIC/ZWNBSP/U+2028/9)
+  unlocks while an INTERNAL space denies; NUL is not whitespace;
+  oversize denies; NULL-stored rows have no rung 3; bearer rungs are
+  proof-independent and junk-immune; a garbage bearer degrades to
+  guest. Non-ASCII fold edges via runtime-assembled code points: the
+  capital-I-with-dot folds to TWO code points (i + U+0307 — the fold
+  target itself is pinned, not folklore), ASCII I never folds to
+  dotless ı (the Turkish asymmetry), ẞ folds 1:1 to ß but STRASSE
+  never equals str-a-sharp (folding is not transliteration), and a
+  Cyrillic е homoglyph stays distinct.
+- test: no-oracle-drift sweep — nine denial families (unknown id, known
+  id no/wrong/empty/whitespace-only proof, repeated-key and bracket
+  junk, garbage bearer, even the RIGHT proof on an unknown id) all
+  answer 404 with bodies byte-identical (cmp on raw text) to the
+  unknown-id baseline envelope.
+- test: two seeded property sweeps (fuzz-harness `makeRng`, per-case
+  rethrow prints seed+case — replayable): 160 mutated presentations —
+  the HTTP outcome equals the pure-normalizer prediction (200 iff
+  normalize(p) === stored), every denial canonical; 60 raw checkout
+  strings — the exact shape `create()` persists (normalized) unlocks
+  for the raw original presented encoded; plus normalize
+  idempotency/collapse over 49 shapes.
+- fix: `normalizeContactEmail` gains a runtime `typeof value !==
+  'string'` collapse to null. A throwaway probe established the true
+  wire mechanism this stack uses today: express 5.2.1 + the String-
+  metatype global pipe String()-coerces a repeated `contactEmail` key
+  to `'a,b'` BEFORE the service sees the array — and `@IsEmail` at
+  create can never store a comma, so that join cannot collide with a
+  real proof (bracket forms stay literal unmatched keys = undefined).
+  That is a pipe-side accident, not a contract: the guard pins the
+  same DENY semantics at the helper for direct callers and any future
+  transport change (session-84 non-5xx doctrine; session-89 lesson —
+  wire truths get pinned by probe first, then by tests, never assumed).
+
+**Verified (all live):**
+
+- jest **105 suites / 1442 tests** (+1 suite / +29 vs session 130's
+  104/1413), `nest build` green. The new suite's first run failed only
+  on two self-inflicted spec bugs (a fixture typo and the
+  two-codepoint-fold assertion), both fixed before this entry; the
+  500-shape probes came out 404 from the very first run — the wire was
+  already immune via pipe coercion, and the probe (since deleted)
+  established WHY before the pins were trusted.
+- Live smoke **24/24** on a 30-migration from-empty scratch DB with the
+  compiled boot: `create()` persists the trim+lowercase of a raw
+  mixed-case plus-email; encoded mixed-case unlocks; raw `+`, %252B,
+  wrong/missing/empty, repeated-key and %5B%5D-bracket proofs all deny
+  (never 5xx); denial body byte-identical (cmp) to the unknown-id
+  baseline with `.error.code NOT_FOUND`; owner/ADMIN bearers unlock
+  with zero proof, owner bearer SURVIVES the repeated-key junk;
+  NULL-proof row denies every proof yet bearer-unlocks; an SQL-planted
+  i+chr(775)+z row unlocks via a %C4%B0 presentation and denies plain
+  iz; order-count delta proves the whole sweep wrote nothing beyond
+  its 4 fixtures; zero Unhandled-exception lines in the API log.
+  First run 19/24 — all five FAILs harness bugs (owner-unlock asserted
+  on guest-created orders whose userId is NULL; chr(807) is cedilla,
+  U+0307 is chr(775); curl refuses raw `[` in URLs before the request
+  even goes out) — zero product bugs.
+- e2e not run and not needed: web tree untouched, and the guard is
+  behavior-identical for every string input; CI's e2e job rides the
+  push.
+- Sanitizer scans: added lines free of U+2026, asterisk-mask sequences,
+  and literal backslash-u escapes; `git diff --check` clean.
+
+**Left for next session:**
+
+- Phase 14's tail: the `Product: magic-link receipt access` item
+  (signed short-lived email token as a one-time query rung — it must
+  extend THIS denial family without oracle drift; the new sweep spec is
+  its regression net).
+
+---
 ## 2026-11-25 12:15 — Session 131 — notification settings get their /account surface: two toggles, self-revert on failure, e2e round-trip web+e2e close (Product, Phase 14 #3 completed)
 
 **Built:**
