@@ -703,21 +703,22 @@ their split decisions separately.
 | `/cart` | 139339 |
 | `/checkout` | 142366 |
 | `/map` | 137044 |
-| `/orders/[id]` | 159683 |
-| `/orders/my` | 144317 |
+| `/orders/[id]` | 159711 |
+| `/orders/my` | 144345 |
 <!-- BUNDLE-BASELINE-END -->
 
-Session-132 note: the five shared-chain routes re-adopted +28 B each
+Session-132 note: ALL SEVEN routes re-adopted +28 B each
 (135778→135806, 138849→138877, 139311→139339, 142338→142366,
-137016→137044) — session 131's CI web job failed its gate with exactly
-this uniform +28 while its local run claimed margin. Root cause class:
-session 131's `lib/api.ts` additions + EN/ID message keys fold into the
-SHARED chunks every chain route carries, not only `/account`'s own
-chunk (the session-118 lesson again: `lib/api` lives in the shared
-7621/8955 layer; a "page-local" edit is never chain-innocent). A real
-delta on the tree that measured it — adopted from that failed run's
-CI-measured numbers per the session-120/127 doctrine; the two
-`/orders/*` rows stayed UNDER their numbers and keep their headroom.
+137016→137044; then run 173's gate caught the remaining two:
+159683→159711, 144317→144345) — session 131's CI web job failed on a
+uniform +28 while its local run claimed margin. First triage adopted
+only the five routes whose failures survived the (truncation-prone,
+session-124-known) annotation feed; the rerun then proved the shift
+touches EVERY route — session 131's `lib/api.ts` additions + EN/ID
+message keys folded into the SHARED chunk all seven chains carry
+(the session-118 lesson again: a "page-local" lib/api edit is never
+chain-innocent). Both failing runs measured byte-identical per-route
+sums — a real tree shift, not the session-120 wobble class.
 The session-132 increment itself is API+docs only (web tree
 byte-identical to session 131's, so these rows ARE its current truth).
 
