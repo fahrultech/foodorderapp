@@ -54,23 +54,39 @@ export class OrderNotificationsService implements OnModuleInit {
   }
 
   /**
-   * Resolve the recipient address for an order:
+   * Resolve the recipient address + channel flags for an order
+   * (Phase 14 per-user channel settings ride this single read):
    * - authenticated orders keep the BEARER-ONLY rule: user.email, and ONLY
    *   user.email. The stored `contactEmail` is never used as a fallback —
    *   for signed-in customers it is checkout input, not a verified address,
    *   and a vanished user row (GDPR erasure also NULLs contactEmail) means
-   *   no email, exactly as before this feature.
+   *   no email, exactly as before this feature. The per-user toggles gate
+   *   each channel: `orderEmailEnabled === false` suppresses the email,
+   *   `orderPushEnabled === false` suppresses the push fan-out. STRICT
+   *   false checks: an unwritten column (legacy/imported rows, fixtures)
+   *   reads as ON, so defaults preserve the pre-feature behavior.
    * - guest orders use `orders.contactEmail` (the session-76 receipt-proof
-   *   column, session-45's deferred follow-up). Service-layer writes store
-   *   it normalized; re-normalize defensively so legacy/imported rows can
-   *   never email a non-canonical address.
+   *   column, session-45's deferred follow-up), untouched by the toggles —
+   *   there is no account to consult, and the proof address is the receipt
+   *   contract. Service-layer writes store it normalized; re-normalize
+   *   defensively so legacy/imported rows can never email a non-canonical
+   *   address.
    */
-  private async resolveEmail(order: Order): Promise<string | null> {
+  private async resolveChannels(
+    order: Order,
+  ): Promise<{ email: string | null; pushEnabled: boolean }> {
     if (order.userId) {
-      const user = await this.users.findOne({ where: { id: order.userId }, select: ['email', 'name'] });
-      return user?.email ?? null;
+      const user = await this.users.findOne({
+        where: { id: order.userId },
+        select: ['email', 'name', 'orderEmailEnabled', 'orderPushEnabled'],
+      });
+      return {
+        email:
+          user && user.orderEmailEnabled !== false ? user.email ?? null : null,
+        pushEnabled: user?.orderPushEnabled !== false,
+      };
     }
-    return normalizeContactEmail(order.contactEmail);
+    return { email: normalizeContactEmail(order.contactEmail), pushEnabled: false };
   }
 
   /**
@@ -89,13 +105,13 @@ export class OrderNotificationsService implements OnModuleInit {
       relations: { restaurant: true, items: true },
     });
     if (!order) return;
-    const to = await this.resolveEmail(order);
+    const { email: to, pushEnabled } = await this.resolveChannels(order);
 
     const { subject, text } = confirmationEmail(order, this.localesFor(order));
 
     await Promise.all([
       to ? this.mail.send({ to, subject, text }) : Promise.resolve(),
-      order.userId
+      order.userId && pushEnabled
         ? this.push.sendToUser(order.userId, {
             title: `Order received — #${order.code}`,
             body: `${order.restaurant.name} received your order.`,
@@ -115,7 +131,7 @@ export class OrderNotificationsService implements OnModuleInit {
       relations: { restaurant: true },
     });
     if (!order) return;
-    const to = await this.resolveEmail(order);
+    const { email: to, pushEnabled } = await this.resolveChannels(order);
 
     const message = statusUpdateEmail(order, status, this.localesFor(order));
     if (!message) return;
@@ -126,7 +142,7 @@ export class OrderNotificationsService implements OnModuleInit {
 
     await Promise.all([
       to ? this.mail.send({ to, subject: message.subject, text: message.text }) : Promise.resolve(),
-      order.userId
+      order.userId && pushEnabled
         ? this.push.sendToUser(order.userId, {
             title: `${enLabel} — #${order.code}`,
             body: `${order.restaurant.name}: ${enLabel}.`,

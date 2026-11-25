@@ -96,6 +96,19 @@ export class HealthResponse {
 // Users / auth
 // ---------------------------------------------------------------------------
 
+/**
+ * Per-user notification channel toggles (Phase 14). Defined BEFORE
+ * SafeUserResponse/AccountDataExportResponse so their thunk references
+ * resolve at decoration time (session-119 lazy-model rule).
+ */
+export class NotificationSettingsResponse {
+  @ApiProperty({ example: true, description: 'Order confirmation + status-step emails for authenticated orders' })
+  orderEmail: boolean;
+
+  @ApiProperty({ example: true, description: 'Browser-push fan-out for own orders' })
+  orderPush: boolean;
+}
+
 export class SafeUserResponse {
   @ApiProperty({ type: 'string', format: 'uuid' })
   id: string;
@@ -1666,6 +1679,9 @@ export class AccountDataExportResponse {
 
   @ApiProperty({ type: () => SafeUserResponse })
   profile: SafeUserResponse;
+
+  @ApiProperty({ type: () => NotificationSettingsResponse })
+  notificationSettings: NotificationSettingsResponse;
 
   @ApiProperty({ type: () => [DeliveryAddressResponse] })
   addresses: DeliveryAddressResponse[];

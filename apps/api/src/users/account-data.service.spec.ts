@@ -90,6 +90,20 @@ describe('AccountDataService', () => {
     expect(json).not.toContain('never-export-this');
   });
 
+  it('exports the notification channel toggles next to the profile they configure', async () => {
+    const h = harness();
+    h.repositories.get(User).findOne.mockResolvedValue(user({ orderEmailEnabled: false, orderPushEnabled: true }));
+    const result = await h.service.exportForUser('user-1');
+    expect(result.notificationSettings).toEqual({ orderEmail: false, orderPush: true });
+  });
+
+  it('legacy rows with unwritten toggles export as both-ON (strict-false parity)', async () => {
+    const h = harness();
+    h.repositories.get(User).findOne.mockResolvedValue(user()); // no toggle keys
+    const result = await h.service.exportForUser('user-1');
+    expect(result.notificationSettings).toEqual({ orderEmail: true, orderPush: true });
+  });
+
   it('404s an export when the account no longer exists', async () => {
     const h = harness();
     await expect(h.service.exportForUser('gone')).rejects.toBeInstanceOf(NotFoundException);

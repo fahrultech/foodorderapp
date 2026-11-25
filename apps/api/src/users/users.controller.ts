@@ -27,6 +27,7 @@ import {
   ApiError,
   FavoriteAddResponse,
   FavoriteListResponse,
+  NotificationSettingsResponse,
   RemovedResponse,
   SafeUserResponse,
 } from '../common/swagger-response-models';
@@ -34,6 +35,7 @@ import { UsersService } from './users.service';
 import { FavoritesService } from './favorites.service';
 import { AddressesService } from './addresses.service';
 import { UpdateProfileDto } from './dto/update-profile.dto';
+import { UpdateNotificationSettingsDto } from './dto/notification-settings.dto';
 import { AddFavoriteDto } from './dto/add-favorite.dto';
 import {
   CreateDeliveryAddressDto,
@@ -69,6 +71,29 @@ export class UsersController {
   @ApiError(404, 'The account row vanished mid-request.')
   updateMe(@CurrentUser() user: any, @Body() dto: UpdateProfileDto) {
     return this.users.updateProfile(user.sub, dto);
+  }
+
+  /** Current channel toggles for the caller (defaults: both ON). */
+  @Get('me/notification-settings')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'My notification channel settings', description: 'Per-user opt-outs for order emails and browser push. Guest orders are unaffected — there is no account to consult; the contact-email receipt proof keeps receiving them.' })
+  @ApiOkResponse({ type: NotificationSettingsResponse })
+  @ApiError(401, 'Missing/invalid/expired access token.')
+  @ApiError(404, 'The account row vanished mid-request.')
+  getNotificationSettings(@CurrentUser() user: any) {
+    return this.users.getNotificationSettings(user.sub);
+  }
+
+  /** Flip one or both channels; empty patch -> 400, answer = persisted state. */
+  @Patch('me/notification-settings')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Update my notification channel settings', description: 'Allowlisted booleans only (strict JSON booleans — 0/"false" are 400). An empty patch answers 400; the response is the re-read persisted state.' })
+  @ApiOkResponse({ type: NotificationSettingsResponse })
+  @ApiError(400, 'Body validation failed or the patch set no field at all.')
+  @ApiError(401, 'Missing/invalid/expired access token.')
+  @ApiError(404, 'The account row vanished mid-request.')
+  updateNotificationSettings(@CurrentUser() user: any, @Body() dto: UpdateNotificationSettingsDto) {
+    return this.users.updateNotificationSettings(user.sub, dto);
   }
 
   @Get('me/export')

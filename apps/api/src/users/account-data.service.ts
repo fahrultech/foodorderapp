@@ -152,6 +152,12 @@ export class AccountDataService {
       schemaVersion: 1,
       generatedAt: new Date(),
       profile: toSafeUser(user),
+      // GDPR parity: the channel opt-outs ARE personal data the account
+      // owns — they ride every export next to the profile they configure.
+      notificationSettings: {
+        orderEmail: user.orderEmailEnabled !== false,
+        orderPush: user.orderPushEnabled !== false,
+      },
       addresses: addresses.map(mapAddress),
       favorites: favorites.map((favorite) => ({
         id: favorite.id,

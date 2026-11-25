@@ -170,6 +170,8 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['/auth/logout', 'post'],
       ['/auth/me', 'get'],
       ['/users/me', 'patch'],
+      ['/users/me/notification-settings', 'get'],
+      ['/users/me/notification-settings', 'patch'],
       ['/users/me', 'delete'],
       ['/users/me/export', 'get'],
       ['/users/me/favorites', 'get'],
@@ -263,6 +265,8 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['/auth/me', 'get'],
       ['/auth/logout', 'post'],
       ['/users/me', 'patch'],
+      ['/users/me/notification-settings', 'get'],
+      ['/users/me/notification-settings', 'patch'],
       ['/users/me', 'delete'],
       ['/users/me/export', 'get'],
       ['/orders/my', 'get'],
@@ -387,6 +391,8 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['/auth/logout', 'post', 200, 'ref:LogoutResponse'],
       ['/auth/me', 'get', 200, 'ref:SafeUserResponse'],
       ['/users/me', 'patch', 200, 'ref:SafeUserResponse'],
+      ['/users/me/notification-settings', 'get', 200, 'ref:NotificationSettingsResponse'],
+      ['/users/me/notification-settings', 'patch', 200, 'ref:NotificationSettingsResponse'],
       ['/users/me', 'delete', 200, 'ref:AccountDeleteResponse'],
       ['/users/me/export', 'get', 200, 'ref:AccountDataExportResponse'],
       ['/users/me/favorites', 'get', 200, 'ref:FavoriteListResponse'],
@@ -459,7 +465,7 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['/admin/promos/{id}/usages', 'get', 200, 'ref:PromoUsageListResponse'],
       ['/search', 'get', 200, 'ref:SearchResultsResponse'],
     ];
-    expect(SUCCESS.length).toBe(78);
+    expect(SUCCESS.length).toBe(80);
     for (const [path, method, code, kind] of SUCCESS) {
       const res = doc.paths[P(path)]?.[method]?.responses?.[String(code)];
       if (!res) throw new Error(`${method} ${path}: no ${code} response documented`);
@@ -497,6 +503,8 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['/auth/logout', 'post', [401]],
       ['/auth/me', 'get', [401]],
       ['/users/me', 'patch', [400, 401, 404]],
+      ['/users/me/notification-settings', 'get', [401, 404]],
+      ['/users/me/notification-settings', 'patch', [400, 401, 404]],
       ['/users/me', 'delete', [400, 401, 404, 409]],
       ['/users/me/export', 'get', [401, 404]],
       ['/users/me/favorites', 'get', [401]],
@@ -614,6 +622,7 @@ describe('OpenAPI document (generated from the real controllers)', () => {
         'driverAssignments',
         'favorites',
         'generatedAt',
+        'notificationSettings',
         'orders',
         'ownedRestaurants',
         'paymentsMade',

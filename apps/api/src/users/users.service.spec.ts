@@ -105,3 +105,62 @@ describe('UsersService.updateProfile (PATCH /users/me)', () => {
     expect(h.repo.findOne).toHaveBeenCalledWith({ where: { id: 'u1' } });
   });
 });
+
+describe('UsersService notification settings (Phase 14)', () => {
+  it('GET answers both-ON for a row whose toggles were never written', async () => {
+    // Strict-false doctrine: undefined (fixture/imported rows) must read
+    // as enabled, exactly the pre-feature behavior.
+    const h = build();
+    await expect(h.service.getNotificationSettings('u1')).resolves.toEqual({
+      orderEmail: true,
+      orderPush: true,
+    });
+  });
+
+  it('GET reflects stored false flags verbatim', async () => {
+    const h = build({ stored: fakeUser({ orderEmailEnabled: false, orderPushEnabled: true }) });
+    await expect(h.service.getNotificationSettings('u1')).resolves.toEqual({
+      orderEmail: false,
+      orderPush: true,
+    });
+  });
+
+  it('GET 404s when the account row is gone', async () => {
+    const h = build();
+    h.repo.findOne = jest.fn(async () => null);
+    await expect(h.service.getNotificationSettings('u1')).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('PATCH maps the public toggle names onto the entity columns', async () => {
+    const h = build();
+    const result = await h.service.updateNotificationSettings('u1', { orderEmail: false });
+    expect(h.update).toHaveBeenCalledWith('u1', { orderEmailEnabled: false });
+    expect(result).toEqual({ orderEmail: false, orderPush: true });
+  });
+
+  it('PATCH applies both toggles in one write', async () => {
+    const h = build();
+    await h.service.updateNotificationSettings('u1', { orderEmail: false, orderPush: false });
+    expect(h.update).toHaveBeenCalledWith('u1', {
+      orderEmailEnabled: false,
+      orderPushEnabled: false,
+    });
+  });
+
+  it('PATCH 400s on an empty patch instead of pretending to save', async () => {
+    const h = build();
+    await expect(h.service.updateNotificationSettings('u1', {})).rejects.toBeInstanceOf(BadRequestException);
+    expect(h.update).not.toHaveBeenCalled();
+  });
+
+  it('PATCH 404s when the UPDATE matches no row', async () => {
+    const h = build({ affected: 0 });
+    await expect(h.service.updateNotificationSettings('u1', { orderPush: false })).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('PATCH 404s when the row disappears between UPDATE and the re-read', async () => {
+    const h = build();
+    h.repo.findOne = jest.fn(async () => null);
+    await expect(h.service.updateNotificationSettings('u1', { orderPush: false })).rejects.toBeInstanceOf(NotFoundException);
+  });
+});

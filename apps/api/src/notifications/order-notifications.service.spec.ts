@@ -319,4 +319,99 @@ describe('OrderNotificationsService', () => {
       expect(pushSend).not.toHaveBeenCalled();
     });
   });
+
+  describe('per-user channel settings (Phase 14)', () => {
+    // Same event driver as the created-path tests, extracted for the matrix.
+    const emitCreated = async () => {
+      bus.next({
+        type: 'order.created',
+        restaurantId: 'resto-1',
+        userId: 'user-1',
+        payload: { orderId: 'order-1', code: 'FO-TEST', status: 'pending' },
+      });
+      await new Promise((r) => setTimeout(r, 10));
+    };
+
+    it('orderEmailEnabled=false suppresses ONLY the email — push still rides', async () => {
+      ordersFindOne.mockResolvedValue(makeOrder());
+      usersFindOne.mockResolvedValue(makeUser({ orderEmailEnabled: false }));
+
+      await emitCreated();
+
+      expect(mailSend).not.toHaveBeenCalled();
+      expect(pushSend).toHaveBeenCalledTimes(1);
+    });
+
+    it('orderPushEnabled=false suppresses ONLY the push — email still rides', async () => {
+      ordersFindOne.mockResolvedValue(makeOrder());
+      usersFindOne.mockResolvedValue(makeUser({ orderPushEnabled: false }));
+
+      await emitCreated();
+
+      expect(mailSend).toHaveBeenCalledTimes(1);
+      expect(pushSend).not.toHaveBeenCalled();
+    });
+
+    it('both channels off -> zero sends, but the single settings read still happens', async () => {
+      ordersFindOne.mockResolvedValue(makeOrder());
+      usersFindOne.mockResolvedValue(makeUser({ orderEmailEnabled: false, orderPushEnabled: false }));
+
+      await emitCreated();
+
+      expect(mailSend).not.toHaveBeenCalled();
+      expect(pushSend).not.toHaveBeenCalled();
+      expect(usersFindOne).toHaveBeenCalledTimes(1);
+      // The read carries the toggle columns — without them the gate cannot work.
+      expect(usersFindOne.mock.calls[0][0].select).toEqual(
+        expect.arrayContaining(['orderEmailEnabled', 'orderPushEnabled']),
+      );
+    });
+
+    it('legacy rows with UNWRITTEN toggles (undefined) keep both channels ON', async () => {
+      // Strict-false doctrine: fixtures/imports predating the columns must
+      // behave exactly like the pre-feature all-on ladder.
+      ordersFindOne.mockResolvedValue(makeOrder());
+      usersFindOne.mockResolvedValue(makeUser()); // no orderEmailEnabled/orderPushEnabled keys
+
+      await emitCreated();
+
+      expect(mailSend).toHaveBeenCalledTimes(1);
+      expect(pushSend).toHaveBeenCalledTimes(1);
+    });
+
+    it('status-update events honor the same gates (email off -> no status mail)', async () => {
+      ordersFindOne.mockResolvedValue(makeOrder({ status: OrderStatus.CONFIRMED }));
+      usersFindOne.mockResolvedValue(makeUser({ orderEmailEnabled: false, orderPushEnabled: false }));
+
+      bus.next({
+        type: 'order.updated',
+        restaurantId: 'resto-1',
+        userId: 'user-1',
+        payload: { orderId: 'order-1', code: 'FO-TEST', status: 'confirmed' },
+      });
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(mailSend).not.toHaveBeenCalled();
+      expect(pushSend).not.toHaveBeenCalled();
+    });
+
+    it('guest orders never consult the user table — proof address email is unaffected', async () => {
+      ordersFindOne.mockResolvedValue(
+        makeOrder({ userId: undefined as unknown as string, contactEmail: 'guest@example.com' }),
+      );
+
+      bus.next({
+        type: 'order.updated',
+        restaurantId: 'resto-1',
+        userId: null,
+        payload: { orderId: 'order-1', code: 'FO-TEST', status: 'confirmed' },
+      });
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(mailSend).toHaveBeenCalledTimes(1);
+      expect((mailSend.mock.calls[0][0] as any).to).toBe('guest@example.com');
+      expect(usersFindOne).not.toHaveBeenCalled();
+      expect(pushSend).not.toHaveBeenCalled();
+    });
+  });
 });
