@@ -3,6 +3,83 @@
 Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
+## 2026-11-25 20:10 — Session 135 — magic-link token-structure fuzz sweep: 240 seeded `?rt=` mutations + the pinned lenient-decode equivalence classes (Test, Phase 15 #2)
+
+**Built:**
+
+- test(api): extended `receipt-magic-link.http.spec.ts` with session 132's
+  proof-param doctrine applied to `?rt=` — a SEEDED property sweep (six
+  families x 40 cases, xorshift harness, seeds 0x5EED01..0x5EED06) over
+  structural mutations of a real minted token: charset substitutions
+  (incl. NUL, U+FFFD, a lone surrogate, and the query-structural
+  `% & # . / = +` class), alphabet char-flips deliberately biased at the
+  segment LAST chars, byte-level single-bit flips canonically re-encoded,
+  prefix/suffix/char-removal/dot-splice truncations, payload-sig swaps +
+  cross-cuts with a foreign-order token + double-dot JWT shapes, and
+  UNRESIGNED expiry rewrites over an 11-value hostile exp corpus. Per
+  case the wire verdict over the real ValidationPipe + ErrorFormatFilter
+  must EQUAL the pure oracle (`verifyReceiptAccessToken` — the very
+  function `findOneForViewer` runs) applied to the WHATWG-normalized
+  presentation; a freshly minted control always unlocks; the four
+  structurally-dead families pin ZERO unlocks; every denial is the
+  byte-identical canonical 404 and NOTHING 5xxes (session-84 doctrine).
+- HONEST-CLAIM correction the sweep forced — probe-established first,
+  then pinned: "every mutation denies" is FALSE by construction. Node's
+  base64url decoder is LENIENT (skips non-alphabet characters, ignores
+  trailing `=` padding; a 43-char signature carries TWO unused low bits),
+  so mutations producing an EQUIVALENT ENCODING of the same digest bytes
+  still verify. New pinned tests: trailing `=` (raw and %3D) UNLOCKS,
+  injected `!`/space/NUL/newline in the SIG segment UNLOCK, the payload
+  side NEVER does (HMAC runs over the raw string — pinned contrast
+  arm); the raw-vs-encoded `+` mirror (raw `+` becomes a wire space and
+  is skipped -> unlocks; `%2B` arrives literal -> 33-byte digest length
+  veto -> denies) — session 132's trap reborn on the token side; the
+  last-char malleability group, computed live from the alphabet, is
+  EXACTLY 4 chars and those re-verify while the other 60 deny
+  byte-identically. Documented verdict: equivalent encodings grant NO
+  new capability (a valid signature was already the prerequisite) — the
+  same posture as lenient JWT libraries — so this is a truth pin +
+  agreement oracle, deliberately NOT a product change.
+- Pinned deterministic extras the seeded sweep cannot own (mints shift
+  per second): dot-boundary shapes (leading/trailing/double/only,
+  payload-only, sig-only) all canonical 404; the 4096 length guard is
+  WIRE-INVISIBLE (exactly-4096 passes the guard then HMAC-denies, 4097
+  guard-denies, byte-identical answers, no oracle); expiry is CLOCK-bound
+  not issuance-bound (a future-minted `now` token lives, a past-minted
+  one is born denied).
+
+**Verified:**
+
+- Build green; jest 107 suites / 1516 tests (+12 vs session 134's 1504:
+  1 control + 6 family sweeps + 5 pinned tables; 0 suites added — the
+  increment is spec-file only). The sweep file runs ~10 s.
+- Live smoke 21/21 on a 30-migration from-empty scratch DB through the
+  FULL app (all global middleware, guards, limiter): guest order (row
+  delta exactly 1, stored proof normalized) -> the REAL rt token
+  extracted from the captured `MAIL_CAPTURED` email -> valid token
+  unlocks the bare URL (exact code), the trailing-%3D and NUL-in-sig
+  equivalence arms UNLOCK live, a 7-mutation battery (char-remove,
+  segment swap, truncate, dot splice, double dot, junk, oversize)
+  answers the canonical 404 byte-identically, the last-char equivalence
+  group measured live = 4 with one unlock + one non-equivalent deny
+  proven, ADMIN-bearer and garbage-bearer ladder untouched, API log 0
+  level-50 lines.
+- Sanitizer scan: all 265 added lines and the whole file checked by
+  codepoint — no U+2026 masks, no asterisk-mask sequences, no literal
+  backslash-u sequences; git diff --check clean. Probe artifacts lived
+  only in the scratchpad; the throwaway wire-probe spec was deleted
+  (no src or dist leftovers).
+- Web delta 0, e2e untouched BY DESIGN (API spec-only change; rung
+  product code byte-identical — this increment ADDS evidence, not
+  behavior).
+
+**Left for next sessions:**
+
+- Phase 15 #3 next (one-click pay from the magic link): the capability
+  read-vs-write DECISION, and any payment rung must preserve this
+  sweep's no-oracle canonical-404 baseline. The `?rt=` query-surface
+  registry entry from session 133 is untouched (no new params added).
+
 ## 2026-11-25 18:40 — Session 134 — mail delivery telemetry: per-channel `totals.mail` + the `email_delivery_failure` rule + the SMTP_JSON_CAPTURE=fail rig arm (Ops, Phase 15 #1)
 
 **Built:**

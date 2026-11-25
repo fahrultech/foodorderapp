@@ -626,13 +626,30 @@
   fires the rule ALONE with exact per-channel arithmetic + scan exit 1,
   success arm quiet at observed 0 + scan exit 0, disabled arm all-zeros
   "not evaluable".)
-- [ ] Test: magic-link token-structure fuzz sweep — session 132's proof-param
+- [x] Test: magic-link token-structure fuzz sweep — session 132's proof-param
   doctrine applied to `?rt=`: property sweep (seeded rng + the existing
   fuzz harness) over structural mutations of a real token (charset, bit
   flips, truncations, segment swaps, expiry tampering) asserting constant
   outcomes — the valid token ALWAYS unlocks, EVERY mutation answers the
   byte-identical canonical 404, and nothing 5xxes through the real pipe
   + filter (extending receipt-magic-link.http.spec.ts).
+  (2026-11-25, session 135; six seeded families × 40 mutations over the
+  REAL HTTP ladder, verdicts pinned to AGREEMENT with the pure verifier
+  oracle — probe-established truth is that Node's lenient base64url
+  decoding admits EQUIVALENT ENCODINGS of the same digest (trailing `=`,
+  skipped non-alphabet injections in the SIG segment, an exactly-4
+  last-char malleability group over the 2 unused bits) which live 200,
+  while payload-side never does (HMAC over the raw string) and the
+  raw-vs-encoded `+` mirror splits both ways — the blanket "every
+  mutation 404s" claim is honestly FALSE and the spec now says so;
+  structurally-dead families (bitflip/truncation/segment-swap/
+  unresigned-expiry) pin ZERO unlocks; every denial byte-identical
+  canonical 404, zero 5xx; deterministic pins for dot-boundary shapes,
+  the wire-invisible 4096 guard (4096/4097 indistinguishable) and
+  clock-bound expiry; 107 suites/1516 tests (+12, spec-only) + live
+  smoke 21/21 on a 30-migration from-empty DB driving the REAL
+  captured-email token through the full app incl. equivalence arms;
+  web/e2e delta 0 — evidence-only increment.)
 - [ ] Product: one-click pay from the magic link — session 133 made guests
   VIEW the receipt from their email, but payment stays bearer-only by
   design (session 43's sign-in hint): an unauthenticated email recipient
