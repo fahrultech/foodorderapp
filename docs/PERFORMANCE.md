@@ -704,9 +704,15 @@ their split decisions separately.
 | `/checkout` | 142338 |
 | `/map` | 137016 |
 | `/orders/[id]` | 159683 |
-| `/orders/my` | 144312 |
+| `/orders/my` | 144317 |
 <!-- BUNDLE-BASELINE-END -->
 
+Session-130 note: `/orders/my` re-adopted 144312 → 144317 — run 169's
+gate caught the route page chunk at +5 B (4115 → 4120) on a web tree
+BYTE-IDENTICAL to green run 168: the session-120 wobbly-measurement
+class, not a product change (API-only increment). Every other route
+measured exactly AT its row; only the genuinely-over row re-adopted to
+this run's CI-measured number, untouched rows keep their headroom.
 Session-127 note: `/orders/my` re-adopted 144309 → 144312 — run 164's
 gate caught the order-again CANCELLED condition at +3 B over the old
 row (local IN-PATH A/B measured +7 B gz for the same edit).

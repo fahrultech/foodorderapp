@@ -84,6 +84,13 @@ rig, API on :4131):**
   U+2026, no asterisk-mask sequences, no literal backslash-u sequences;
   `git diff --check` clean. Scratch DB + API process cleaned by the rig
   trap (ports 4130/4131 verified free, no `foodorder_*` leftovers).
+- CI follow-up: run 169 went RED on the bundle gate — `/orders/my`
+  measured 144317 vs budget 144312, on a web tree byte-identical to
+  green run 168 (the session-120 wobbly-measurement class; all other
+  routes measured exactly at their rows, both PG15/16 drift gates, the
+  API job and the full e2e job green). Re-adopted only the over-budget
+  row to the run-169 CI number per the session-120 doctrine
+  (PERFORMANCE.md note added).
 
 **Left for next session:**
 
