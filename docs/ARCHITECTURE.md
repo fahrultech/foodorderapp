@@ -509,7 +509,11 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   contract stands. The toggles live OUTSIDE the `SafeUser` allowlist (a
   settings surface, not a display property): GET/PATCH
   `/users/me/notification-settings` is the only API exposure, plus the
-  GDPR export embeds them next to the profile they configure.
+  GDPR export embeds them next to the profile they configure. The
+  `/account` card (session 131) keeps the server the single source of
+  truth: checkboxes render from the last re-read persisted answer only —
+  a failed write self-reverts, a failed read shows an error card rather
+  than fabricated toggle state.
   Push payloads
   contain only order code/status and a same-site receipt URL — no address,
   phone, item, or payment data. Copy doctrine: the

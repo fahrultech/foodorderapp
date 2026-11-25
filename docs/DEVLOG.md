@@ -3,6 +3,80 @@
 Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
+## 2026-11-25 12:15 — Session 131 — notification settings get their /account surface: two toggles, self-revert on failure, e2e round-trip web+e2e close (Product, Phase 14 #3 completed)
+
+**Built:**
+
+- Web: `lib/api.ts` gains `getNotificationSettings`/
+  `updateNotificationSettings` (bearer GET/PATCH on
+  `/users/me/notification-settings`) and the `NotificationSettings`
+  interface — documented that both answers are the RE-READ persisted row,
+  so callers replace the whole local copy, never merge the clicked field.
+- Web: `/account` gains the notification-channels card between the GDPR
+  export and the danger zone. Two checkboxes (order emails / browser
+  push) rendered strictly from the last PERSISTED state: no optimistic
+  write exists, so a failed PATCH SELF-REVERTS the checkbox for free.
+  A successful flip shows a transient role=status line naming the saved
+  channel. The initial GET runs once per `signedIn` transition (stale
+  rows from a previous session are cleared before refetch); a failed
+  load degrades to an honest error card + retry button and NEVER
+  fabricates checkboxes for unread state (GDPR-card / loading-skeletons
+  doctrine). Guest + deleted states untouched — the card lives inside
+  the signed-in branch.
+- i18n: 10 new `Account` keys EN + ID (parity + ICU token-set asserted
+  before the ensure_ascii merge; new strings avoid literal U+2026
+  characters per the sanitizer-scan rule — ASCII "..." in notifyLoading).
+- e2e: `tests/zz-account-notifications.spec.ts` (3 tests, throwaway
+  registered customer — consumes no seed state): defaults ON/ON, flip
+  email OFF persists across a fresh document load, direct-API GET and
+  the GDPR export `notificationSettings` both answer byte-exact
+  `{orderEmail:false,orderPush:true}`; a network-aborted PATCH shows the
+  save-error banner, leaves the checkbox checked, shows no saved line,
+  and writes NOTHING server-side before the un-aborted retry lands; a
+  context-level aborted GET shows the load-error card with zero
+  checkboxes and the retry recovers into the persisted truth.
+- e2e: `storefront-i18n-account-id.spec.ts` signed-in chrome test
+  extended read-only with the localized third card (heading, both exact
+  label pins, both boxes checked — demo state never flipped).
+
+**Verified (all live):**
+
+- Full e2e **130 passed / 0 failed** (~4.3 min, fresh seed, Playwright-
+  booted servers) — includes the 3 new specs, the extended ID chrome
+  test, and every pre-existing /account spec untouched. First full run
+  was 129/130: `admin.spec:14` `toContainText('4')` failed reading
+  "Users52 customers". Root cause was a harness contract, not a product
+  or i18n bug: the card DOM concatenates heading+value+detail with no
+  separator, so the pin was quietly asserting the seeded TOTALS-of-4 —
+  any spec registering a user before it breaks it. Fixed by renaming my
+  spec `zz-account-notifications.spec.ts` (the established sort
+  doctrine, now with an explanatory comment) and re-running from a
+  fresh seed green.
+- curl smoke on the hand-booted compiled API (:4000, dev DB): demo
+  defaults `{orderEmail:true,orderPush:true}`; PATCH orderPush=false
+  answers + re-GETs + embeds in the export all as
+  `{orderEmail:true,orderPush:false}`; PATCH back restores ON/ON (demo
+  state left exactly as found); unauthenticated GET answers 401.
+- API delta zero this session: `nest build` green, jest unchanged at
+  104 suites / 1413 tests (session 130's numbers, byte-identical).
+- `npm run build` green on web; bundle-budget gate OK locally — all 7
+  pinned routes within budget (only `/account`'s own page chunk grew;
+  it is not a pinned route).
+- Sanitizer scans on all added lines (185 diff lines + new spec file):
+  no U+2026, no asterisk-mask sequences, no literal backslash-u escapes
+  outside the two messages-JSON values whose backslash-u-2014 em-dash
+  IS the house ensure_ascii convention (decoded to real U+2014, and
+  TSX/TS added lines carry zero such sequences); `git diff --check`
+  clean.
+- Honest scope note (carried from session 130): the push-side gating
+  remains unit-proven only — the local rig runs without VAPID, so no
+  live push delta is observable anywhere in this chain.
+
+**Left for next session:**
+
+- Phase 14 moves to the `Test: receipt proof-param sweep` item.
+
+---
 ## 2026-11-25 09:28 — Session 130 — per-user notification channel settings: API side shipped (defaults byte-preserve today's behavior), web+e2e filed as the 🔒 sub-item (Product, Phase 14 #3 split)
 
 **Built:**

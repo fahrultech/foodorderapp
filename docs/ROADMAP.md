@@ -525,14 +525,15 @@
   strictly above; 103 suites / 1393 tests (+13) + live smoke 34/34 incl.
   grace boundary, NULL-snapshot exclusion, persisted-row fire, scan
   exit 1 -> repair drain -> exit 0.)
-- [ ] Product: per-user notification channel settings — the email ladder
+- [x] Product: per-user notification channel settings — the email ladder
   is all-or-nothing today (authed orders get status emails whenever SMTP
   is configured; session 122's guest path has no opt-out at all) while
   push is per-device only (sessions 48/49); add user-level toggles
   (order_email / order_push, defaults preserve current behavior)
   consulted in `OrderNotificationsService`, an `/account` settings
   section on web, GDPR export parity, unit + SMTP-capture live smoke +
-  e2e. (scope-split per session 129's note — API shipped, web+e2e next)
+  e2e. (2026-11-25, sessions 130–131; API + web + e2e closed — see
+  sub-items.)
   - [x] API: `users.orderEmailEnabled`/`orderPushEnabled` boolean columns
     (NOT NULL DEFAULT true — migration 30, no backfill), GET/PATCH
     `/users/me/notification-settings` (JwtAuthGuard, strict-boolean DTO —
@@ -546,11 +547,21 @@
     unit time, live smoke 26/26 on a 30-migration from-empty DB with
     SMTP-capture email ladder + persistence + guest-untouched phases
     (2026-11-25, session 130).
-  - [ ] 🔒 Web: `/account` notification settings section consuming
+  - [x] 🔒 Web: `/account` notification settings section consuming
     GET/PATCH `/users/me/notification-settings` (two toggles, EN/ID,
     degrade-on-failure parity with the GDPR card) + e2e pinning the
     flip-and-persist round trip through the real UI; push-side gating is
     unit-proven only (live rig has no VAPID) — leave the honest note.
+    (2026-11-25, session 131; checkboxes render ONLY from the last
+    re-read persisted answer — no optimistic write, so a failed PATCH
+    self-reverts; failed GET degrades to error+retry, never fabricated
+    toggles; 10 EN/ID keys with parity+ICU-token asserts before merge;
+    full e2e 130/130 fresh-seed incl. 3 new specs (throwaway user: flip
+    -> reload -> API wire -> GDPR export byte-exact; aborted PATCH writes
+    nothing; aborted GET recovers) + read-only ID chrome pin; live curl
+    smoke defaults/PATCH/export/401 all-exact with demo state restored;
+    named zz-* after a first-run admin.spec ordering catch — its
+    no-separator card text pin silently depends on seed user totals.)
 - [ ] Test: receipt proof-param sweep — property tests over
   `?email=`/`?contactEmail=` normalization edges pinned against the real
   presenter ladder (trim, case folding incl. non-ASCII, the raw-`+`
