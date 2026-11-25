@@ -184,3 +184,53 @@ describe('email-copy: formatCents', () => {
     expect(formatCents(0)).toBe('IDR 0');
   });
 });
+
+// ── magic-link receipt line (Phase 14 #5) ──────────────────────────────────
+describe('email-copy: receiptUrl line (magic link)', () => {
+  const URL = 'https://eat.test/orders/order-1?rt=abc123.DEF-456';
+
+  it('EN confirmation appends the View-your-order block after keepPosted', () => {
+    const o = view({ receiptUrl: URL });
+    const msg = confirmationEmail(o, ['en']);
+    expect(msg.text).toBe(
+      legacyConfirmationText(view()) + `\n\nView your order: ${URL}`,
+    );
+  });
+
+  it('ID confirmation uses the localized label', () => {
+    const o = view({ receiptUrl: URL });
+    const msg = confirmationEmail(o, ['id']);
+    expect(msg.text.endsWith(`\n\nLihat pesanan Anda: ${URL}`)).toBe(true);
+  });
+
+  it('bilingual guest email: both blocks carry their own localized line', () => {
+    const o = view({ receiptUrl: URL });
+    const msg = confirmationEmail(o, ['id', 'en']); // input order must not matter
+    const lines = msg.text.split('\n');
+    expect(lines).toContain(`View your order: ${URL}`);
+    expect(lines).toContain(`Lihat pesanan Anda: ${URL}`);
+  });
+
+  it('receiptUrl null/undefined renders ZERO extra bytes (legacy pins survive)', () => {
+    for (const rv of [undefined, null]) {
+      const o = view({ receiptUrl: rv });
+      expect(confirmationEmail(o, ['en']).text).toBe(legacyConfirmationText(view()));
+      const s = statusUpdateEmail(
+        { ...statusView, receiptUrl: rv }, OrderStatus.CONFIRMED, ['en'],
+      )!;
+      expect(s.text).toBe(legacyStatusText(statusView, 'Your order has been confirmed', OrderStatus.CONFIRMED));
+    }
+  });
+
+  it('status email splices the line between the restaurant row and the tail', () => {
+    const confirmed = statusUpdateEmail({ ...statusView, receiptUrl: URL }, OrderStatus.CONFIRMED, ['en'])!;
+    expect(confirmed.text).toBe(
+      'Hi Alice,\n\nYour order has been confirmed.\n\nOrder: #FO-TEST\n' +
+      `Restaurant: Burger Palace\n\nView your order: ${URL}\n`,
+    );
+    const cancelled = statusUpdateEmail({ ...statusView, receiptUrl: URL }, OrderStatus.CANCELLED, ['en'])!;
+    expect(cancelled.text).toContain(
+      `Restaurant: Burger Palace\n\nView your order: ${URL}\n\nIf you did not request a cancellation`,
+    );
+  });
+});

@@ -42,6 +42,8 @@ export interface ConfirmationEmailView {
   totalCents: number;
   restaurant: { name: string };
   items: Array<{ name: string; quantity: number; unitPriceCents: number }>;
+  /** Magic-link receipt URL (Phase 14 #5). Absent/null renders NO link line. */
+  receiptUrl?: string | null;
 }
 
 /** Lighter subset for status-step notices (no line items rendered). */
@@ -49,6 +51,7 @@ export interface StatusEmailView {
   code: string;
   customerName: string;
   restaurant: { name: string };
+  receiptUrl?: string | null;
 }
 
 /**
@@ -99,6 +102,7 @@ interface LocaleStrings {
   deliveryFee: string;
   total: string;
   keepPosted: string;
+  viewOrder: string;
   restaurant: string;
   cancelHint: string;
 }
@@ -115,6 +119,7 @@ const COPY: Record<EmailLocale, LocaleStrings> = {
     deliveryFee: 'Delivery fee',
     total: 'Total',
     keepPosted: 'We will keep you posted as your order moves forward.',
+    viewOrder: 'View your order',
     restaurant: 'Restaurant',
     cancelHint: 'If you did not request a cancellation, please contact support.',
   },
@@ -129,6 +134,7 @@ const COPY: Record<EmailLocale, LocaleStrings> = {
     deliveryFee: 'Biaya pengiriman',
     total: 'Total',
     keepPosted: 'Kami akan terus mengabari Anda seiring pesanan Anda berjalan.',
+    viewOrder: 'Lihat pesanan Anda',
     restaurant: 'Restoran',
     cancelHint: 'Jika Anda tidak meminta pembatalan, silakan hubungi dukungan.',
   },
@@ -183,6 +189,10 @@ function confirmationBody(order: ConfirmationEmailView, locale: EmailLocale): st
     `${c.total}: ${formatCents(order.totalCents)}`,
     ``,
     c.keepPosted,
+    // Magic-link receipt line (Phase 14 #5): absent url -> NO extra bytes
+    // (the session-45 byte-identity pins stay valid for URL-less renders).
+    order.receiptUrl ? `` : null,
+    order.receiptUrl ? `${c.viewOrder}: ${order.receiptUrl}` : null,
   ]
     .filter((l) => l !== null)
     .join('\n');
@@ -211,6 +221,7 @@ function statusBody(order: StatusEmailView, label: string, locale: EmailLocale, 
     ``,
     `${c.order}: #${order.code}`,
     `${c.restaurant}: ${order.restaurant.name}`,
+    ...(order.receiptUrl ? [``, `${c.viewOrder}: ${order.receiptUrl}`] : []),
     status === OrderStatus.CANCELLED ? `\n${c.cancelHint}` : '',
   ].join('\n');
 }

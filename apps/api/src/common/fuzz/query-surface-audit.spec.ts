@@ -232,9 +232,12 @@ const REGISTRY: Record<string, RegistryEntry> = {
   // Guest receipt proof — the string is NEVER a SQL predicate: it is
   // normalized and compared in JS memory against the loaded row, so even a
   // NUL byte can only answer 404, never reach the driver.
+  // `rt` (Phase 14 magic link) is the string sibling: an HMAC-verified
+  // capability compared against the requested id IN MEMORY by
+  // orders/receipt-access.ts — never bound into SQL, never parsed as a query.
   'OrdersController.one': {
-    params: [{ literal: 'contactEmail', dto: null }],
-    disposition: 'in-memory proof comparison — never bound into SQL',
+    params: [{ literal: 'contactEmail', dto: null }, { literal: 'rt', dto: null }],
+    disposition: 'in-memory proof + HMAC capability check — never bound into SQL',
     checks: [
       {
         kind: 'must',
@@ -242,6 +245,7 @@ const REGISTRY: Record<string, RegistryEntry> = {
         regexes: [
           ['normalizeContactEmail\\(contactEmail\\)', 'trim+lowercase before compare'],
           ['proof === order\\.contactEmail', 'the compare happens in JS memory'],
+          ['verifyReceiptAccessToken\\(', 'rt rides the pure receipt-access verifier'],
         ],
       },
       {
@@ -250,6 +254,7 @@ const REGISTRY: Record<string, RegistryEntry> = {
         regexes: [
           ['where:[^\\n]*contactEmail', 'proof must NEVER become a SQL predicate'],
           ['findBy\\([^)]*contactEmail', 'proof must NEVER become a SQL predicate'],
+          ['where:[^\\n]*receiptToken', 'the capability must NEVER become a SQL predicate'],
         ],
       },
     ],
@@ -482,6 +487,7 @@ describe('query-surface sanitizer sweep (static gate)', () => {
       'sort', 'status', // in-memory allowlists (switch / STATUS_FLOW)
       'page', 'limit', // clampToIntRange at the services
       'contactEmail', // in-memory proof comparison only
+      'rt', // HMAC capability verified in memory (receipt-access.ts)
     ]);
     const unguarded = rawStringSites.filter((p) => !guarded.has(p.literal as string));
     expect(unguarded.map((p) => `${p.key}?${p.literal}`)).toEqual([]);

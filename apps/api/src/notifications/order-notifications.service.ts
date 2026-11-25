@@ -1,10 +1,12 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Order, OrderStatus } from '../orders/order.entity';
 import { User } from '../users/user.entity';
 import { normalizeContactEmail } from '../orders/orders.service';
 import { OrderEventsService, OrderEvent } from '../orders/order-events.service';
+import { issueReceiptAccessToken, receiptTokenTtlSec } from '../orders/receipt-access';
+import { ConfigService } from '@nestjs/config';
 import { MailService } from './mail.service';
 import { PushService } from './push.service';
 import {
@@ -25,6 +27,12 @@ export class OrderNotificationsService implements OnModuleInit {
     private readonly push: PushService,
     @InjectRepository(Order) private readonly orders: Repository<Order>,
     @InjectRepository(User) private readonly users: Repository<User>,
+    // Magic-link issuance (Phase 14 #5). Optional so every pre-feature
+    // harness construction (positional or DI without the provider) keeps
+    // working — the link line then simply renders absent (byte-identical
+    // legacy copy). The app always injects it via the global ConfigModule.
+    @Optional()
+    private readonly config?: ConfigService,
   ) {}
 
   onModuleInit(): void {
@@ -99,6 +107,36 @@ export class OrderNotificationsService implements OnModuleInit {
     return order.userId ? ['en'] : ['en', 'id'];
   }
 
+  /**
+   * Magic-link receipt URL (Phase 14 #5): the short-lived signed
+   * capability token (receipt-access.ts) riding the storefront's order
+   * page. FAIL-OPEN by design: no visible secret (bare unit harnesses) or
+   * a throwing mint collapses to null — the template then renders NO link
+   * line (legacy byte-identical copy) and a notification can never die on
+   * its own link builder.
+   */
+  private receiptUrl(order: Order): string | null {
+    try {
+      const secret = this.config?.get<string>('JWT_SECRET');
+      if (!secret) return null;
+      const token = issueReceiptAccessToken(
+        order.id,
+        secret,
+        receiptTokenTtlSec(this.config?.get<string>('RECEIPT_TOKEN_TTL_SEC')),
+      );
+      return `${this.webBaseUrl()}/orders/${order.id}?rt=${token}`;
+    } catch {
+      return null;
+    }
+  }
+
+  /** `WEB_PUBLIC_URL` env, trailing slashes trimmed; dev default :3000. */
+  private webBaseUrl(): string {
+    const raw = this.config?.get<string>('WEB_PUBLIC_URL');
+    const v = (raw ?? '').trim().replace(/\/+$/, '');
+    return v || 'http://localhost:3000';
+  }
+
   private async sendOrderConfirmation(orderId: string): Promise<void> {
     const order = await this.orders.findOne({
       where: { id: orderId },
@@ -107,7 +145,10 @@ export class OrderNotificationsService implements OnModuleInit {
     if (!order) return;
     const { email: to, pushEnabled } = await this.resolveChannels(order);
 
-    const { subject, text } = confirmationEmail(order, this.localesFor(order));
+    const { subject, text } = confirmationEmail(
+      { ...order, receiptUrl: this.receiptUrl(order) },
+      this.localesFor(order),
+    );
 
     await Promise.all([
       to ? this.mail.send({ to, subject, text }) : Promise.resolve(),
@@ -133,7 +174,11 @@ export class OrderNotificationsService implements OnModuleInit {
     if (!order) return;
     const { email: to, pushEnabled } = await this.resolveChannels(order);
 
-    const message = statusUpdateEmail(order, status, this.localesFor(order));
+    const message = statusUpdateEmail(
+      { ...order, receiptUrl: this.receiptUrl(order) },
+      status,
+      this.localesFor(order),
+    );
     if (!message) return;
 
     // Push stays bearer-only and English (the label table is EN-keyed; see

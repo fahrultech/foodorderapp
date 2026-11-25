@@ -757,16 +757,18 @@ export const api = {
    * Receipt read (Phase 6 ownership fix). A guest passes the checkout email
    * as `contactEmail`; a signed-in caller passes `accessToken` so owner/ADMIN
    * bearer paths work. Wrong or missing proof answers the same 404 as an
-   * unknown id.
+   * unknown id. `receiptToken` (Phase 14 magic link) is the emailed
+   * short-lived capability: no bearer, no typed email needed.
    */
   getOrder: (
     id: string,
-    opts: { contactEmail?: string; accessToken?: string } = {},
+    opts: { contactEmail?: string; accessToken?: string; receiptToken?: string } = {},
   ) => {
-    const qs = opts.contactEmail
-      ? `?contactEmail=${encodeURIComponent(opts.contactEmail)}`
-      : '';
-    return request<Order>(`/orders/${id}${qs}`, {
+    const qs = new URLSearchParams();
+    if (opts.contactEmail) qs.set('contactEmail', opts.contactEmail);
+    if (opts.receiptToken) qs.set('rt', opts.receiptToken);
+    const suffix = qs.toString() ? `?${qs.toString()}` : '';
+    return request<Order>(`/orders/${id}${suffix}`, {
       headers: opts.accessToken ? bearer(opts.accessToken) : undefined,
     });
   },

@@ -26,10 +26,10 @@ export default async function OrderPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ code?: string; pay?: string; email?: string }>;
+  searchParams: Promise<{ code?: string; pay?: string; email?: string; rt?: string }>;
 }) {
   const { id } = await params;
-  const { code, pay, email } = await searchParams;
+  const { code, pay, email, rt } = await searchParams;
   const t = await getTranslations('Order');
   const c = await getTranslations('Common');
   const STATUS_LABEL: Record<string, string> = {
@@ -46,8 +46,13 @@ export default async function OrderPage({
     // checkout redirect (and history links) carry the contact email as the
     // guest proof; without it this read 404s — same as an unknown order —
     // and the OrderVerify island below offers the remaining keys (bearer
-    // token for owner/ADMIN, or the email typed by hand).
-    order = await api.getOrder(id, { contactEmail: email });
+    // token for owner/ADMIN, or the email typed by hand). Phase 14 magic
+    // link: the emailed receipt URL carries `?rt=` — a short-lived signed
+    // capability that unlocks this read with NOTHING typed.
+    order = await api.getOrder(id, {
+      contactEmail: email,
+      ...(rt ? { receiptToken: rt } : {}),
+    });
   } catch {
     return (
       <div className="mx-auto max-w-lg rounded-2xl border border-dashed border-stone-300 bg-white p-10 text-center">

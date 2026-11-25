@@ -120,6 +120,20 @@ export class EnvVars {
   @IsString()
   SMTP_JSON_CAPTURE?: string;
 
+  // ── Magic-link receipt access (Phase 14 #5) ─────────────────────────────
+  // Base URL embedded in the order emails' "View your order" link. Unset /
+  // blank falls back to http://localhost:3000 (dev default, notifications
+  // never die on a missing knob).
+  @IsOptional()
+  @IsString()
+  WEB_PUBLIC_URL?: string;
+
+  // Token lifetime in seconds. Garbage / non-positive -> 72h default;
+  // parsed + clamped in orders/receipt-access.ts (never throws).
+  @IsOptional()
+  @IsString()
+  RECEIPT_TOKEN_TTL_SEC?: string;
+
   // ── Web push (all optional — the complete triplet enables push) ──────────
   @IsOptional()
   @IsString()

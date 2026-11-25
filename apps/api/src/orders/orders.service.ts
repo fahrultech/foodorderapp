@@ -17,6 +17,7 @@ import { Payment, PaymentStatus } from '../payments/payment.entity';
 import { AppException } from '../common/app-exception';
 import { attributeRequestRestaurant } from '../common/metrics/restaurant-attribution';
 import { confirmGateEnabled } from './payment-confirm-gate';
+import { verifyReceiptAccessToken } from './receipt-access';
 import { UserRole } from '../users/user.entity';
 import { OrderItem } from './order-item.entity';
 import { CreateOrderDto } from './dto/create-order.dto';
@@ -518,6 +519,26 @@ export class OrdersService {
   }
 
   /**
+   * JWT_SECRET as visible to THIS service. Belt-and-braces by design:
+   * unit/DI harnesses pass assorted stubs into the optional config slot
+   * (plain objects, jest.fn, noop — orders-ownership.spec.ts). Anything
+   * that is not a readable string leaves the magic-link rung inert (every
+   * token DENIES via the empty-secret guard) — a legacy harness can never
+   * 500 on rung 4 (session-84 non-5xx doctrine).
+   */
+  private receiptSecret(): string | undefined {
+    try {
+      const raw =
+        typeof this.config?.get === 'function'
+          ? this.config.get<string>('JWT_SECRET')
+          : undefined;
+      return typeof raw === 'string' && raw ? raw : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
    * Receipt read for the PUBLIC `GET /orders/:id` surface (Phase 6
    * ownership fix). `findOne` above stays the unguarded internal loader
    * (create-echo, status flows, event fan-out) — this is the authorization
@@ -528,7 +549,13 @@ export class OrdersService {
    * 3. anyone who presents the order's stored `contactEmail` — the guest
    *    checkout proof, compared normalized and case-insensitively. Orders
    *    with a NULL stored email (legacy rows, API clients that omitted it)
-   *    simply have no rung 3.
+   *    simply have no rung 3;
+   * 4. a valid magic-link token (`?rt=`, Phase 14 #5) minted for THIS
+   *    order id — the short-lived HMAC capability embedded in the order
+   *    emails' receipt link. The bearer rungs 1–2 and the typed-proof
+   *    rung 3 stay byte-identical; rung 4 needs nothing typed. With
+   *    no JWT_SECRET visible to this service (bare unit-spec harnesses)
+   *    the rung is inert and every token DENIES.
    *
    * Everything else answers the SAME 404 as an unknown id — no existence
    * oracle, same convention as the customer cancel route.
@@ -537,13 +564,15 @@ export class OrdersService {
     id: string,
     viewer?: { sub: string; role?: UserRole },
     contactEmail?: string,
+    receiptToken?: string,
   ) {
     const order = await this.findOne(id);
     const proof = normalizeContactEmail(contactEmail);
     const authorized =
       viewer?.role === UserRole.ADMIN ||
       (viewer != null && order.userId != null && order.userId === viewer.sub) ||
-      (proof != null && order.contactEmail != null && proof === order.contactEmail);
+      (proof != null && order.contactEmail != null && proof === order.contactEmail) ||
+      verifyReceiptAccessToken(receiptToken, id, this.receiptSecret());
     if (!authorized) throw new NotFoundException('Order not found');
     // EXPLICIT receipt-read attribution (session 125): GET /orders/:id
     // addresses the restaurant one join away (order.restaurantId). Stamped

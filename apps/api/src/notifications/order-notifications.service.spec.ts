@@ -7,6 +7,7 @@ import { OrderEventsService, OrderEvent } from '../orders/order-events.service';
 import { Order, OrderStatus } from '../orders/order.entity';
 import { User } from '../users/user.entity';
 import { PushService } from './push.service';
+import { verifyReceiptAccessToken } from '../orders/receipt-access';
 
 // ── helpers ────────────────────────────────────────────────────────────────
 function makeOrder(overrides: Partial<Order> = {}): Order {
@@ -413,5 +414,102 @@ describe('OrderNotificationsService', () => {
       expect(usersFindOne).not.toHaveBeenCalled();
       expect(pushSend).not.toHaveBeenCalled();
     });
+  });
+});
+
+// ── magic-link receipt URL (Phase 14 #5) ───────────────────────────────────
+describe('magic-link receipt URL in order emails', () => {
+  const SECRET = 'notif-magic-link-unit-secret';
+  let svc: OrderNotificationsService;
+  let bus: Subject<OrderEvent>;
+  let mailSend: jest.Mock;
+  let pushSend: jest.Mock;
+  let ordersFindOne: jest.Mock;
+
+  function build(config: Record<string, string> | undefined) {
+    bus = new Subject<OrderEvent>();
+    mailSend = jest.fn().mockResolvedValue(undefined);
+    pushSend = jest.fn().mockResolvedValue(undefined);
+    ordersFindOne = jest.fn();
+    svc = new OrderNotificationsService(
+      { stream: () => bus.asObservable() } as any,
+      { send: mailSend, enabled: true } as any,
+      { sendToUser: pushSend } as any,
+      { findOne: ordersFindOne } as any,
+      { findOne: async () => makeUser() } as any,
+      config === undefined ? undefined : ({ get: (k: string) => config[k] } as any),
+    );
+    svc.onModuleInit();
+  }
+
+  const rtOf = (text: string) => {
+    const m = text.match(/[?&]rt=([A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)/);
+    return m ? m[1] : null;
+  };
+
+  afterEach(() => jest.clearAllMocks());
+
+  it('confirmation email carries a verifiable View-your-order link', async () => {
+    build({ JWT_SECRET: SECRET, WEB_PUBLIC_URL: 'https://eat.test' });
+    ordersFindOne.mockResolvedValue(makeOrder());
+    bus.next({ type: 'order.created', restaurantId: 'resto-1', userId: 'user-1',
+      payload: { orderId: 'order-1', code: 'FO-TEST', status: 'pending' } });
+    await new Promise((r) => setTimeout(r, 10));
+
+    const text = (mailSend.mock.calls[0][0] as any).text as string;
+    expect(text).toContain('View your order: https://eat.test/orders/order-1?rt=');
+    const tok = rtOf(text)!;
+    expect(tok).toBeTruthy();
+    expect(verifyReceiptAccessToken(tok, 'order-1', SECRET)).toBe(true);
+    // bound capability: the same token must NOT open another order
+    expect(verifyReceiptAccessToken(tok, 'order-2', SECRET)).toBe(false);
+  });
+
+  it('status-update email carries a fresh verifiable link too', async () => {
+    build({ JWT_SECRET: SECRET, WEB_PUBLIC_URL: 'https://eat.test/' }); // trailing slash trimmed
+    ordersFindOne.mockResolvedValue(makeOrder({ status: OrderStatus.CONFIRMED }));
+    bus.next({ type: 'order.updated', restaurantId: 'resto-1', userId: 'user-1',
+      payload: { orderId: 'order-1', code: 'FO-TEST', status: 'confirmed' } });
+    await new Promise((r) => setTimeout(r, 10));
+
+    const text = (mailSend.mock.calls[0][0] as any).text as string;
+    expect(text).toContain('View your order: https://eat.test/orders/order-1?rt=');
+    expect(verifyReceiptAccessToken(rtOf(text)!, 'order-1', SECRET)).toBe(true);
+  });
+
+  it('guest bilingual email gets the localized ID line next to the EN one', async () => {
+    build({ JWT_SECRET: SECRET });
+    ordersFindOne.mockResolvedValue(
+      makeOrder({ userId: undefined as unknown as string, contactEmail: 'guest@example.com' }),
+    );
+    bus.next({ type: 'order.created', restaurantId: 'resto-1', userId: null,
+      payload: { orderId: 'order-1', code: 'FO-TEST', status: 'pending' } });
+    await new Promise((r) => setTimeout(r, 10));
+
+    const text = (mailSend.mock.calls[0][0] as any).text as string;
+    expect(text).toContain('View your order: http://localhost:3000/orders/order-1?rt=');
+    expect(text).toContain('Lihat pesanan Anda: http://localhost:3000/orders/order-1?rt=');
+  });
+
+  it('no JWT_SECRET visible -> no link line, email still ships (fail-open copy)', async () => {
+    build({}); // config exists but knows no secret
+    ordersFindOne.mockResolvedValue(makeOrder());
+    bus.next({ type: 'order.created', restaurantId: 'resto-1', userId: 'user-1',
+      payload: { orderId: 'order-1', code: 'FO-TEST', status: 'pending' } });
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(mailSend).toHaveBeenCalledTimes(1);
+    const text = (mailSend.mock.calls[0][0] as any).text as string;
+    expect(text).not.toContain('View your order');
+    expect(text).not.toContain('rt=');
+  });
+
+  it('push url stays the bare order path (bearer rung unlocks it — no capability leak)', async () => {
+    build({ JWT_SECRET: SECRET, WEB_PUBLIC_URL: 'https://eat.test' });
+    ordersFindOne.mockResolvedValue(makeOrder());
+    bus.next({ type: 'order.created', restaurantId: 'resto-1', userId: 'user-1',
+      payload: { orderId: 'order-1', code: 'FO-TEST', status: 'pending' } });
+    await new Promise((r) => setTimeout(r, 10));
+    expect(pushSend).toHaveBeenCalledWith('user-1', expect.objectContaining({ url: '/orders/order-1' }));
   });
 });

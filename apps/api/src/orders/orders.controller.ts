@@ -103,19 +103,22 @@ export class OrdersController {
   @UseGuards(OptionalJwtAuthGuard)
   @ApiParam({ name: 'id', schema: { type: 'string', format: 'uuid' } })
   @ApiQuery({ name: 'contactEmail', required: false, description: 'Guest proof: the email given at checkout, compared case-insensitively. Unnecessary when a bearer token already identifies the owner (or an ADMIN).' })
-  @ApiOperation({ summary: 'One order incl. line items — owner bearer, ADMIN, or the checkout contact-email proof', description: 'Powers the post-checkout receipt. A valid access token for the customer who owns the order (or any ADMIN) unlocks it; without one the caller must present contactEmail matching what was stored at checkout. Wrong or missing proof answers the same 404 as an unknown id — the uuid alone no longer reads a receipt.' })
+  @ApiQuery({ name: 'rt', required: false, description: 'Magic-link capability (Phase 14): the short-lived signed token embedded in the order emails\' receipt link. Unlocks exactly the order it was minted for — no bearer, no typed email. Expired or foreign tokens answer the same 404 as an unknown id.' })
+  @ApiOperation({ summary: 'One order incl. line items — owner bearer, ADMIN, checkout contact-email proof, or a magic-link token', description: 'Powers the post-checkout receipt and the emailed receipt link. A valid access token for the customer who owns the order (or any ADMIN) unlocks it; without one the caller presents either the stored contact email or the short-lived `rt` token shipped in the order emails. Wrong or missing proof answers the same 404 as an unknown id — the uuid alone no longer reads a receipt.' })
   @ApiOkResponse({ type: OrderResponse, description: 'Includes the embedded restaurant summary.' })
   @ApiError(400, 'Malformed (non-UUID) order id.')
-  @ApiError(404, 'Unknown order id, or the caller is neither the owner nor an admin, and did not present the stored contact email (existence is never confirmed).')
+  @ApiError(404, 'Unknown order id, or the caller is neither the owner nor an admin, and presented neither the stored contact email nor a valid magic-link token (existence is never confirmed).')
   one(
     @UuidParam('id') id: string,
     @CurrentUser() user?: any,
     @Query('contactEmail') contactEmail?: string,
+    @Query('rt') rt?: string,
   ) {
     return this.service.findOneForViewer(
       id,
       user ? { sub: user.sub, role: user.role } : undefined,
       contactEmail,
+      rt,
     );
   }
 
