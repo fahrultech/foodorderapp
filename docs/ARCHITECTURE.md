@@ -532,7 +532,20 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   module — the `locales` array is the extension point for a future per-user
   locale. `SMTP_JSON_CAPTURE` swaps nodemailer's jsonTransport in: nothing is
   delivered and each message logs one `MAIL_CAPTURED {json}` line (live-smoke
-  assertion target; takes precedence over `SMTP_HOST`). Every order email
+  assertion target; takes precedence over `SMTP_HOST`). Its `fail` value
+  (session 134) is the failing-transport arm of the same rig: every send
+  rejects through a stub transport (exactly what a dead relay does), each
+  rejection logs one `MAIL_FAILED {json}` line, and the metrics registry
+  tallies every attempt as a failure. Mail delivery is TELEMETRY since
+  session 134, not just a log line: `MailService.send(opts, channel)` folds
+  per-channel attempts + failures into the metrics registry
+  (`totals.mail`, GLOBAL-only like `throttled` — the scoped restaurant view
+  never carries it), channels being `confirmation`, `status` and a
+  defensive `general` catch-all so an attempt can never be silently
+  uncounted. A DISABLED transport counts NOTHING — an unconfigured relay
+  must never masquerade as a failing one. Best-effort semantics are
+  unchanged: failures are tallied and logged, never thrown to the order
+  path. Every order email
   (confirmation + status steps) appends a localized "View your order" /
   "Lihat pesanan Anda" line carrying the magic-link token over the
   `WEB_PUBLIC_URL` base (trailing slashes trimmed; unset -> dev default
@@ -740,7 +753,7 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   the OWNER rung through it even by accident, and the panel chunk stays
   code-split behind the `traffic != null` render gate (session 90 rule).
   On top of the snapshots sits the DI-free alert engine
-  `ops/alerts.ts` (session 86): six rules — `error_budget` (5xx rate vs
+  `ops/alerts.ts` (session 86): seven rules — `error_budget` (5xx rate vs
   the 99.5% availability SLO, gated by a minimum sample), `p95_latency`
   (histogram estimate vs ceiling), `route_key_overflow` (cardinality-cap
   folding, a warning), `snapshot_stale` (session 109: fires while the
@@ -767,19 +780,32 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   failed. NOTE the shipped cadence interaction: the repair timer runs
   every 30min vs a 10min grace, so after a crash this warning can legitimately
   ride for up to ~20min until the next drain; raise the ceiling or shorten
-  the timer to tune that) — evaluated from
+  the timer to tune that) and `email_delivery_failure` (session 134: email
+  transport failures as a share of ATTEMPTED sends over `totals.mail` — the
+  fully SNAPSHOT-DERIVED rule: no DB observation, so the ADMIN pull, the
+  synchronous fold line and the scan all evaluate it identically. Fires
+  STRICTLY above `ALERT_EMAIL_FAILURE_PCT_MAX` (default 50: a dead relay
+  fails ~100%, scattered single failures under half stay quiet) once at
+  least `ALERT_EMAIL_MIN_ATTEMPTS` sends were attempted (default 5 — order
+  mail is sparse, a lone bounce is noise; same small-sample veto as
+  `ALERT_MIN_REQUESTS`). ERROR severity: unlike the warning class a lit
+  rule here means receipts and status notices are NOT reaching customers)
+  — evaluated from
   env-resolved thresholds (`ALERT_5XX_RATE_PCT_MAX` / `ALERT_P95_MS_MAX` /
   `ALERT_RATE_LIMIT_PCT_MAX` /
   `ALERT_MIN_REQUESTS` / `ALERT_SNAPSHOT_STALE_AFTER_SEC` /
-  `ALERT_RESTOCK_BACKLOG_MAX`,
+  `ALERT_RESTOCK_BACKLOG_MAX` / `ALERT_EMAIL_MIN_ATTEMPTS` /
+  `ALERT_EMAIL_FAILURE_PCT_MAX`,
   read once at boot; garbage falls back, never crash-boots). ONE engine,
   three consumers that can never disagree: ADMIN pull route
   `GET /admin/alerts` (full report; the staleness rule reads
   `MetricsPersistenceService.freshnessInput()` and the backlog rule reads
   `RestockBacklogObserver.input()` (same caller-supplied-observation
   doctrine, DI-free engine) there — the synchronous
-  fold line has no DB handle and honestly reports BOTH rules as
-  not-evaluated, never as a false ok), the compact `{status, firing}`
+  fold line has no DB handle and honestly reports BOTH DB-observation rules
+  as not-evaluated, never as a false ok — while the snapshot-derived
+  `email_delivery_failure` rule DOES evaluate on the fold line (session
+  134)), the compact `{status, firing}`
   verdict folded into every `request_metrics` line (push), and the
   scheduler poller
   `ops/alert-scan.sh` → `src/scripts/alert-scan.ts` whose exit codes split

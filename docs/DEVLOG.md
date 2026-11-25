@@ -3,6 +3,94 @@
 Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
+## 2026-11-25 18:40 — Session 134 — mail delivery telemetry: per-channel `totals.mail` + the `email_delivery_failure` rule + the SMTP_JSON_CAPTURE=fail rig arm (Ops, Phase 15 #1)
+
+**Built:**
+
+- feat(api): mail dimension in the DI-free `RequestMetricsRegistry` —
+  `recordMail(channel, ok)` tallies outbound email attempts + failures per
+  channel (`confirmation` / `status` / defensive `general` catch-all so an
+  attempt can never be silently uncounted). The GLOBAL snapshot totals gain
+  an additive `mail` object (all three channels always present, deep-copied
+  per snapshot so a returned view never aliases the live tallies); like
+  session 123's `throttled` it NEVER appears on a restaurant view — the
+  OWNER-rung key-set pins from sessions 85/98/116 hold byte-identical
+  (`restaurant-metrics-http.spec` passed untouched, new pin asserts
+  absence). `reset()` clears it (a unit test caught that initially —
+  the field outlived the "pristine" contract before the fix).
+- feat(notifications): `MailService.send(opts, channel)` folds every REAL
+  attempt into the registry (ok on resolve, failure in the catch arm; a
+  DISABLED transport returns before counting — an unconfigured relay must
+  never masquerade as a failing one). Injection is `@Optional()` so every
+  bare `MailService(config)` harness keeps compiling; NotificationsModule
+  imports MetricsModule. The rejection log line became a structured
+  single-line `MAIL_FAILED {to,subject,channel,error}` marker — the
+  greppable twin of `MAIL_CAPTURED` for rig arms and log-tailing operators.
+  `OrderNotificationsService` names the channels ('confirmation' on the
+  placed mail, 'status' on the update mail).
+- feat(rig): `SMTP_JSON_CAPTURE=fail` — the failing-transport arm of the
+  session-122 rig: a stub transport whose sendMail ALWAYS rejects (exactly
+  what a dead relay does), no real network, precedence over SMTP_HOST like
+  the capture mode, case-insensitive.
+- feat(alerts): `email_delivery_failure` as the SEVENTH rule in
+  `ops/alerts.ts` — failure share STRICTLY above `ALERT_EMAIL_FAILURE_PCT_MAX`
+  (default 50: a dead relay fails ~100%, scattered bounces under half stay
+  quiet) once `ALERT_EMAIL_MIN_ATTEMPTS` sends were attempted (default 5,
+  same small-sample veto as ALERT_MIN_REQUESTS; 0/garbage fall back).
+  ERROR severity on purpose (documented): the warning class is
+  "telemetry/config degrades, users don't"; a lit mail rule means receipts
+  and status notices are NOT reaching customers. Fully SNAPSHOT-DERIVED —
+  no DB observation — so the ADMIN pull, the periodic `request_metrics`
+  fold line and alert-scan all evaluate it through the one engine with
+  ZERO extra wiring (the scan's exit-1 contract rides automatically, new
+  spec mirrors the session 109/123 precedent). Env knobs declared in
+  `env.validation.ts`; swagger `AdminMetricsSnapshotResponse.totals.mail` +
+  `AlertThresholdsResponse` gained the typed additive fields (mail response
+  classes DEFINED BEFORE `MetricsTotalsResponse` per the session-119 thunk
+  rule); admin controller op descriptions + `ops/alert-scan.sh` /
+  alert-scan.ts rule lists updated.
+
+**Verified:**
+
+- Build green; jest 107 suites / 1504 tests (+25 vs session 133's 1479 —
+  mail registry describe x7, mail.service telemetry x5 + fail-arm x3,
+  alerts email_delivery_failure x9 + combinations re-pinned to SEVEN,
+  alert-scan exit-1 ride x1, channel-arg pins x2; 0 suites added). The
+  admin ALERTS_FIXTURE mirror pin re-derives ids/severities/threshold keys
+  from the REAL engine and holds.
+- Live smoke 32/32 ALL GREEN on a 30-migration from-empty scratch DB, THREE
+  boots, per-run unique DB/port/log (first run's 15 FAILs were ONE harness
+  bug — a getj helper reading $2/$3 while called with $1/$2 — zero product
+  bugs, exactly the session-74 pattern):
+  - ARM A (SMTP_JSON_CAPTURE=fail, ALERT_EMAIL_MIN_ATTEMPTS=2, ceiling 0):
+    guest order + owner confirm -> `GET /admin/metrics` totals.mail
+    EXACTLY {confirmation 1/1, status 1/1, general 0/0}; `GET /admin/alerts`
+    firingRules == ['email_delivery_failure'] ALONE with observed 100,
+    severity error, threshold 0 echoed; API log exactly 2 `MAIL_FAILED {`
+    lines, 0 `MAIL_CAPTURED {`; the 2s `request_metrics` fold line carries
+    the rule in its compact verdict; the REAL `node dist/scripts/alert-scan.js`
+    exits 1 and names the rule in stdout.
+  - ARM B (capture success rig, floor 1): mail 1/0 + 1/0, rule evaluated
+    quiet (observed 0, firing false), firingRules EMPTY, 2 `MAIL_CAPTURED {`
+    lines, 0 failures, alert-scan exits 0.
+  - ARM C (no SMTP_HOST, no rig): totals.mail ALL zeros (disabled counts
+    NOTHING), rule observed null with the honest "not evaluable" detail,
+    zero mail markers in the log.
+  - Orders table grew by exactly 3 across the arms (baseline-delta,
+    seed-safe).
+- Web delta 0 (no web change; the additive `mail` key is read by nothing
+  in apps/web). Sanitizer scan over every added diff line: no U+2026, no
+  asterisk-mask sequences, no literal backslash-u escapes; git diff --check
+  clean.
+
+**Left for next sessions:**
+
+- Phase 15 #2 next (magic-link token-structure fuzz sweep). Push mode for
+  the mail rule (per-user channel settings from session 130 could ride
+  `totals.mail` later); a mail section on the /admin traffic panel is the
+  natural companion of Phase 15 #5 (cache visibility) — both untouched here.
+
+
 ## 2026-11-25 17:30 — Session 133 — magic-link receipt access: signed `?rt=` rung 4 + the emails finally LINK the receipt (Product, Phase 14 #5)
 
 **Built:**

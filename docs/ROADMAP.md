@@ -605,7 +605,7 @@
 
 ## Phase 15 — Mail truth, magic-link hardening & cache visibility (opened 2026-11-25, Phase 14 exhausted; from the Ops / Test / UX / Perf / Product evergreen loops)
 
-- [ ] Ops: mail delivery telemetry — `MailService.send` failures today vanish
+- [x] Ops: mail delivery telemetry — `MailService.send` failures today vanish
   into a log line and a `best-effort` comment, so a dead SMTP relay is
   invisible between a support ticket and the log tail. Count per-channel
   attempts + failures in the metrics registry (additive `mail` totals on
@@ -613,7 +613,19 @@
   `email_delivery_failure` alert rule (failure share over a floor, env
   knob) riding the fold line + alert-scan exit codes, and extend the
   `SMTP_JSON_CAPTURE` rig so a live smoke can force the failing-transport
-  arm. Unit + live smoke.
+  arm. Unit + live smoke. (2026-11-25, session 134; registry mail
+  dimension — confirmation/status/general attempts+failures GLOBAL-only
+  like `throttled` (restaurant key-set pins untouched), MailService
+  channel arg + `MAIL_FAILED {json}` structured rejection marker,
+  disabled transport counts NOTHING; ALERT_EMAIL_MIN_ATTEMPTS=5 floor +
+  ALERT_EMAIL_FAILURE_PCT_MAX=50 ceiling (0 legal), rule 7 SEVENTH
+  ERROR-severity and fully SNAPSHOT-DERIVED so the fold line + the real
+  alert-scan ride it with ZERO extra wiring; `SMTP_JSON_CAPTURE=fail`
+  failing-transport rig arm; 107 suites/1504 tests (+25), live smoke
+  32/32 on a 30-migration from-empty DB across THREE boots — fail arm
+  fires the rule ALONE with exact per-channel arithmetic + scan exit 1,
+  success arm quiet at observed 0 + scan exit 0, disabled arm all-zeros
+  "not evaluable".)
 - [ ] Test: magic-link token-structure fuzz sweep — session 132's proof-param
   doctrine applied to `?rt=`: property sweep (seeded rng + the existing
   fuzz harness) over structural mutations of a real token (charset, bit
