@@ -3,6 +3,95 @@
 Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
+## 2026-11-25 09:28 — Session 130 — per-user notification channel settings: API side shipped (defaults byte-preserve today's behavior), web+e2e filed as the 🔒 sub-item (Product, Phase 14 #3 split)
+
+**Built:**
+
+- API: `users.orderEmailEnabled` + `orderPushEnabled` boolean columns
+  (migration 30, `AddUserNotificationSettings`) — NOT NULL with DB-level
+  DEFAULT true, so the entire existing population keeps the pre-feature
+  all-on behavior with no backfill statement (the column default IS the
+  migration backfill); NOT NULL on purpose: a nullable flag would let
+  importers mint tri-state rows the settings UI cannot render.
+- API: GET/PATCH `/users/me/notification-settings` on `UsersController`
+  (JwtAuthGuard, JWT-subject scoped like every other /me route).
+  `UpdateNotificationSettingsDto` is strict-boolean — and the first
+  shape used `@IsOptional()`, whose unit pin caught the class: it treats
+  `null` as "omitted", so a literal `{"orderPush": null}` would have
+  sailed through the service's `!== undefined` pick into the NOT NULL
+  column (a 500 class). Replaced with
+  `@ValidateIf((_o, v) => v !== undefined) @IsBoolean()` — `null`/`0`/`1`/
+  `"false"` all 400; an empty patch 400s (updateProfile doctrine); the
+  whitelist strips even the sneaky entity-column-name key
+  (`orderEmailEnabled`) — pinned in the new 4-case DTO spec.
+- API: `OrderNotificationsService.resolveEmail` widened to
+  `resolveChannels` — the SAME single user read now also carries the two
+  toggle columns and returns `{ email, pushEnabled }`; BOTH send paths
+  (confirmation + status steps) gate on it with strict `=== false` checks
+  so unwritten rows/fixtures read ON (defaults preserve behavior, and
+  every one of the 11 pre-existing notification pins stays byte-green).
+  The guest ladder is deliberately untouched (no account to consult —
+  the proof-address email IS the receipt contract); a vanished user keeps
+  the old no-email shape.
+- API: GDPR export parity — `exportForUser` embeds
+  `notificationSettings: { orderEmail, orderPush }` next to the profile
+  they configure (strict-false parity); NOT part of `SafeUser` (an
+  explicit decision + comment: a settings surface, not a display
+  property, must not silently ride every user-mapping call site).
+  `NotificationSettingsResponse` swagger model defined before its
+  consumers (session-119 lazy-thunk rule).
+- API: swagger contract registered in all four lists (ops 78→80,
+  SUCCESS count pin bumped); no new @Query sites so the query-surface
+  audit REGISTRY is unchanged.
+- Tests: +1 suite / +20 tests (104 suites / 1413 tests vs session 129's
+  103/1393): 4 DTO cases (accept matrix, empty-shape, strict-reject incl.
+  null, entity-name strip), 8 service cases (GET defaults/stored-false/404,
+  PATCH column-mapping/both-in-one-write/empty-400/affected-0-404/
+  vanish-mid-reread-404), 6 notification-gate cases (email-off keeps push,
+  push-off keeps email, both-off zero sends + the single-read select
+  carries the toggle columns, legacy undefined ON, status-event honors,
+  guest never consults the users table), 2 GDPR export parity cases.
+- Docs: ARCHITECTURE outbound-notifications bullet gained the channel-
+  opt-out rule; ROADMAP item restructured into the shipped API sub-item +
+  the 🔒 Web `/account` settings section + e2e sub-item.
+
+**Verified (all live, 30-migration from-empty scratch DB, SMTP_JSON_CAPTURE
+rig, API on :4131):**
+
+- `cd apps/api && npm run build` green; full jest 104 suites / 1413 tests
+  (the two first-run failures were both the honest catch: the null-
+  through-IsOptional pin and the export key-list pin, then 1413/1413).
+- Live smoke 26/26 (first iteration 25/26 — the one FAIL was the harness
+  comparing jq's `@json`-quoted string against an unquoted literal;
+  product-side the paths were present), every claim EXACT: chain=30;
+  information_schema pin `orderEmailEnabled/NO/true,orderPushEnabled/NO/true`;
+  zero seeded rows opted out; GET/PATCH unauthenticated 401; six-body 400
+  rejection matrix each answering the `.error.code` envelope and writing
+  NOTHING (re-read still both true); live docs-json ops == swagger.spec
+  list length (80) + both methods registered on the new path;
+  mail ladder via MAIL_CAPTURED parsing: default-on create deltas exactly
+  1 to demo, PATCH email-off then create+owner-confirm deltas exactly 0
+  (both send paths suppressed by one flag), export embeds the mid-flow
+  `{orderEmail:false,orderPush:true}`, PATCH-back create+confirm deltas
+  exactly 2 (status-step mail rides the re-enabled channel), users row
+  persisted `true/false` via SQL text casts; guest order still mails the
+  proof address 1 time (per-user toggles provably do NOT reach the guest
+  ladder); zero level-50 API-log lines across the whole flow.
+- Honest scope note: push-channel gating is proven at unit level only —
+  the smoke rig boots without VAPID so `PushService` is inert and no live
+  push delta is observable; the sub-item carries that caveat forward.
+- Sanitizer scans on all 429 added diff lines + 3 untracked files: no
+  U+2026, no asterisk-mask sequences, no literal backslash-u sequences;
+  `git diff --check` clean. Scratch DB + API process cleaned by the rig
+  trap (ports 4130/4131 verified free, no `foodorder_*` leftovers).
+
+**Left for next session:**
+
+- 🔒 Web `/account` notification settings section (EN/ID, two toggles,
+  degrade-on-failure parity with the GDPR card) + e2e flip-and-persist
+  round trip — the ROADMAP sub-item spells it out.
+
+---
 ## 2026-11-24 20:10 — Session 129 — restock_repair_backlog: the 6th DI-free alert rule rides the session-73 orphan predicate (Ops, Phase 14 #2)
 
 **Built:**

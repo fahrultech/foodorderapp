@@ -500,7 +500,17 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   go ONLY to `user.email` (the stored `contactEmail` is checkout input, never
   a fallback), and guest orders go to `orders.contactEmail` re-normalized
   (trim/lowercase) at send time — guests without that column stay silent.
-  Push remains bearer-only (subscriptions are JWT-scoped). Push payloads
+  Push remains bearer-only (subscriptions are JWT-scoped). Since Phase 14 a
+  per-user channel opt-out (`users.orderEmailEnabled` / `orderPushEnabled`,
+  migration 30, both DEFAULT TRUE so existing behavior is byte-preserved)
+  gates each authed fan-out from the SAME single user read, with strict
+  `=== false` checks: a never-written column reads as ON. Guest orders are
+  unaffected — there is no account to consult, the proof-address receipt
+  contract stands. The toggles live OUTSIDE the `SafeUser` allowlist (a
+  settings surface, not a display property): GET/PATCH
+  `/users/me/notification-settings` is the only API exposure, plus the
+  GDPR export embeds them next to the profile they configure.
+  Push payloads
   contain only order code/status and a same-site receipt URL — no address,
   phone, item, or payment data. Copy doctrine: the
   API stores no recipient locale, so authenticated mail keeps the long-standing

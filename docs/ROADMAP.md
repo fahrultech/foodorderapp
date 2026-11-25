@@ -532,7 +532,25 @@
   (order_email / order_push, defaults preserve current behavior)
   consulted in `OrderNotificationsService`, an `/account` settings
   section on web, GDPR export parity, unit + SMTP-capture live smoke +
-  e2e.
+  e2e. (scope-split per session 129's note — API shipped, web+e2e next)
+  - [x] API: `users.orderEmailEnabled`/`orderPushEnabled` boolean columns
+    (NOT NULL DEFAULT true — migration 30, no backfill), GET/PATCH
+    `/users/me/notification-settings` (JwtAuthGuard, strict-boolean DTO —
+    `null`/`0`/`"false"` all 400, empty patch 400, entity-named key
+    stripped), `resolveChannels` single user read gates BOTH send paths
+    (confirmation + status steps) with strict `=== false` (unwritten rows
+    read ON), guest ladder untouched, GDPR export embeds
+    `notificationSettings`, toggles deliberately outside `SafeUser`;
+    swagger ops 78→80 + bearer/SUCCESS/ERRORS pins; +1 suite/+20 tests
+    (104/1413) incl. the IsOptional-swallowed-`null` 500-class caught at
+    unit time, live smoke 26/26 on a 30-migration from-empty DB with
+    SMTP-capture email ladder + persistence + guest-untouched phases
+    (2026-11-25, session 130).
+  - [ ] 🔒 Web: `/account` notification settings section consuming
+    GET/PATCH `/users/me/notification-settings` (two toggles, EN/ID,
+    degrade-on-failure parity with the GDPR card) + e2e pinning the
+    flip-and-persist round trip through the real UI; push-side gating is
+    unit-proven only (live rig has no VAPID) — leave the honest note.
 - [ ] Test: receipt proof-param sweep — property tests over
   `?email=`/`?contactEmail=` normalization edges pinned against the real
   presenter ladder (trim, case folding incl. non-ASCII, the raw-`+`
