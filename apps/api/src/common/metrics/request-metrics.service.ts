@@ -1,6 +1,6 @@
 import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { RequestMetricsRegistry } from './request-metrics';
+import { MailChannel, RequestMetricsRegistry } from './request-metrics';
 import { createRequestMetricsMiddleware } from './request-metrics.middleware';
 import {
   AlertReport,
@@ -55,6 +55,8 @@ export class RequestMetricsService implements OnModuleDestroy {
       ALERT_MIN_REQUESTS: config.get<string>('ALERT_MIN_REQUESTS'),
       ALERT_SNAPSHOT_STALE_AFTER_SEC: config.get<string>('ALERT_SNAPSHOT_STALE_AFTER_SEC'),
       ALERT_RESTOCK_BACKLOG_MAX: config.get<string>('ALERT_RESTOCK_BACKLOG_MAX'),
+      ALERT_EMAIL_MIN_ATTEMPTS: config.get<string>('ALERT_EMAIL_MIN_ATTEMPTS'),
+      ALERT_EMAIL_FAILURE_PCT_MAX: config.get<string>('ALERT_EMAIL_FAILURE_PCT_MAX'),
     });
     if (this.intervalSec > 0) {
       this.timer = setInterval(() => this.logSnapshot(), this.intervalSec * 1000);
@@ -83,6 +85,15 @@ export class RequestMetricsService implements OnModuleDestroy {
   /** Every minted restaurant bucket as a snapshot — the persistence feed. */
   restaurantEntries() {
     return this.registry.restaurantEntries();
+  }
+
+  /**
+   * Mail-dimension fold (session 134) — the ONLY write path MailService
+   * uses. Exposed as a method (not the raw registry) so notifications
+   * cannot accidentally reach into request tallies.
+   */
+  recordMail(channel: MailChannel, ok: boolean): void {
+    this.registry.recordMail(channel, ok);
   }
 
   /**

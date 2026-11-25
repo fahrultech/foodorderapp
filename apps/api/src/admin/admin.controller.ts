@@ -59,7 +59,9 @@ export class AdminController {
       'periodic `event: "request_metrics"` lines. Route keys use matched templates, never ' +
       'concrete ids; `/api/health` is excluded. Rows and totals carry an additive `throttled` ' +
       'tally of GUARD-blocked 429s (session 123) — invisible on the scoped ' +
-      'GET /restaurants/:id/metrics view by contract. Since session 89 the response ALSO carries ' +
+      'GET /restaurants/:id/metrics view by contract. Totals also carry an additive `mail` ' +
+      'object — per-channel email send attempts + transport failures (session 134), likewise ' +
+      'ADMIN-global-only. Since session 89 the response ALSO carries ' +
       'additive `durability` (snapshot scheduler state + stored history from the ' +
       '`metrics_snapshots` table — survives restarts) and `window` (exact traffic since the ' +
       'newest same-boot snapshot; null until such a row exists, so a restart never inherits ' +
@@ -84,9 +86,12 @@ export class AdminController {
       'route_key_overflow (cardinality-cap folding), snapshot_stale (the session-89 ' +
       'durability writer going silently dead — evaluated from a metrics_snapshots read, ' +
       'writer-disabled is exempt), rate_limit_pressure (guard-throttled 429 share over the ' +
-      'same sample floor, ALERT_RATE_LIMIT_PCT_MAX) and restock_repair_backlog (cancelled ' +
+      'same sample floor, ALERT_RATE_LIMIT_PCT_MAX), restock_repair_backlog (cancelled ' +
       'orders past the restock-repair grace still awaiting stock return, ALERT_RESTOCK_' +
-      'BACKLOG_MAX; evaluated from an orphan count over the session-73 predicate). ' +
+      'BACKLOG_MAX; evaluated from an orphan count over the session-73 predicate) and ' +
+      'email_delivery_failure (email transport failures as a share of attempted sends, ' +
+      'ALERT_EMAIL_MIN_ATTEMPTS floor + ALERT_EMAIL_FAILURE_PCT_MAX ceiling — fully derived ' +
+      'from the registry totals, so the fold line carries it too). ' +
       'Cumulative-since-boot ' +
       'totals inherited from GET /admin/metrics; the periodic `request_metrics` fold line ' +
       'carries the same verdict compactly (without the two DB-backed observations). ' +

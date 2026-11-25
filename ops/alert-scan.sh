@@ -7,7 +7,8 @@
 #
 #   0 = healthy      — cron stays silent
 #   1 = ALERTING     — error_budget / p95_latency / route_key_overflow /
-#                      snapshot_stale fired;
+#                      snapshot_stale / rate_limit_pressure /
+#                      restock_repair_backlog / email_delivery_failure fired;
 #                      cron MAILTO (or systemd's OnFailure= unit) notifies
 #   2 = scan broken  — API unreachable, bad credentials, unexpected shape
 #

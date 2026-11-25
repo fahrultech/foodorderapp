@@ -101,6 +101,8 @@ describe('OrderNotificationsService', () => {
 
       expect(mailSend).toHaveBeenCalledTimes(1);
       const call = mailSend.mock.calls[0][0] as Record<string, unknown>;
+      // Session 134: the channel arg is what the mail telemetry tallies on.
+      expect(mailSend.mock.calls[0][1]).toBe('confirmation');
       expect(call.to).toBe('alice@example.com');
       expect(call.subject).toContain('FO-TEST');
       expect(call.text).toContain('Alice');
@@ -253,6 +255,7 @@ describe('OrderNotificationsService', () => {
       await new Promise((r) => setTimeout(r, 10));
       expect(mailSend).toHaveBeenCalledTimes(1);
       const call = mailSend.mock.calls[0][0] as Record<string, unknown>;
+      expect(mailSend.mock.calls[0][1]).toBe('status'); // session 134 telemetry channel
       expect(call.text).toContain(expectedText);
       expect(pushSend).toHaveBeenCalledWith(
         'user-1',

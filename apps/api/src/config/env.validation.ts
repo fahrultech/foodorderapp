@@ -114,7 +114,9 @@ export class EnvVars {
   SMTP_SECURE?: string;
 
   // Rig mode (live smokes / local dev): jsonTransport + MAIL_CAPTURED log
-  // lines instead of real delivery. Parsed inside MailService; any other
+  // lines instead of real delivery. "fail" (session 134) is the
+  // failing-transport arm: every send rejects and lands as a MAIL_FAILED
+  // line + a mail telemetry failure. Parsed inside MailService; any other
   // value is inert, so a typo can only silence capture, never send mail.
   @IsOptional()
   @IsString()
@@ -251,6 +253,21 @@ export class EnvVars {
   @IsOptional()
   @IsString()
   ALERT_RESTOCK_BACKLOG_MAX?: string;
+
+  // email_delivery_failure knobs (session 134): the rule evaluates the
+  // registry's totals.mail (per-channel send attempts + failures).
+  // ALERT_EMAIL_MIN_ATTEMPTS = small-sample floor (default 5; 0/garbage ->
+  // default, same positive-int policy as ALERT_MIN_REQUESTS).
+  // ALERT_EMAIL_FAILURE_PCT_MAX = failure-share ceiling in percent
+  // (default 50, fires STRICTLY above; garbage/negative -> default, 0 is
+  // legal = "any failed mail alerts"). Parsed in src/ops/alerts.ts.
+  @IsOptional()
+  @IsString()
+  ALERT_EMAIL_MIN_ATTEMPTS?: string;
+
+  @IsOptional()
+  @IsString()
+  ALERT_EMAIL_FAILURE_PCT_MAX?: string;
 
   // ── Rate limiting (all optional) ─────────────────────────────────────────
   @IsOptional()

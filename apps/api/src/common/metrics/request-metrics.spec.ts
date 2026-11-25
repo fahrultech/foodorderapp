@@ -1,5 +1,6 @@
 import {
   HISTOGRAM_BOUNDS_MS,
+  MAIL_CHANNELS,
   OVERFLOW_KEY,
   RequestMetricsRegistry,
   normalizeUnmatched,
@@ -236,6 +237,75 @@ describe('request metrics — guard-throttle tally (session 123)', () => {
     const snap = reg.snapshot();
     expect(snap.totals.throttled).toBe(0);
     expect(snap.routes).toEqual([]);
+  });
+});
+
+describe('request metrics — mail delivery tally (session 134)', () => {
+  it('totals.mail carries ALL channels at zeros on a pristine registry', () => {
+    const snap = new RequestMetricsRegistry().snapshot();
+    expect(snap.totals.mail).toEqual({
+      confirmation: { attempts: 0, failures: 0 },
+      status: { attempts: 0, failures: 0 },
+      general: { attempts: 0, failures: 0 },
+    });
+    for (const ch of MAIL_CHANNELS) expect(snap.totals.mail[ch]).toBeDefined();
+  });
+
+  it('recordMail counts attempts always and failures only on ok=false, per channel', () => {
+    const reg = new RequestMetricsRegistry();
+    reg.recordMail('confirmation', true);
+    reg.recordMail('confirmation', false);
+    reg.recordMail('confirmation', false);
+    reg.recordMail('status', true);
+    const mail = reg.snapshot().totals.mail;
+    expect(mail.confirmation).toEqual({ attempts: 3, failures: 2 });
+    expect(mail.status).toEqual({ attempts: 1, failures: 0 });
+    expect(mail.general).toEqual({ attempts: 0, failures: 0 });
+  });
+
+  it('an unknown channel string folds into general (defensive: never silently uncounted)', () => {
+    const reg = new RequestMetricsRegistry();
+    (reg as { recordMail(c: string, ok: boolean): void }).recordMail('carrier-pigeon', false);
+    expect(reg.snapshot().totals.mail.general).toEqual({ attempts: 1, failures: 1 });
+  });
+
+  it('the mail tally NEVER touches request counters or route rows (orthogonal dimension)', () => {
+    const reg = new RequestMetricsRegistry();
+    reg.recordMail('status', false);
+    const snap = reg.snapshot();
+    expect(snap.totals.requests).toBe(0);
+    expect(snap.routes).toEqual([]);
+    expect(snap.totals.mail.status).toEqual({ attempts: 1, failures: 1 });
+  });
+
+  it('snapshots DEEP-COPY the tallies: later sends never mutate an already-returned view', () => {
+    const reg = new RequestMetricsRegistry();
+    reg.recordMail('confirmation', true);
+    const before = reg.snapshot();
+    reg.recordMail('confirmation', false);
+    expect(before.totals.mail.confirmation).toEqual({ attempts: 1, failures: 0 });
+    expect(reg.snapshot().totals.mail.confirmation).toEqual({ attempts: 2, failures: 1 });
+  });
+
+  it('the restaurant dimension NEVER emits mail (same OWNER-rung shape contract as throttled)', () => {
+    const RID = '5f0a1b2c-3d4e-4f50-9a8b-7c6d5e4f3a2b';
+    const reg = new RequestMetricsRegistry();
+    reg.record('GET /api/restaurants/:id', 200, 5, RID);
+    reg.recordMail('confirmation', false);
+    expect(reg.snapshot().totals.mail.confirmation).toEqual({ attempts: 1, failures: 1 });
+    const b = reg.restaurantSnapshot(RID);
+    expect(Object.keys(b.totals)).not.toContain('mail');
+    for (const row of b.routes) expect(Object.keys(row)).not.toContain('mail');
+    const entries = reg.restaurantEntries();
+    expect(Object.keys(entries[RID].totals)).not.toContain('mail');
+  });
+
+  it('reset() zeroes the mail tally too', () => {
+    const reg = new RequestMetricsRegistry();
+    reg.recordMail('status', false);
+    reg.reset();
+    const snap = reg.snapshot();
+    for (const ch of MAIL_CHANNELS) expect(snap.totals.mail[ch]).toEqual({ attempts: 0, failures: 0 });
   });
 });
 

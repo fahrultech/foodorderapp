@@ -172,6 +172,11 @@ describe('AdminController HTTP', () => {
       requests: 3,
       byStatus: { '2xx': 2, '3xx': 0, '4xx': 1, '5xx': 0 },
       throttled: 1,
+      mail: {
+        confirmation: { attempts: 2, failures: 1 },
+        status: { attempts: 1, failures: 0 },
+        general: { attempts: 0, failures: 0 },
+      },
       routeKeys: 2,
       overflowed: false,
       restaurantKeys: 0,
@@ -379,6 +384,8 @@ describe('AdminController HTTP', () => {
       rateLimitPctMax: 5,
       snapshotStaleAfterSec: null,
       restockBacklogMax: 0,
+      emailMinAttempts: 5,
+      emailFailurePctMax: 50,
     },
     rules: [
       {
@@ -428,6 +435,16 @@ describe('AdminController HTTP', () => {
         observed: 0,
         threshold: 0,
         detail: '0 past-grace orphans within the 0 ceiling (grace 10min)',
+      },
+      // Session 134 added the SEVENTH rule + the two email knobs above —
+      // the mirror pin re-derives ids/severities/keys from the real engine.
+      {
+        id: 'email_delivery_failure',
+        firing: false,
+        severity: 'error',
+        observed: null,
+        threshold: 50,
+        detail: 'no email sends attempted yet — rule not evaluable',
       },
     ],
   };

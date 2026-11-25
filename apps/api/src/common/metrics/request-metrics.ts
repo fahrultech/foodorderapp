@@ -46,6 +46,14 @@
  * (neither rows nor totals), keeping the pinned OWNER-rung shape from
  * sessions 85/98/116 byte-identical — per-restaurant limiter pressure is
  * ADMIN telemetry, not an owner-facing field.
+ *
+ * Mail dimension (session 134, Phase 15 "mail delivery telemetry"):
+ * `recordMail(channel, ok)` tallies outbound email attempts + failures per
+ * notification channel (order confirmation vs status update). The GLOBAL
+ * totals gain an additive `mail` object; like `throttled` it NEVER appears
+ * on a per-restaurant view (ADMIN telemetry, OWNER-rung shape contract).
+ * Disabled transport sends nothing — nothing is counted (a channel the
+ * operator never configured must not look like a failing one).
  */
 
 export const HISTOGRAM_BOUNDS_MS = [5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000] as const;
@@ -155,6 +163,39 @@ export function restaurantBucketKeyOf(raw: string | null | undefined): string | 
   return raw && UUID_SHAPE_RE.test(raw) ? raw.toLowerCase() : null;
 }
 
+/**
+ * Outbound email channels (session 134). `confirmation` = the order-placed
+ * mail, `status` = the status-update mail (both from OrderNotificationsService);
+ * `general` catches any future caller that sends without naming a channel, so
+ * an attempt can never be silently uncounted.
+ */
+export const MAIL_CHANNELS = ['confirmation', 'status', 'general'] as const;
+export type MailChannel = (typeof MAIL_CHANNELS)[number];
+
+export interface MailChannelTally {
+  attempts: number;
+  failures: number;
+}
+
+export type MailTotals = Record<MailChannel, MailChannelTally>;
+
+function freshMailTotals(): MailTotals {
+  return {
+    confirmation: { attempts: 0, failures: 0 },
+    status: { attempts: 0, failures: 0 },
+    general: { attempts: 0, failures: 0 },
+  };
+}
+
+/** Per-channel deep copy so snapshots never alias the live tallies. */
+function copyMailTotals(m: MailTotals): MailTotals {
+  return {
+    confirmation: { ...m.confirmation },
+    status: { ...m.status },
+    general: { ...m.general },
+  };
+}
+
 export interface HistogramBucket {
   /** Inclusive upper bound in ms; null = +Inf (everything above the last bound). */
   leMs: number | null;
@@ -190,6 +231,12 @@ export interface MetricsSnapshot {
     byStatus: Record<StatusClass, number>;
     /** Guard-throttled 429 total across all routes (session 123; GLOBAL-only field). */
     throttled: number;
+    /**
+     * Outbound email attempts + failures per channel (session 134;
+     * GLOBAL-only field — restaurant views never carry the key). Cumulative
+     * since boot like everything else here.
+     */
+    mail: MailTotals;
     routeKeys: number;
     overflowed: boolean;
     /** Distinct success-created restaurant buckets (session 98 dimension). */
@@ -334,6 +381,7 @@ function rowOf(route: string, agg: RouteAgg, withThrottled = false): MetricsRout
 export class RequestMetricsRegistry {
   private readonly routes = new Map<string, RouteAgg>();
   private readonly restaurantBuckets = new Map<string, RestaurantBucket>();
+  private mail: MailTotals = freshMailTotals();
   private startedAt = Date.now();
   private overflowed = false;
   private restaurantCapTripped = false;
@@ -373,6 +421,19 @@ export class RequestMetricsRegistry {
     // the OWNER rung must not gain the field, and the middleware only
     // passes throttled=true on guard-blocked requests anyway.
     if (restaurantId) this.recordRestaurant(restaurantId, key, status, durationMs);
+  }
+
+  /**
+   * Mail-dimension fold (session 134): one outbound email attempt on a
+   * named channel, `ok=false` when the transport rejected it. The caller
+   * (MailService) only records when a transport actually EXISTS — a
+   * disabled channel sends nothing and counts nothing, so a never
+   * configured SMTP can never masquerade as a failing one.
+   */
+  recordMail(channel: MailChannel, ok: boolean): void {
+    const tally = this.mail[channel] ?? this.mail.general;
+    tally.attempts += 1;
+    if (!ok) tally.failures += 1;
   }
 
   /**
@@ -459,6 +520,10 @@ export class RequestMetricsRegistry {
       totals: {
         ...this.totalsOf(merged),
         throttled: merged.throttled,
+        // Deep copy: a snapshot is handed to routes/logs/persistence and
+        // must never alias the live tallies (later sends must not mutate
+        // an already-returned view).
+        mail: copyMailTotals(this.mail),
         routeKeys: this.routes.has(OVERFLOW_KEY) ? this.routes.size - 1 : this.routes.size,
         overflowed: this.overflowed,
         restaurantKeys: this.restaurantBuckets.size,
@@ -512,6 +577,7 @@ export class RequestMetricsRegistry {
   reset(): void {
     this.routes.clear();
     this.restaurantBuckets.clear();
+    this.mail = freshMailTotals();
     this.startedAt = Date.now();
     this.overflowed = false;
     this.restaurantCapTripped = false;

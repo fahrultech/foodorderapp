@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { Order } from '../orders/order.entity';
 import { User } from '../users/user.entity';
 import { OrdersModule } from '../orders/orders.module';
+import { MetricsModule } from '../common/metrics/metrics.module';
 import { MailService } from './mail.service';
 import { OrderNotificationsService } from './order-notifications.service';
 import { PushSubscription } from './push-subscription.entity';
@@ -16,6 +17,9 @@ import { AuthModule } from '../auth/auth.module';
  * Imports:
  *   - OrdersModule: exposes OrderEventsService (the shared pub/sub bus)
  *     and OrdersService (so subscribers can load full order rows).
+ *   - MetricsModule: exposes RequestMetricsService so MailService can fold
+ *     per-channel delivery attempts + failures into the metrics registry
+ *     (session 134, mail delivery telemetry).
  *   - TypeOrmModule.forFeature([Order, User, PushSubscription]): direct repo
  *     access for customer email and persisted browser delivery endpoints.
  */
@@ -24,6 +28,7 @@ import { AuthModule } from '../auth/auth.module';
     TypeOrmModule.forFeature([Order, User, PushSubscription]),
     OrdersModule,
     AuthModule,
+    MetricsModule,
   ],
   controllers: [NotificationsController],
   providers: [MailService, PushService, OrderNotificationsService],

@@ -127,6 +127,18 @@ describe('runScan — exit-code classification', () => {
     expect(outcome.escalated).toBe(false);
   });
 
+  it('email_delivery_failure rides the SAME exit-1 contract (session 134): the scan needs ZERO logic change for a new rule', async () => {
+    const { fn } = stubFetch([
+      ok({ access_token: 'tok-1' }),
+      ok({ status: 'alerting', firingRules: ['email_delivery_failure'] }),
+      ok({ streak: { alerting: 1, currentStatus: 'alerting' } }),
+    ]);
+    const outcome = await runScan(CFG, fn as never);
+    expect(outcome.exitCode).toBe(1);
+    expect(outcome.report!.firingRules).toEqual(['email_delivery_failure']);
+    expect(outcome.escalated).toBe(false);
+  });
+
   // --- Phase 11: repeated-fire escalation (">=3 consecutive bumps the note") ---
 
   it('escalates at the streak threshold — exit code STAYS 1 (a chronic fire pages louder, never changes class)', async () => {

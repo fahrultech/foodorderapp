@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { MailService } from './mail.service';
+import { RequestMetricsService } from '../common/metrics/request-metrics.service';
 import * as nodemailer from 'nodemailer';
 
 // ── helpers ────────────────────────────────────────────────────────────────
@@ -182,6 +183,129 @@ describe('MailService', () => {
         logSpy.mock.calls.map((c) => String(c[0])).some((m) => m.startsWith('MAIL_CAPTURED')),
       ).toBe(false);
       logSpy.mockRestore();
+    });
+  });
+
+  // ── session 134: mail delivery telemetry + the failing-transport rig arm ──
+
+  describe('delivery telemetry (recordMail, session 134)', () => {
+    function buildWithMetrics(opts: Record<string, string | undefined> = {}) {
+      jest.clearAllMocks();
+      const recordMail = jest.fn();
+      return {
+        recordMail,
+        module: Test.createTestingModule({
+          providers: [
+            MailService,
+            { provide: ConfigService, useValue: buildConfig(opts) },
+            { provide: RequestMetricsService, useValue: { recordMail } },
+          ],
+        }).compile(),
+      };
+    }
+
+    it('successful send records ONE attempt with ok=true on the given channel', async () => {
+      const { recordMail, module } = buildWithMetrics({ SMTP_JSON_CAPTURE: '1' });
+      const svc = (await module).get(MailService);
+      await svc.send({ to: 'a@example.com', subject: 's', text: 't' }, 'confirmation');
+      expect(recordMail).toHaveBeenCalledTimes(1);
+      expect(recordMail).toHaveBeenCalledWith('confirmation', true);
+    });
+
+    it('rejected send records ONE attempt with ok=false and never throws to the caller', async () => {
+      const { recordMail, module } = buildWithMetrics({ SMTP_JSON_CAPTURE: '1' });
+      const svc = (await module).get(MailService);
+      mockSendMail.mockRejectedValueOnce(new Error('relay down'));
+      await expect(
+        svc.send({ to: 'a@example.com', subject: 's', text: 't' }, 'status'),
+      ).resolves.toBeUndefined();
+      expect(recordMail).toHaveBeenCalledTimes(1);
+      expect(recordMail).toHaveBeenCalledWith('status', false);
+    });
+
+    it('unnamed sends fold into the general channel (nothing is silently uncounted)', async () => {
+      const { recordMail, module } = buildWithMetrics({ SMTP_JSON_CAPTURE: '1' });
+      const svc = (await module).get(MailService);
+      await svc.send({ to: 'a@example.com', subject: 's', text: 't' });
+      expect(recordMail).toHaveBeenCalledWith('general', true);
+    });
+
+    it('a DISABLED transport counts NOTHING (unconfigured SMTP must not look like a failing one)', async () => {
+      const { recordMail, module } = buildWithMetrics({ SMTP_HOST: undefined });
+      const svc = (await module).get(MailService);
+      await svc.send({ to: 'a@example.com', subject: 's', text: 't' }, 'confirmation');
+      expect(recordMail).not.toHaveBeenCalled();
+    });
+
+    it('no metrics provider (@Optional) — send still works and never throws', async () => {
+      const svc = (await Test.createTestingModule({
+        providers: [MailService, { provide: ConfigService, useValue: buildConfig({ SMTP_JSON_CAPTURE: '1' }) }],
+      }).compile()).get(MailService);
+      await expect(
+        svc.send({ to: 'a@example.com', subject: 's', text: 't' }, 'status'),
+      ).resolves.toBeUndefined();
+    });
+  });
+
+  describe('SMTP_JSON_CAPTURE=fail — failing-transport rig arm (session 134)', () => {
+    function build(opts: Record<string, string | undefined> = {}) {
+      jest.clearAllMocks();
+      const recordMail = jest.fn();
+      return {
+        recordMail,
+        module: Test.createTestingModule({
+          providers: [
+            MailService,
+            { provide: ConfigService, useValue: buildConfig(opts) },
+            { provide: RequestMetricsService, useValue: { recordMail } },
+          ],
+        }).compile(),
+      };
+    }
+
+    it('activates with no SMTP_HOST and enables the service without nodemailer', async () => {
+      const { module } = build({ SMTP_HOST: undefined, SMTP_JSON_CAPTURE: 'fail' });
+      const svc = (await module).get(MailService);
+      expect(svc.enabled).toBe(true);
+      expect(mockCreateTransport).not.toHaveBeenCalled();
+    });
+
+    it('every send rejects through the catch arm: attempt recorded as FAILURE + one single-line MAIL_FAILED payload', async () => {
+      const { recordMail, module } = build({ SMTP_JSON_CAPTURE: 'FAIL' }); // case-insensitive
+      const svc = (await module).get(MailService);
+      const errSpy = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+      await expect(
+        svc.send({ to: 'guest@example.com', subject: 'Order confirmed — #FO-1', text: 'body' }, 'confirmation'),
+      ).resolves.toBeUndefined();
+      expect(recordMail).toHaveBeenCalledTimes(1);
+      expect(recordMail).toHaveBeenCalledWith('confirmation', false);
+      const failed = errSpy.mock.calls.map((c) => String(c[0])).filter((m) => m.startsWith('MAIL_FAILED '));
+      expect(failed).toHaveLength(1);
+      const payload = JSON.parse(failed[0].slice('MAIL_FAILED '.length));
+      expect(payload).toEqual({
+        to: 'guest@example.com',
+        subject: 'Order confirmed — #FO-1',
+        channel: 'confirmation',
+        error: expect.stringContaining('simulated relay failure'),
+      });
+      expect(failed[0]).not.toContain('\n');
+      // The success marker must NEVER appear on this arm.
+      const logSpy = jest.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
+      await svc.send({ to: 'again@example.com', subject: 's2', text: 't2' }, 'status');
+      expect(
+        logSpy.mock.calls.map((c) => String(c[0])).some((m) => m.startsWith('MAIL_CAPTURED ')),
+      ).toBe(false);
+      logSpy.mockRestore();
+      expect(recordMail).toHaveBeenCalledTimes(2); // BOTH sends counted as failures
+      errSpy.mockRestore();
+    });
+
+    it('takes precedence over a configured real host (rig can never send real mail)', async () => {
+      const { module } = build({ SMTP_JSON_CAPTURE: 'fail' }); // buildConfig sets SMTP_HOST=smtp.test
+      const svc = (await module).get(MailService);
+      expect(mockCreateTransport).not.toHaveBeenCalled();
+      await svc.send({ to: 'a@example.com', subject: 's', text: 't' }, 'status');
+      expect(mockSendMail).not.toHaveBeenCalled();
     });
   });
 });

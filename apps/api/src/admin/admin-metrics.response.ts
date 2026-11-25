@@ -66,6 +66,22 @@ export class MetricsRouteRowResponse {
   histogram: MetricsHistogramBucketResponse[];
 }
 
+export class MetricsMailTallyResponse {
+  @ApiProperty({ type: 'integer', description: 'Transport-attempted sends on this channel since API boot (a disabled channel never attempts).' })
+  attempts: number;
+  @ApiProperty({ type: 'integer', description: 'Subset of attempts the transport REJECTED (dead relay / auth failure) — session 134 mail telemetry.' })
+  failures: number;
+}
+
+export class MetricsMailTotalsResponse {
+  @ApiProperty({ type: () => MetricsMailTallyResponse, description: 'Order-confirmation emails (POST /orders path).' })
+  confirmation: MetricsMailTallyResponse;
+  @ApiProperty({ type: () => MetricsMailTallyResponse, description: 'Order status-update emails.' })
+  status: MetricsMailTallyResponse;
+  @ApiProperty({ type: () => MetricsMailTallyResponse, description: 'Sends without a named channel (defensive catch-all — an attempt is never silently uncounted).' })
+  general: MetricsMailTallyResponse;
+}
+
 export class MetricsTotalsResponse {
   @ApiProperty({ type: 'integer' })
   requests: number;
@@ -80,6 +96,15 @@ export class MetricsTotalsResponse {
       'RestaurantMetricsTotalsResponse has no such field by design.',
   })
   throttled: number;
+  @ApiProperty({
+    type: () => MetricsMailTotalsResponse,
+    description:
+      'Outbound email attempts + failures per channel since API boot (session 134, mail ' +
+      'delivery telemetry). Only counts REAL attempts — a disabled transport (no SMTP_HOST, ' +
+      'no rig) sends nothing and lands here as zeros. ADMIN global view only: like ' +
+      '`throttled`, the scoped RestaurantMetricsTotalsResponse never carries the key.',
+  })
+  mail: MetricsMailTotalsResponse;
   @ApiProperty({ type: 'integer', description: 'Distinct tracked route keys (excludes the "other" overflow bucket).' })
   routeKeys: number;
   @ApiProperty({ type: 'boolean', description: 'True if the route-key cap ever tripped and folded new routes into "other".' })

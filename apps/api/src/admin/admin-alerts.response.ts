@@ -52,6 +52,22 @@ export class AlertThresholdsResponse {
       'still awaiting stock return fire the rule when the count STRICTLY exceeds this value.',
   })
   restockBacklogMax: number;
+  @ApiProperty({
+    type: 'integer',
+    description:
+      'Minimum total email send attempts before the email_delivery_failure rule is evaluated ' +
+      '(session 134, ALERT_EMAIL_MIN_ATTEMPTS, default 5 — order mail is sparse, a lone ' +
+      'bounce is noise; same small-sample veto as minRequests).',
+  })
+  emailMinAttempts: number;
+  @ApiProperty({
+    type: 'number',
+    description:
+      'Percent of email send attempts allowed to fail before the email_delivery_failure rule ' +
+      'fires (session 134, ALERT_EMAIL_FAILURE_PCT_MAX, default 50). Fires STRICTLY above; ' +
+      '0 is a legal tightened ceiling meaning "any failed mail alerts".',
+  })
+  emailFailurePctMax: number;
 }
 
 export class AlertRuleResultResponse {
@@ -64,6 +80,7 @@ export class AlertRuleResultResponse {
       'snapshot_stale',
       'rate_limit_pressure',
       'restock_repair_backlog',
+      'email_delivery_failure',
     ],
   })
   id: string;

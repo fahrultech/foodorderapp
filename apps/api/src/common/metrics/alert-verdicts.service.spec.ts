@@ -28,6 +28,8 @@ function report(status: 'ok' | 'alerting', firingRules: AlertRuleId[]): AlertRep
       rateLimitPctMax: 5,
       snapshotStaleAfterSec: null,
       restockBacklogMax: 0,
+      emailMinAttempts: 5,
+      emailFailurePctMax: 50,
     },
     rules: [],
   };

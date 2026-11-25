@@ -58,6 +58,8 @@ describe('resolveAlertThresholds', () => {
       rateLimitPctMax: 5,
       snapshotStaleAfterSec: null,
       restockBacklogMax: 0,
+      emailMinAttempts: 5,
+      emailFailurePctMax: 50,
     });
     expect(resolveAlertThresholds({ ALERT_5XX_RATE_PCT_MAX: '-0.1' }).fiveXxRatePctMax).toBe(0.5);
   });
@@ -154,7 +156,7 @@ describe('evaluateAlerts — error_budget', () => {
 
   it('zero threshold + min 1: a lone 5xx out of one request is a verdict', () => {
     const snap = registrySnapshot(many('GET /api/x', 1, 500, 10));
-    const report = evaluateAlerts(snap, { fiveXxRatePctMax: 0, p95MsMax: 100000, minRequests: 1, rateLimitPctMax: 5, snapshotStaleAfterSec: null, restockBacklogMax: 0 });
+    const report = evaluateAlerts(snap, { fiveXxRatePctMax: 0, p95MsMax: 100000, minRequests: 1, rateLimitPctMax: 5, snapshotStaleAfterSec: null, restockBacklogMax: 0, emailMinAttempts: 5, emailFailurePctMax: 50 });
     expect(rule(report, 'error_budget')).toMatchObject({ firing: true, observed: 100 });
   });
 
@@ -238,7 +240,7 @@ describe('evaluateAlerts — snapshot_stale (session 109)', () => {
 
   it('no observation (the synchronous fold-line consumer): rule present, NOT firing, honest detail', () => {
     const report = evaluateAlerts(snap(999999));
-    expect(report.rules).toHaveLength(6);
+    expect(report.rules).toHaveLength(7);
     const s = rule(report, 'snapshot_stale');
     expect(s).toMatchObject({ firing: false, severity: 'warning', observed: null });
     expect(s.detail).toMatch(/not evaluated/);
@@ -341,7 +343,7 @@ describe('evaluateAlerts — rate_limit_pressure (session 123)', () => {
 
   it('rule is present FIFTH with default ceiling 5% and warning severity', () => {
     const report = evaluateAlerts(registrySnapshot(() => undefined));
-    expect(report.rules).toHaveLength(6);
+    expect(report.rules).toHaveLength(7);
     expect(report.rules[4].id).toBe('rate_limit_pressure');
     expect(report.rules[4]).toMatchObject({ firing: false, severity: 'warning', threshold: 5 });
   });
@@ -412,7 +414,7 @@ describe('evaluateAlerts — restock_repair_backlog (Phase 14)', () => {
 
   it('rule is present SIXTH with default ceiling 0 and warning severity', () => {
     const report = evaluateAlerts(snap());
-    expect(report.rules).toHaveLength(6);
+    expect(report.rules).toHaveLength(7);
     expect(report.rules[5].id).toBe('restock_repair_backlog');
     expect(report.rules[5]).toMatchObject({ firing: false, severity: 'warning', threshold: 0 });
   });
@@ -496,31 +498,157 @@ describe('evaluateAlerts — restock_repair_backlog (Phase 14)', () => {
   });
 });
 
+describe('evaluateAlerts — email_delivery_failure (session 134)', () => {
+  // Snapshots are built through the REAL registry so the mail tallies ride
+  // the same shape /admin/metrics and the fold line emit.
+  const mailSnap = (fill: (reg: RequestMetricsRegistry) => void) =>
+    registrySnapshot((reg) => {
+      // Keep the request-derived rules cold: one 200 sample never touches
+      // the budget/p95 rules and stays under every requests floor.
+      reg.record('GET /api/x', 200, 1);
+      fill(reg);
+    });
+
+  it('rule is present SEVENTH with error severity and the default knobs', () => {
+    const report = evaluateAlerts(mailSnap(() => undefined));
+    expect(report.rules).toHaveLength(7);
+    expect(report.rules[6].id).toBe('email_delivery_failure');
+    expect(report.rules[6]).toMatchObject({ firing: false, severity: 'error', threshold: 50 });
+  });
+
+  it('zero attempts: not evaluable (a disabled/never-used channel must not look healthy OR broken)', () => {
+    const report = evaluateAlerts(mailSnap(() => undefined));
+    const md = rule(report, 'email_delivery_failure');
+    expect(md).toMatchObject({ firing: false, observed: null });
+    expect(md.detail).toMatch(/no email sends attempted/);
+  });
+
+  it('hand-built snapshot WITHOUT totals.mail (pre-134 shape): honest not-evaluated, never a false fire', () => {
+    const snap = registrySnapshot(() => undefined);
+    const legacy = { ...snap, totals: { ...snap.totals } } as ReturnType<RequestMetricsRegistry['snapshot']>;
+    delete (legacy.totals as { mail?: unknown }).mail;
+    const report = evaluateAlerts(legacy);
+    const md = rule(report, 'email_delivery_failure');
+    expect(md).toMatchObject({ firing: false, observed: null });
+    expect(md.detail).toMatch(/not evaluated/);
+  });
+
+  it('BELOW the attempts floor: verdict withheld even at a 100% failure share', () => {
+    const report = evaluateAlerts(
+      mailSnap((reg) => {
+        reg.recordMail('confirmation', false);
+        reg.recordMail('confirmation', false);
+      }),
+    );
+    const md = rule(report, 'email_delivery_failure');
+    expect(md).toMatchObject({ firing: false, observed: null, threshold: 50 });
+    expect(md.detail).toMatch(/over only 2 sends.*not evaluated/);
+  });
+
+  it('at/under the ceiling stays quiet: 3 of 6 failed = 50% is NOT strictly above 50%', () => {
+    const report = evaluateAlerts(
+      mailSnap((reg) => {
+        reg.recordMail('status', false);
+        reg.recordMail('status', false);
+        reg.recordMail('status', true);
+        reg.recordMail('confirmation', false);
+        reg.recordMail('confirmation', true);
+        reg.recordMail('general', true);
+      }),
+    );
+    expect(rule(report, 'email_delivery_failure')).toMatchObject({ firing: false, observed: 50 });
+    expect(report.firingRules).not.toContain('email_delivery_failure');
+  });
+
+  it('STRICTLY above the ceiling fires with numbers and flips the verdict ALONE', () => {
+    const report = evaluateAlerts(
+      mailSnap((reg) => {
+        reg.recordMail('confirmation', false);
+        reg.recordMail('confirmation', false);
+        reg.recordMail('confirmation', false);
+        reg.recordMail('status', true);
+        reg.recordMail('status', true);
+      }),
+    );
+    const md = rule(report, 'email_delivery_failure');
+    expect(md).toMatchObject({ firing: true, observed: 60, severity: 'error' });
+    expect(md.detail).toMatch(/3 of 5 email sends failed \(60%\)/);
+    expect(report.status).toBe('alerting');
+    expect(report.firingRules).toEqual(['email_delivery_failure']);
+    expect(summarizeAlerts(report)).toEqual({ status: 'alerting', firing: ['email_delivery_failure'] });
+  });
+
+  it('failures SUM across channels (dead relay fails every channel, not just one)', () => {
+    const report = evaluateAlerts(
+      mailSnap((reg) => {
+        reg.recordMail('confirmation', false);
+        reg.recordMail('status', false);
+        reg.recordMail('general', false);
+        reg.recordMail('confirmation', true);
+        reg.recordMail('status', true);
+      }),
+    );
+    expect(rule(report, 'email_delivery_failure')).toMatchObject({ firing: true, observed: 60 });
+  });
+
+  it('tightened knobs drive the rule: min-attempts 5 + ceiling 0 makes a single failure among five fire', () => {
+    const reg = new RequestMetricsRegistry();
+    reg.record('GET /api/x', 200, 1);
+    reg.recordMail('status', true);
+    reg.recordMail('status', true);
+    reg.recordMail('status', true);
+    reg.recordMail('status', true);
+    reg.recordMail('status', false);
+    const report = evaluateAlerts(
+      reg.snapshot(),
+      { ...DEFAULT_ALERT_THRESHOLDS, emailMinAttempts: 5, emailFailurePctMax: 0 },
+    );
+    expect(rule(report, 'email_delivery_failure')).toMatchObject({ firing: true, observed: 20, threshold: 0 });
+  });
+
+  it('ALERT_EMAIL_* parsing: valid values pass, garbage/negative/blank fall back; pct 0 is LEGAL, floor 0 is not', () => {
+    expect(resolveAlertThresholds({ ALERT_EMAIL_MIN_ATTEMPTS: '3' }).emailMinAttempts).toBe(3);
+    expect(resolveAlertThresholds({ ALERT_EMAIL_MIN_ATTEMPTS: '2.9' }).emailMinAttempts).toBe(2);
+    expect(resolveAlertThresholds({ ALERT_EMAIL_MIN_ATTEMPTS: '0' }).emailMinAttempts).toBe(5);
+    expect(resolveAlertThresholds({ ALERT_EMAIL_MIN_ATTEMPTS: '-2' }).emailMinAttempts).toBe(5);
+    expect(resolveAlertThresholds({ ALERT_EMAIL_MIN_ATTEMPTS: 'soon' }).emailMinAttempts).toBe(5);
+    expect(resolveAlertThresholds({ ALERT_EMAIL_MIN_ATTEMPTS: '' }).emailMinAttempts).toBe(5);
+    expect(resolveAlertThresholds({ ALERT_EMAIL_FAILURE_PCT_MAX: '10' }).emailFailurePctMax).toBe(10);
+    expect(resolveAlertThresholds({ ALERT_EMAIL_FAILURE_PCT_MAX: '0' }).emailFailurePctMax).toBe(0);
+    expect(resolveAlertThresholds({ ALERT_EMAIL_FAILURE_PCT_MAX: '-1' }).emailFailurePctMax).toBe(50);
+    expect(resolveAlertThresholds({ ALERT_EMAIL_FAILURE_PCT_MAX: 'half' }).emailFailurePctMax).toBe(50);
+    expect(resolveAlertThresholds({}).emailFailurePctMax).toBe(50);
+  });
+});
+
 describe('evaluateAlerts — combinations', () => {
   it('multiple simultaneous breaches list every firing rule in rule order', () => {
     const reg = new RequestMetricsRegistry(3);
     for (const p of ['/a', '/b', '/c', '/d']) reg.record(`GET ${p}`, 500, 3000);
     // min sample 1: this is a tiny synthetic registry, the budget rule is
     // otherwise (correctly) gated for n=4.
-    const report = evaluateAlerts(reg.snapshot(), { fiveXxRatePctMax: 0.5, p95MsMax: 1000, minRequests: 1, rateLimitPctMax: 5, snapshotStaleAfterSec: null, restockBacklogMax: 0 });
+    const report = evaluateAlerts(reg.snapshot(), { fiveXxRatePctMax: 0.5, p95MsMax: 1000, minRequests: 1, rateLimitPctMax: 5, snapshotStaleAfterSec: null, restockBacklogMax: 0, emailMinAttempts: 5, emailFailurePctMax: 50 });
     expect(report.status).toBe('alerting');
     expect(report.firingRules).toEqual(['error_budget', 'p95_latency', 'route_key_overflow']);
-    expect(report.rules).toHaveLength(6);
+    expect(report.rules).toHaveLength(7);
     expect(summarizeAlerts(report)).toEqual({
       status: 'alerting',
       firing: ['error_budget', 'p95_latency', 'route_key_overflow'],
     });
   });
 
-  it('all SIX rules can fire and the list stays in rule order', () => {
+  it('all SEVEN rules can fire and the list stays in rule order', () => {
     const reg = new RequestMetricsRegistry(3);
     for (const p of ['/a', '/b', '/c', '/d']) reg.record(`GET ${p}`, 500, 3000);
     // One guard-marked 429 (folds into `other` past the cap — the throttle
     // tally rides the fold) lifts the 429 share to 20% > 5%.
     reg.record('GET /throttled', 429, 10, null, true);
+    // One FAILED email send past a tightened attempts floor (1) lights the
+    // session-134 mail rule too.
+    reg.recordMail('status', false);
     const report = evaluateAlerts(
       { ...reg.snapshot(), uptimeSec: 999999 },
-      { fiveXxRatePctMax: 0.5, p95MsMax: 1000, minRequests: 1, rateLimitPctMax: 5, snapshotStaleAfterSec: null, restockBacklogMax: 0 },
+      { fiveXxRatePctMax: 0.5, p95MsMax: 1000, minRequests: 1, rateLimitPctMax: 5, snapshotStaleAfterSec: null, restockBacklogMax: 0, emailMinAttempts: 1, emailFailurePctMax: 0 },
       { enabled: true, intervalSec: 300, lastCapturedAtMs: null },
       { backlog: 1, graceMinutes: 10 },
     );
@@ -531,6 +659,7 @@ describe('evaluateAlerts — combinations', () => {
       'snapshot_stale',
       'rate_limit_pressure',
       'restock_repair_backlog',
+      'email_delivery_failure',
     ]);
   });
 

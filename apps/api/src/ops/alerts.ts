@@ -67,6 +67,21 @@
  *     not running, is slower than the grace window, or is capped, and
  *     reserved stock stays locked). WARNING severity: nothing user-facing
  *     has failed yet — a human action (or cron) is late.
+ *   - email_delivery_failure (session 134): MailService.send failures used
+ *     to vanish into a log line — a dead SMTP relay stayed invisible between
+ *     a support ticket and the log tail. The registry now tallies email
+ *     attempts + failures per channel (totals.mail), so the rule is fully
+ *     SNAPSHOT-DERIVED: the ADMIN pull, the periodic fold line and
+ *     alert-scan all evaluate it with ZERO extra observations. Fires when
+ *     the failure share STRICTLY exceeds ALERT_EMAIL_FAILURE_PCT_MAX
+ *     (default 50 — a majority of mail not landing means the relay is
+ *     dead/broken, scattered single failures are relays breathing) over at
+ *     least ALERT_EMAIL_MIN_ATTEMPTS sends (default 5; order notifications
+ *     are sparse, the same small-sample veto as the budget rule's floor).
+ *     ERROR severity: unlike the warning class (telemetry/config degrade,
+ *     users don't), a lit rule here means receipts and status notices are
+ *     NOT reaching customers — a real feature outage, just off the request
+ *     path.
  *
  * Cumulative-since-boot caveat inherited from the registry (session 85):
  * an early 5xx burst keeps the budget rule lit until traffic dilutes it.
@@ -75,6 +90,7 @@
  */
 
 import {
+  MAIL_CHANNELS,
   MAX_ROUTE_KEYS,
   MetricsSnapshot,
   OVERFLOW_KEY,
@@ -86,7 +102,8 @@ export type AlertRuleId =
   | 'route_key_overflow'
   | 'snapshot_stale'
   | 'rate_limit_pressure'
-  | 'restock_repair_backlog';
+  | 'restock_repair_backlog'
+  | 'email_delivery_failure';
 export type AlertSeverity = 'error' | 'warning';
 export type AlertStatus = 'ok' | 'alerting';
 
@@ -157,6 +174,20 @@ export interface AlertThresholds {
    * capped. Fires STRICTLY above; integer semantics (rows, not percent).
    */
   restockBacklogMax: number;
+  /**
+   * Minimum total email attempts before the email_delivery_failure rule is
+   * evaluated at all (session 134). Order notifications are sparse — one
+   * failed send out of two is a flaky relay hiccup, not an outage signal.
+   */
+  emailMinAttempts: number;
+  /**
+   * Percent (0-100) of email send failures allowed within the sample before
+   * the email_delivery_failure rule fires (session 134). Fires STRICTLY
+   * above it; 0 is legal — "any failed mail alerts" — for operators
+   * proving the chain (the same tightened-ceiling policy as the pct knobs
+   * above).
+   */
+  emailFailurePctMax: number;
 }
 
 export const DEFAULT_ALERT_THRESHOLDS: AlertThresholds = {
@@ -186,6 +217,14 @@ export const DEFAULT_ALERT_THRESHOLDS: AlertThresholds = {
   // repair cron runs slower than the grace window. Tune with
   // ALERT_RESTOCK_BACKLOG_MAX.
   restockBacklogMax: 0,
+  // Mail telemetry (session 134): evaluate only once 5 sends were attempted
+  // (order mail is sparse; a lone bounce is noise — the small-sample veto
+  // mirrors ALERT_MIN_REQUESTS), and fire above a 50% failure share (a dead
+  // relay fails ~100%; scattered single failures under half stay quiet).
+  // Tighten to 0/1 to prove the chain. Tune with ALERT_EMAIL_MIN_ATTEMPTS /
+  // ALERT_EMAIL_FAILURE_PCT_MAX.
+  emailMinAttempts: 5,
+  emailFailurePctMax: 50,
 };
 
 export interface AlertRuleResult {
@@ -274,6 +313,17 @@ export function resolveAlertThresholds(
     // a fractional 2.9 into 2 like ALERT_MIN_REQUESTS does.
     restockBacklogMax: Math.floor(
       thresholdNumber(env.ALERT_RESTOCK_BACKLOG_MAX, DEFAULT_ALERT_THRESHOLDS.restockBacklogMax, 0),
+    ),
+    // Mail telemetry (session 134): attempts floor uses the positive-int
+    // policy (0/fractional/garbage collapse to the default — a zero floor
+    // would judge the very first send, same call as ALERT_MIN_REQUESTS);
+    // the pct ceiling keeps the tightened-0 policy (0 = "any failed mail
+    // alerts", legal for proving the chain).
+    emailMinAttempts: positiveIntThreshold(env.ALERT_EMAIL_MIN_ATTEMPTS, DEFAULT_ALERT_THRESHOLDS.emailMinAttempts),
+    emailFailurePctMax: thresholdNumber(
+      env.ALERT_EMAIL_FAILURE_PCT_MAX,
+      DEFAULT_ALERT_THRESHOLDS.emailFailurePctMax,
+      0,
     ),
   };
 }
@@ -434,6 +484,38 @@ export function evaluateAlerts(
         `ceiling (grace ${restock.graceMinutes}min)`;
   }
 
+  // ── rule 7: mail delivery failures (registry totals, session 134) ──────
+  // Fully SNAPSHOT-DERIVED (unlike rules 4/6 there is no DB observation):
+  // MailService.recordMail folds every real attempt/failure into the same
+  // registry the other rules read, so the ADMIN pull, the synchronous fold
+  // line and alert-scan all evaluate it identically. An absent totals.mail
+  // (a hand-built or pre-134 snapshot) is an honest NOT-evaluated, never a
+  // fabricated zero.
+  let mdFiring = false;
+  let mdObserved: number | null = null;
+  let mdDetail: string;
+  const mail = totals.mail;
+  const mailAttempts = mail ? MAIL_CHANNELS.reduce((s, c) => s + mail[c].attempts, 0) : 0;
+  const mailFailures = mail ? MAIL_CHANNELS.reduce((s, c) => s + mail[c].failures, 0) : 0;
+  if (!mail) {
+    mdDetail = 'no mail tallies in this snapshot — rule not evaluated';
+  } else if (mailAttempts === 0) {
+    mdDetail = 'no email sends attempted yet — rule not evaluable';
+  } else if (mailAttempts < thresholds.emailMinAttempts) {
+    mdDetail =
+      `mail failure ${round2((mailFailures / mailAttempts) * 100)}% over only ${mailAttempts} ` +
+      `sends (< ${thresholds.emailMinAttempts} min attempts) — not evaluated`;
+  } else {
+    mdObserved = round2((mailFailures / mailAttempts) * 100);
+    mdFiring = mdObserved > thresholds.emailFailurePctMax;
+    mdDetail = mdFiring
+      ? `${mailFailures} of ${mailAttempts} email sends failed (${mdObserved}%), above the ` +
+        `${thresholds.emailFailurePctMax}% ceiling — order notifications are NOT reaching ` +
+        `customers (check the SMTP relay)`
+      : `${mailFailures}/${mailAttempts} email sends failed (${mdObserved}%) within the ` +
+        `${thresholds.emailFailurePctMax}% ceiling`;
+  }
+
   const rules: AlertRuleResult[] = [
     {
       id: 'error_budget',
@@ -482,6 +564,14 @@ export function evaluateAlerts(
       observed: rbObserved,
       threshold: thresholds.restockBacklogMax,
       detail: rbDetail,
+    },
+    {
+      id: 'email_delivery_failure',
+      firing: mdFiring,
+      severity: 'error',
+      observed: mdObserved,
+      threshold: thresholds.emailFailurePctMax,
+      detail: mdDetail,
     },
   ];
 

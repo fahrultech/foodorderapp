@@ -151,7 +151,7 @@ export class OrderNotificationsService implements OnModuleInit {
     );
 
     await Promise.all([
-      to ? this.mail.send({ to, subject, text }) : Promise.resolve(),
+      to ? this.mail.send({ to, subject, text }, 'confirmation') : Promise.resolve(),
       order.userId && pushEnabled
         ? this.push.sendToUser(order.userId, {
             title: `Order received — #${order.code}`,
@@ -186,7 +186,9 @@ export class OrderNotificationsService implements OnModuleInit {
     const enLabel = STATUS_UPDATE_LABELS.en[status] as string;
 
     await Promise.all([
-      to ? this.mail.send({ to, subject: message.subject, text: message.text }) : Promise.resolve(),
+      to
+        ? this.mail.send({ to, subject: message.subject, text: message.text }, 'status')
+        : Promise.resolve(),
       order.userId && pushEnabled
         ? this.push.sendToUser(order.userId, {
             title: `${enLabel} — #${order.code}`,
