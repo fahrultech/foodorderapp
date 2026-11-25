@@ -577,12 +577,70 @@
   (not the service) is what flattens repeated-key arrays today — the
   typeof guard now pins the same collapse at the helper; 105 suites /
   1442 tests (+29) + live smoke 24/24, e2e untouched by design.)
-- [ ] Product: magic-link receipt access — the order-confirmation emails
+- [x] Product: magic-link receipt access — the order-confirmation emails
   (session 122 now reaches guests too) link the order page, but a bare
   link still demands a typed proof email; embed a short-lived signed
   access token in the email link that unlocks the receipt via a
   one-time query rung (bearer ladder unchanged). API + email copy +
   live smoke + e2e.
+  (2026-11-25, session 133; ground truth first: the emails shipped NO
+  link at all (push carried the bare `/orders/:id`), so the increment is
+  the link + the rung. `orders/receipt-access.ts` DI-free HMAC-SHA256
+  capability (purpose-separated from auth JWTs; `?rt=` rung 4 on
+  `findOneForViewer`, bearer + typed-proof rungs byte-unchanged; foreign/
+  tampered/expired/junk all answer the ONE canonical 404, no-oracle
+  sweep included; TIME-BOUNDED not nonce-consumed — documented decision);
+  `RECEIPT_TOKEN_TTL_SEC` (72h default, strict Number parse, 30d clamp) +
+  `WEB_PUBLIC_URL` envs; both order emails gained the localized
+  View-your-order line (absent URL renders zero extra bytes — session-45
+  pins survive; fail-open builder, guest bilingual gets EN+ID lines,
+  authed stays EN-only); web receipt page + `api.getOrder` ride `rt`
+  (URLSearchParams wire, percent-safety pinned); query-surface registry +
+  swagger @ApiQuery updated; +2 suites/+37 tests (107/1479) incl. the
+  stub-config inert-rung class caught at test time, live smoke 29/29 on a
+  30-migration from-empty DB driving the REAL captured-email tokens
+  through the ladder (expiry via a ttl=1 mint, status-email fresh-token
+  unlock, ADMIN rung untouched), e2e `zz-magic-link` 4 new tests, full
+  suite 130→134 green ×2 fresh-seed + timing gate OK.)
+
+## Phase 15 — Mail truth, magic-link hardening & cache visibility (opened 2026-11-25, Phase 14 exhausted; from the Ops / Test / UX / Perf / Product evergreen loops)
+
+- [ ] Ops: mail delivery telemetry — `MailService.send` failures today vanish
+  into a log line and a `best-effort` comment, so a dead SMTP relay is
+  invisible between a support ticket and the log tail. Count per-channel
+  attempts + failures in the metrics registry (additive `mail` totals on
+  the ADMIN snapshot, like session 123's `throttled` shape), add an
+  `email_delivery_failure` alert rule (failure share over a floor, env
+  knob) riding the fold line + alert-scan exit codes, and extend the
+  `SMTP_JSON_CAPTURE` rig so a live smoke can force the failing-transport
+  arm. Unit + live smoke.
+- [ ] Test: magic-link token-structure fuzz sweep — session 132's proof-param
+  doctrine applied to `?rt=`: property sweep (seeded rng + the existing
+  fuzz harness) over structural mutations of a real token (charset, bit
+  flips, truncations, segment swaps, expiry tampering) asserting constant
+  outcomes — the valid token ALWAYS unlocks, EVERY mutation answers the
+  byte-identical canonical 404, and nothing 5xxes through the real pipe
+  + filter (extending receipt-magic-link.http.spec.ts).
+- [ ] Product: one-click pay from the magic link — session 133 made guests
+  VIEW the receipt from their email, but payment stays bearer-only by
+  design (session 43's sign-in hint): an unauthenticated email recipient
+  still cannot pay. Decide explicitly: either extend `POST /payments` +
+  capture reads to ride the `rt` rung (the token is the customer's own
+  checkout capability — the ladder question is whether a VIEW capability
+  may transact), or record the refusal in ARCHITECTURE with the reason
+  (capability tiers: read vs write). Whichever ships: specs + live smoke
+  + e2e + EN/ID copy for any new panel state.
+- [ ] UX: receipt offline resilience — the PWA worker (session 59) caches
+  the app shell but a placed-order receipt vanishes when the network
+  drops mid-view. Cache the LAST successfully fetched order row per id in
+  localStorage (rendered with an honest "cached" banner reusing the
+  PortalLoadFailed furniture doctrine), EN/ID + e2e with network-offline
+  emulation.
+- [ ] Perf: HTTP-cache hit-rate visibility — the session-103 store serves
+  200s/304s invisibly: k6 can measure it but the ADMIN dashboard cannot.
+  Additive `cache` totals (hits/stores/evictions, 304 revalidations) on
+  the global metrics snapshot + a small card row on `/admin` traffic
+  panel (never on the OWNER rung — session-85 rule), specs + curl smoke.
 
 ## Completed
 - 2026-10-17 — Phase 0: monorepo scaffold, NestJS API (auth, restaurants, menu, orders, status machine, health), Next.js storefront (browse, detail, cart, checkout, order page), docker compose + Dockerfiles, seed data, jest unit tests, CI-ready scripts.

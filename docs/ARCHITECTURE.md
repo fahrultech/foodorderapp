@@ -312,10 +312,19 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   role), or for ANY viewer who presents the order's stored `contactEmail`
   normalized case-insensitively (collected at checkout; the storefront
   carries it as `?email=` in the checkout redirect, history links and the
-  OrderVerify island). Everything else gets the same 404 as an unknown id —
-  existence is never confirmed, matching the cancel route's convention.
-  Orders stored without an email (legacy rows, API clients that omitted it)
-  simply have no guest rung.
+  OrderVerify island), or for a valid magic-link token `?rt=` (Phase 14 #5)
+  minted for exactly that order id — the receipt link embedded in every
+  order email. The token is a stateless HMAC capability
+  (`orders/receipt-access.ts`, purpose-separated so an auth JWT and a
+  receipt token can never impersonate each other); TIME-BOUNDED and
+  deliberately NOT nonce-consumed, because reloads and multi-device email
+  opens are legitimate use and a wire that stole the token already holds
+  the mail itself — revocation is the expiry (default 72h,
+  `RECEIPT_TOKEN_TTL_SEC`, 30d ceiling, garbage -> default). Everything
+  else gets the same 404 as an unknown id — existence is never confirmed,
+  matching the cancel route's convention. Orders stored without an email
+  (legacy rows, API clients that omitted it) simply have no guest rung,
+  and without a JWT_SECRET visible to the service the token rung is inert.
 - **Driver assignment is a separate, exact-role API boundary** — users may carry
   the `driver` role, while orders keep a nullable indexed `driverId` FK to users
   (`ON DELETE SET NULL`). Owners (or admins through the established owner-route
@@ -523,7 +532,15 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   module — the `locales` array is the extension point for a future per-user
   locale. `SMTP_JSON_CAPTURE` swaps nodemailer's jsonTransport in: nothing is
   delivered and each message logs one `MAIL_CAPTURED {json}` line (live-smoke
-  assertion target; takes precedence over `SMTP_HOST`). Delivery is
+  assertion target; takes precedence over `SMTP_HOST`). Every order email
+  (confirmation + status steps) appends a localized "View your order" /
+  "Lihat pesanan Anda" line carrying the magic-link token over the
+  `WEB_PUBLIC_URL` base (trailing slashes trimmed; unset -> dev default
+  localhost:3000). The link builder is FAIL-OPEN by design: no visible
+  secret or a throwing mint renders no link line (byte-identical legacy
+  copy) — a notification can never die on its own link. Push keeps the
+  bare relative receipt url (its recipient unlocks via the bearer rung).
+  Delivery is
   best-effort and inherits the process-local bus boundary; a durable outbox or
   broker is future multi-instance work. The web side is now complete:
   `PushNotificationsProvider` reads the public config only for signed-in users,

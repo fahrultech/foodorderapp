@@ -3,6 +3,105 @@
 Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
+## 2026-11-25 17:30 — Session 133 — magic-link receipt access: signed `?rt=` rung 4 + the emails finally LINK the receipt (Product, Phase 14 #5)
+
+**Built:**
+
+- feat: `src/orders/receipt-access.ts` (new, DI-free) — HMAC-SHA256
+  capability tokens for the Phase 6 receipt ladder:
+  `base64url(orderId|expirySec).base64url(hmac)` under a purpose prefix
+  (structurally unable to cross with auth-module JWTs in EITHER
+  direction — pinned both ways), constant-time signature compare,
+  exact-orderId binding, strict expiry, typeof/length guards for junk
+  wire shapes, `receiptTokenTtlSec` knob parse (STRICT `Number()`, not
+  parseInt — a spec-time lesson: `1.9x9` must fall to the 72h default,
+  never mint a 1-second capability; 30d clamp, never throws, never 0).
+  Honest semantics decision: TIME-BOUNDED, NOT nonce-consumed — reloads
+  and multi-device email opens are legitimate use, and anyone who
+  sniffed the token already holds the mail itself; revocation is the
+  expiry (documented in ARCHITECTURE, the roadmap's "one-time" reads as
+  the single unlock EVENT, not single VALIDITY).
+- feat(api): rung 4 on `OrdersService.findOneForViewer` (`?rt=` on
+  `GET /orders/:id`, controller `@Query('rt')` + `@ApiQuery`): bearer
+  rungs 1-2 and typed-proof rung 3 byte-unchanged; JWT_SECRET read
+  through a defensive `receiptSecret()` — harnesses pass assorted
+  stubs into the optional config slot (orders-ownership.spec.ts passed
+  a function-stub: `this.config?.get is not a function` was CAUGHT at
+  unit time, now a typeof-callable guard makes any unreadable config
+  simply INERT, every token denies, no 500). Foreign/tampered/expired/
+  junk answers the same byte-identical canonical 404 as an unknown id
+  (session 76/132 no-oracle doctrine). Env: `RECEIPT_TOKEN_TTL_SEC` +
+  `WEB_PUBLIC_URL` declared (validate keeps unknown keys — declaration
+  is documentation), query-surface registry gained the `rt` literal
+  with mechanical evidence (verifier must-call + SQL-predicate forbid).
+- feat(notifications): BOTH order email kinds (confirmation + status
+  steps) append a localized "View your order" / "Lihat pesanan Anda"
+  line with the fresh token over the trimmed `WEB_PUBLIC_URL` base.
+  Ground truth correction: the premise said "the emails link the order
+  page" — they did NOT; only the push payload carried a bare relative
+  `/orders/:id`. Copy doctrine preserved: absent URL renders ZERO
+  extra bytes (the session-45 EN byte-identity pins survive untouched),
+  authed mail stays EN-only, guest bilingual gets BOTH lines; the link
+  builder is FAIL-OPEN (no secret -> no line; a notification can never
+  die on its own link). Push url deliberately untouched (its recipient
+  unlocks via the bearer rung) — the spec pins it so.
+- feat(web): receipt SSR page forwards `?rt=` into `api.getOrder`
+  (opts `receiptToken`); `getOrder` query building moved to
+  URLSearchParams (the sweep-pinned percent rules hold: `+` in a
+  contact email still arrives as %2B — session 132 truth re-proven via
+  the `percent-encoded rt survives` spec assertion that base64url is
+  URL-safe BY CONSTRUCTION, no mangling on copy-paste).
+- test: `src/orders/receipt-access.spec.ts` (unit: round trip,
+  boundary-expiry, foreign id, cut-and-paste payload/sig swaps,
+  structural-junk non-500 matrix, non-string wire shapes, JWT-shaped
+  string never accepted, ttl parse matrix, born-expired guard) and
+  `src/orders/receipt-magic-link.http.spec.ts` (REAL controller +
+  service + pipe + filter over live sockets, mirroring the session-132
+  harness shape: valid-token stranger unlock incl. the userId-NULL
+  guest case, garbage-rt-beside-owner-bearer rides rung 2 untouched,
+  admin bearer + expired rt still reads, inert-config boot denies
+  byte-canonical, repeated `rt=a&rt=b` pipe collapse, 5000-char rt,
+  unknown-id-with-its-own-token 404s — the repo miss precedes the rung).
+- test(e2e): `zz-magic-link.spec.ts` 4 tests — the product's OWN
+  compiled signer mints the browser token in-test (runtime `.env` read,
+  never inlined; loud prerequisite fail if dist moved), valid rt renders
+  the guest receipt with NO verify card mounted, garbage + bit-flipped
+  tokens fall back to the untouched OrderVerify ladder (typed email
+  still unlocks — rungs coexist), one order's token cannot open
+  another, ID locale chrome through a real magic link.
+
+**Verified (all live):**
+
+- jest **107 suites / 1479 tests** (+2/+37 vs session 132's 105/1442);
+  API `nest build` clean; web `next build` green.
+- live smoke **29/29** on a 30-migration from-empty scratch DB with
+  `SMTP_JSON_CAPTURE=1`: the tokens under test were EXTRACTED FROM THE
+  CAPTURED EMAILS (not pre-minted) — guest bilingual link lines +
+  trimmed base url, valid token 200, tampered/foreign/expired(ttl=1
+  real-clock)/bare all 404 byte-identical to the unknown-id baseline,
+  status-email fresh token unlocks, authed mail EN-only exactly one
+  link line, ADMIN + typed-proof rungs unchanged, junk rt shapes
+  non-500, docs-json registers the param.
+- full e2e **134/134 green ×2 consecutive** on fresh seeds (130+4, no
+  existing assertion edited), fixture-timing gate OK (40s payOrder
+  limiter-wait legs classified as backoff, not regression).
+- bundle gate: local margins +46..48 B on all 7 routes — but lib/api
+  is the SHARED-chunk class (session-132 doctrine): if the CI gate
+  goes uniformly red, re-adopt ALL table rows to the failing run's
+  annotation numbers, not just the enumerated ones.
+
+**Left for next sessions:**
+
+- CI verdict on the shared-chunk bundle shift (re-adopt if red, same
+  +N to every row; the two /orders routes hide behind annotation
+  truncation — prove via rerun before adopting wobble, session-132
+  lesson).
+- Phase 15 filed: mail-delivery telemetry, rt token-structure fuzz
+  sweep, one-click-pay-vs-read-capability DECISION item, receipt
+  offline resilience, cache hit-rate visibility card.
+- Possible refinement: include the magic link in the PUSH payload url
+  too (bearer rung makes it unnecessary today; revisit if push ever
+  reaches signed-out taps).
 ## 2026-11-25 15:30 — Session 132 — receipt proof-param sweep: the wire ladder pinned over real HTTP + the non-string collapse hardened (Test, Phase 14 #4)
 
 **Built:**
