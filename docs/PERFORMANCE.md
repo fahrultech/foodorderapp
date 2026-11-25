@@ -698,14 +698,28 @@ their split decisions separately.
 <!-- BUNDLE-BASELINE-START -->
 | Route | Baseline First Load JS+CSS, full chain (B, CI-measured, node 22.23.5) |
 |---|---|
-| `/` | 135778 |
-| `/restaurants/[id]` | 138849 |
-| `/cart` | 139311 |
-| `/checkout` | 142338 |
-| `/map` | 137016 |
+| `/` | 135806 |
+| `/restaurants/[id]` | 138877 |
+| `/cart` | 139339 |
+| `/checkout` | 142366 |
+| `/map` | 137044 |
 | `/orders/[id]` | 159683 |
 | `/orders/my` | 144317 |
 <!-- BUNDLE-BASELINE-END -->
+
+Session-132 note: the five shared-chain routes re-adopted +28 B each
+(135778→135806, 138849→138877, 139311→139339, 142338→142366,
+137016→137044) — session 131's CI web job failed its gate with exactly
+this uniform +28 while its local run claimed margin. Root cause class:
+session 131's `lib/api.ts` additions + EN/ID message keys fold into the
+SHARED chunks every chain route carries, not only `/account`'s own
+chunk (the session-118 lesson again: `lib/api` lives in the shared
+7621/8955 layer; a "page-local" edit is never chain-innocent). A real
+delta on the tree that measured it — adopted from that failed run's
+CI-measured numbers per the session-120/127 doctrine; the two
+`/orders/*` rows stayed UNDER their numbers and keep their headroom.
+The session-132 increment itself is API+docs only (web tree
+byte-identical to session 131's, so these rows ARE its current truth).
 
 Session-130 note: `/orders/my` re-adopted 144312 → 144317 — run 169's
 gate caught the route page chunk at +5 B (4115 → 4120) on a web tree

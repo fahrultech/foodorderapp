@@ -84,6 +84,16 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
   push.
 - Sanitizer scans: added lines free of U+2026, asterisk-mask sequences,
   and literal backslash-u escapes; `git diff --check` clean.
+- Post-push CI review caught PRE-EXISTING red: session 131's own push
+  failed the bundle gate — five shared-chain routes each measured
+  exactly +28 B over the table (uniform shift = session 131's
+  `lib/api.ts` + message keys folding into the shared chunks every
+  chain route carries, not the page-local growth its run claimed; the
+  two `/orders/*` rows measured UNDER theirs). Re-adopted the five
+  rows to that failed run's CI-measured numbers per the
+  session-120/127/130 doctrine (web tree byte-identical since; this
+  increment touched zero web files) — see the Session-132 note in
+  docs/PERFORMANCE.md.
 
 **Left for next session:**
 
