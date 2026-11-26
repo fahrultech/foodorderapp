@@ -311,9 +311,9 @@ describe('request metrics — mail delivery tally (session 134)', () => {
 });
 
 describe('request metrics — HTTP cache tally (session 138)', () => {
-  it('totals.cache carries ALL four counters at zeros on a pristine registry', () => {
+  it('totals.cache carries ALL five counters at zeros on a pristine registry', () => {
     const snap = new RequestMetricsRegistry().snapshot();
-    expect(snap.totals.cache).toEqual({ hits: 0, stores: 0, evictions: 0, revalidations: 0 });
+    expect(snap.totals.cache).toEqual({ hits: 0, stores: 0, evictions: 0, revalidations: 0, eligible: 0 });
     for (const c of CACHE_COUNTERS) expect(snap.totals.cache[c]).toBe(0);
   });
 
@@ -323,11 +323,12 @@ describe('request metrics — HTTP cache tally (session 138)', () => {
     reg.recordCache('hits');
     reg.recordCache('stores');
     reg.recordCache('revalidations');
+    reg.recordCache('eligible');
     const cache = reg.snapshot().totals.cache;
-    expect(cache).toEqual({ hits: 2, stores: 1, evictions: 0, revalidations: 1 });
+    expect(cache).toEqual({ hits: 2, stores: 1, evictions: 0, revalidations: 1, eligible: 1 });
   });
 
-  it('a stray JS-level key is a NO-OP — the pinned four-key shape can never be polluted', () => {
+  it('a stray JS-level key is a NO-OP — the pinned five-key shape can never be polluted', () => {
     const reg = new RequestMetricsRegistry();
     (reg as { recordCache(c: string): void }).recordCache('purges');
     const cache = reg.snapshot().totals.cache;
@@ -350,8 +351,8 @@ describe('request metrics — HTTP cache tally (session 138)', () => {
     const before = reg.snapshot();
     reg.recordCache('hits');
     reg.recordCache('evictions');
-    expect(before.totals.cache).toEqual({ hits: 1, stores: 0, evictions: 0, revalidations: 0 });
-    expect(reg.snapshot().totals.cache).toEqual({ hits: 2, stores: 0, evictions: 1, revalidations: 0 });
+    expect(before.totals.cache).toEqual({ hits: 1, stores: 0, evictions: 0, revalidations: 0, eligible: 0 });
+    expect(reg.snapshot().totals.cache).toEqual({ hits: 2, stores: 0, evictions: 1, revalidations: 0, eligible: 0 });
   });
 
   it('the restaurant dimension NEVER emits cache (same OWNER-rung shape contract as throttled + mail)', () => {
@@ -371,6 +372,7 @@ describe('request metrics — HTTP cache tally (session 138)', () => {
     const reg = new RequestMetricsRegistry();
     reg.recordCache('stores');
     reg.recordCache('revalidations');
+    reg.recordCache('eligible');
     reg.reset();
     const snap = reg.snapshot();
     for (const c of CACHE_COUNTERS) expect(snap.totals.cache[c]).toBe(0);

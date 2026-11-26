@@ -467,6 +467,7 @@
     "trafficCacheStores": "stored",
     "trafficCacheEvictions": "evicted",
     "trafficCacheRevalidations": "304 revalidations",
+    "trafficCacheRate": "{x} of {y} served from cache",
     "trafficCacheNote": "anonymous public browse reads served from the in-process store",
     "alertsHistoryHeading": "Alert history",
     "alertsHistorySub": "Window {window} \u00b7 tick {interval}s \u00b7 read {time}",

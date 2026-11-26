@@ -84,8 +84,9 @@ export class MetricsMailTotalsResponse {
 
 /**
  * Public-read HTTP cache tallies (session 138, Phase 15 "HTTP-cache hit-rate
- * visibility") — the session-103 store's work, cumulative since API boot.
- * Four honest event classes, ONE producer each (middleware branches + the
+ * visibility"; fifth counter `eligible` added session 140, Phase 16 #2) —
+ * the session-103 store's work, cumulative since API boot.
+ * Five honest event classes, ONE producer each (middleware branches + the
  * store's cap-drop path), so the totals can never double-count.
  */
 export class MetricsCacheTotalsResponse {
@@ -97,6 +98,17 @@ export class MetricsCacheTotalsResponse {
   evictions: number;
   @ApiProperty({ type: 'integer', description: '304s answered by the cache layer, BOTH arms: fresh-store zero-SQL 304s and stale revalidations where the handler re-read but the bytes were unchanged. An Express-native freshness 304 BEFORE any store entry is NOT counted here.' })
   revalidations: number;
+  @ApiProperty({
+    type: 'integer',
+    description:
+      'Whitelisted anonymous GETs whose HANDLER ran (session 140, the hit-rate ' +
+      'denominator): the misses the store could have served. Counted once per such ' +
+      'request whatever it finally answered (200 capture, stale 304, 4xx passthrough). ' +
+      'The served-from-cache rate is hits/(hits+eligible); `stores` is always <= `eligible` ' +
+      '(every capture rode a handler pass). Zeros while the feature is disabled ' +
+      '(HTTP_CACHE_TTL_SEC=0), where no request is ever cache-eligible.',
+  })
+  eligible: number;
 }
 
 export class MetricsTotalsResponse {

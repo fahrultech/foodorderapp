@@ -52,25 +52,37 @@ test('admin traffic cards mirror the live /admin/metrics payload', async ({ page
   const table = page.getByTestId('traffic-route-table');
   await expect(table.getByRole('row').filter({ hasText: busiest.route }).first()).toBeVisible();
 
-  // Session 138: the cache dimension is on the WIRE with exactly the four
-  // pinned counters, and each strip number mirrors THIS payload (cumulative
-  // since boot — absolutes are untestable, the payload↔DOM binding is).
+  // Session 138: the cache dimension is on the WIRE with exactly the pinned
+  // counters (session 140 adds the fifth, `eligible`), and each strip number
+  // mirrors THIS payload (cumulative since boot — absolutes are untestable,
+  // the payload↔DOM binding is).
   const cache = payload.totals.cache;
   expect(cache, 'ADMIN snapshot carries the additive cache dimension').toEqual({
     hits: expect.any(Number),
     stores: expect.any(Number),
     evictions: expect.any(Number),
     revalidations: expect.any(Number),
+    eligible: expect.any(Number),
   });
   expect(Object.keys(cache).sort()).toEqual(
-    ['evictions', 'hits', 'revalidations', 'stores'],
+    ['eligible', 'evictions', 'hits', 'revalidations', 'stores'],
   );
+  // Session 140 invariant, live wire: stores is a SUBSET of eligible — every
+  // capture rode a handler pass, so the miss counter can never be lower.
+  expect(cache.stores).toBeLessThanOrEqual(cache.eligible);
   await expect(page.getByTestId('traffic-cache-strip')).toBeVisible();
   await expect(page.getByTestId('traffic-cache-hits')).toContainText(cache.hits.toLocaleString());
   await expect(page.getByTestId('traffic-cache-stores')).toContainText(cache.stores.toLocaleString());
   await expect(page.getByTestId('traffic-cache-evictions')).toContainText(cache.evictions.toLocaleString());
   await expect(page.getByTestId('traffic-cache-revalidations')).toContainText(
     cache.revalidations.toLocaleString(),
+  );
+  // The derived rate line: hits of (hits + eligible) — exact EN sentence
+  // from THIS payload (params pass pre-formatted strings; locale grouping
+  // cannot reformat test-magnitude numbers, and the line would honestly
+  // vanish on a pre-140 wire that lacks the counter).
+  await expect(page.getByTestId('traffic-cache-rate')).toContainText(
+    `${cache.hits.toLocaleString()} of ${(cache.hits + cache.eligible).toLocaleString()} served from cache`,
   );
 });
 

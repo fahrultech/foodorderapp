@@ -540,7 +540,9 @@ export interface MetricsRouteRow {
 }
 
 /**
- * Public-read HTTP cache tallies, cumulative since API boot (session 138).
+ * Public-read HTTP cache tallies, cumulative since API boot (session 138;
+ * fifth counter `eligible` added session 140, Phase 16 #2 — the hit-rate
+ * denominator).
  * ADMIN GLOBAL view only — the scoped GET /restaurants/:id/metrics payload
  * NEVER carries the key (session-85 rule, same contract as the API-side
  * `throttled`/`mail` dimensions), which is why `totals.cache` is OPTIONAL
@@ -556,6 +558,13 @@ export interface MetricsCacheTotals {
   evictions: number;
   /** 304s answered by the cache layer (fresh zero-SQL + stale unchanged arms). */
   revalidations: number;
+  /**
+   * Whitelisted anonymous GETs whose handler ran — the misses the store
+   * could have served. The strip derives the served-from-cache rate as
+   * `hits` of `hits + eligible`; absent on a pre-140 wire, in which case
+   * the derived line does not render (honest absence, never NaN).
+   */
+  eligible?: number;
 }
 
 export interface MetricsSnapshot {

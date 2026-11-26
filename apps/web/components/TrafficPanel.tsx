@@ -225,6 +225,19 @@ export default function TrafficPanel({
               {totals.cache.revalidations.toLocaleString()}
             </span>
           </span>
+          {/* Session 140 (Phase 16 #2): the honest served-from-cache RATE —
+              `eligible` (whitelisted anonymous GETs whose handler ran = the
+              misses the store could have served) completes the denominator.
+              Renders only when the wire carries the counter: a pre-140 API
+              shows the four chips and NO derived line — never NaN. */}
+          {typeof totals.cache.eligible === 'number' && (
+            <span data-testid="traffic-cache-rate" className="text-stone-600">
+              {t('trafficCacheRate', {
+                x: totals.cache.hits.toLocaleString(),
+                y: (totals.cache.hits + totals.cache.eligible).toLocaleString(),
+              })}
+            </span>
+          )}
           <span className="text-xs text-stone-400">{t('trafficCacheNote')}</span>
         </div>
       )}

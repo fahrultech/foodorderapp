@@ -125,6 +125,14 @@ export function createHttpCacheMiddleware(options: HttpCacheMiddlewareOptions) {
     }
 
     // Miss or stale: run the handler, capture the bytes, store + validate.
+    // Session 140 (Phase 16 #2): this entry point IS the honest cache
+    // denominator — a whitelisted anonymous GET whose handler ran, i.e.
+    // the miss the store could have served. Counted EXACTLY ONCE here,
+    // whatever the handler finally answers (200 capture, stale 304, 4xx
+    // passthrough), so hits/(hits+eligible) derives a true served-from-
+    // cache rate. Disabled arms (ttl<=0), bearer'd and non-whitelisted
+    // requests returned above and never inflate it.
+    record(onCacheEvent, 'eligible');
     const chunks: Buffer[] = [];
     const originalWrite = res.write.bind(res);
     const originalEnd = res.end.bind(res);

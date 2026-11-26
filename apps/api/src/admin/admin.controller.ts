@@ -62,7 +62,7 @@ export class AdminController {
       'GET /restaurants/:id/metrics view by contract. Totals also carry an additive `mail` ' +
       'object — per-channel email send attempts + transport failures (session 134), likewise ' +
       'ADMIN-global-only. Totals additionally carry an additive `cache` object — public-read ' +
-      'HTTP cache hits/stores/evictions/304-revalidations (session 138), likewise ' +
+      'HTTP cache hits/stores/evictions/304-revalidations/eligible-misses (sessions 138+140), likewise ' +
       'ADMIN-global-only. Since session 89 the response ALSO carries ' +
       'additive `durability` (snapshot scheduler state + stored history from the ' +
       '`metrics_snapshots` table — survives restarts) and `window` (exact traffic since the ' +

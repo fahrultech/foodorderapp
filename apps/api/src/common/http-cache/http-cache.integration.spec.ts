@@ -1,7 +1,7 @@
 import * as http from 'http';
 import { Writable } from 'node:stream';
 import { gunzipSync } from 'node:zlib';
-import { Controller, Get, INestApplication, Module, Param, Post, Query } from '@nestjs/common';
+import { Controller, Get, INestApplication, Module, NotFoundException, Param, Post, Query } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import type { Logger as PinoInstance } from 'pino';
 import { createHttpLoggingMiddleware } from '../logging/http-logging';
@@ -72,6 +72,9 @@ class SearchProbeController {
   @Get()
   search(@Query('q') q?: string): Record<string, unknown> {
     calls.search += 1;
+    // Session 140: a FAILING whitelisted read — the capture branch still
+    // ran (eligible counts once), but a 4xx must never be stored/served.
+    if (q === 'boom') throw new NotFoundException('probe');
     return { q: q ?? null, hits: [], v: version };
   }
 }
@@ -300,11 +303,11 @@ describe('public-read http cache — live middleware chain', () => {
   });
 });
 
-describe('public-read http cache — cache-dimension tally, exact (session 138)', () => {
+describe('public-read http cache — cache-dimension tally, exact (sessions 138+140)', () => {
   let app: INestApplication;
   let registry: RequestMetricsRegistry;
 
-  // OWN bootChain so the four counters are hand-pinnable to the ladder
+  // OWN bootChain so the counters are hand-pinnable to the ladder
   // below — the shared first describe accumulates across five `it` blocks
   // and cannot carry exact absolutes without ordering fragility.
   beforeAll(async () => {
@@ -316,12 +319,13 @@ describe('public-read http cache — cache-dimension tally, exact (session 138)'
     await app.close();
   });
 
-  it('miss=store, fresh-200=hit, INM=revalidation; non-targets + bearer count NOTHING', async () => {
+  it('miss=store+eligible, fresh-200=hit, INM=revalidation; non-targets + bearer count NOTHING', async () => {
     expect(registry.snapshot().totals.cache).toEqual({
       hits: 0,
       stores: 0,
       evictions: 0,
       revalidations: 0,
+      eligible: 0, // session 140: the hit-rate denominator — nothing ran yet
     });
 
     const first = await request(app, 'GET', '/api/restaurants');
@@ -331,6 +335,7 @@ describe('public-read http cache — cache-dimension tally, exact (session 138)'
       stores: 1, // captured
       evictions: 0,
       revalidations: 0,
+      eligible: 1, // the handler ran: this miss is a store-servable read
     });
 
     const hit = await request(app, 'GET', '/api/restaurants'); // fresh, no INM
@@ -344,13 +349,14 @@ describe('public-read http cache — cache-dimension tally, exact (session 138)'
       stores: 1,
       evictions: 0,
       revalidations: 1, // fresh-store 304, zero SQL
+      eligible: 1, // neither the hit nor the fresh 304 ran the handler
     });
 
     // A second fresh hit after the revalidation still tallies (order-free:
     // the entry is unchanged).
     const hit2 = await request(app, 'GET', '/api/restaurants');
     expect(hit2.status).toBe(200);
-    expect(registry.snapshot().totals.cache).toMatchObject({ hits: 2, stores: 1, revalidations: 1 });
+    expect(registry.snapshot().totals.cache).toMatchObject({ hits: 2, stores: 1, revalidations: 1, eligible: 1 });
 
     // Every opt-out path leaves the tally EXACTLY where it was.
     await request(app, 'GET', '/api/restaurants', { authorization: 'Bearer unit-*-jwt' });
@@ -362,10 +368,11 @@ describe('public-read http cache — cache-dimension tally, exact (session 138)'
       stores: 1,
       evictions: 0,
       revalidations: 1,
+      eligible: 1, // bearer/sub-path/POST/HEAD never reach the capture branch
     });
   });
 
-  it('STALE revalidation with unchanged bytes tallies store+revalidation (never a hit)', async () => {
+  it('STALE revalidation with unchanged bytes tallies store+revalidation+eligible (never a hit)', async () => {
     // OWN ttl=1 boot: the fresh store CANNOT go stale on the ladder above
     // (TTL 60 s), and a stale entry re-running the handler is precisely the
     // arm whose honesty needs pinning — session-103's "the DB read already
@@ -373,7 +380,7 @@ describe('public-read http cache — cache-dimension tally, exact (session 138)'
     const stale = await bootChain(1, 0, 50);
     try {
       const before = stale.registry.snapshot().totals.cache;
-      expect(before).toEqual({ hits: 0, stores: 0, evictions: 0, revalidations: 0 });
+      expect(before).toEqual({ hits: 0, stores: 0, evictions: 0, revalidations: 0, eligible: 0 });
       const first = await request(stale.app, 'GET', '/api/restaurants');
       expect(stale.registry.snapshot().totals.cache.stores).toBe(1);
       await new Promise((resolve) => setTimeout(resolve, 1200)); // TTL expiry
@@ -389,6 +396,7 @@ describe('public-read http cache — cache-dimension tally, exact (session 138)'
         stores: 2,
         evictions: 0,
         revalidations: 1,
+        eligible: 2, // BOTH requests ran the handler: the miss AND the stale re-read
       });
     } finally {
       await stale.app.close();
@@ -407,6 +415,7 @@ describe('public-read http cache — cache-dimension tally, exact (session 138)'
         stores: 0,
         evictions: 0,
         revalidations: 0,
+        eligible: 0, // a disabled feature has no cache-eligible requests at all
       });
     } finally {
       await off.app.close();
@@ -430,7 +439,7 @@ describe('public-read http cache — eviction tally at the cap (session 138)', (
     await app.close();
   });
 
-  it('overflow records evictions WITHOUT touching hits/stores/revalidations shape', async () => {
+  it('overflow records evictions WITHOUT touching hits/stores/revalidations shape; every store rode an eligible', async () => {
     const a = await request(app, 'GET', '/api/restaurants'); // store #1
     expect(registry.snapshot().totals.cache).toMatchObject({ evictions: 0, stores: 1 });
     const b = await request(app, 'GET', '/api/search?q=x'); // store #2 -> evicts #1
@@ -445,6 +454,7 @@ describe('public-read http cache — eviction tally at the cap (session 138)', (
       stores: 4,
       evictions: 3,
       revalidations: 0,
+      eligible: 4, // all four requests were handler passes: stores <= eligible
     });
     // a fresh hit on the surviving entry tallies a hit, no new store/evict
     await request(app, 'GET', '/api/restaurants');
@@ -452,6 +462,25 @@ describe('public-read http cache — eviction tally at the cap (session 138)', (
     void a;
     void b;
     void c;
+  });
+
+  it('a whitelisted 4xx passthrough counts eligible ONCE and stores nothing (session 140)', async () => {
+    const before = registry.snapshot().totals.cache;
+    const boom = await request(app, 'GET', '/api/search?q=boom');
+    expect(boom.status).toBe(404); // the error body, transparent to the cache layer
+    expect(boom.headers['cache-control']).toBeUndefined(); // never a stored validator
+    const after = registry.snapshot().totals.cache;
+    expect(after.eligible).toBe(before.eligible + 1); // the handler DID run
+    expect(after.stores).toBe(before.stores); // nothing captured, nothing evicted
+    expect(after.evictions).toBe(before.evictions);
+    expect(after.hits).toBe(before.hits);
+    expect(after.revalidations).toBe(before.revalidations);
+    // a SECOND read of the same 4xx URL is eligible again — a failure is
+    // never remembered (no negative caching).
+    const boom2 = await request(app, 'GET', '/api/search?q=boom');
+    expect(boom2.status).toBe(404);
+    expect(registry.snapshot().totals.cache.eligible).toBe(before.eligible + 2);
+    expect(registry.snapshot().totals.cache.stores).toBe(before.stores);
   });
 });
 

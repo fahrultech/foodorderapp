@@ -55,13 +55,17 @@
  * Disabled transport sends nothing — nothing is counted (a channel the
  * operator never configured must not look like a failing one).
  *
- * Cache dimension (session 138, Phase 15 "HTTP-cache hit-rate visibility"):
+ * Cache dimension (session 138, Phase 15 "HTTP-cache hit-rate visibility";
+ * Phase 16 #2 adds the fifth counter):
  * `recordCache(counter)` tallies the session-103 public-read store's work
  * (200s served from the store, bytes captured into it, cap evictions,
- * 304 revalidations answered). The GLOBAL totals gain an additive `cache`
- * object — third time the same rule: like `throttled` and `mail` it NEVER
- * appears on a per-restaurant view (ADMIN telemetry, OWNER-rung shape
- * contract). Only REAL cache-layer events count: with
+ * 304 revalidations answered, and — session 140 — `eligible`: the
+ * whitelisted anonymous GETs whose HANDLER ran, i.e. the misses the store
+ * could have served). hits/(hits+eligible) is the honest served-from-
+ * cache rate the ADMIN strip derives. The GLOBAL totals gain an additive
+ * `cache` object — third time the same rule: like `throttled` and `mail`
+ * it NEVER appears on a per-restaurant view (ADMIN telemetry, OWNER-rung
+ * shape contract). Only REAL cache-layer events count: with
  * HTTP_CACHE_TTL_SEC=0 the middleware passes every request through and
  * records nothing, so a disabled feature shows as zeros, never phantom
  * activity.
@@ -208,8 +212,9 @@ function copyMailTotals(m: MailTotals): MailTotals {
 }
 
 /**
- * Public-read HTTP cache counters (session 138). Exactly the four honest
- * event classes the session-103 middleware can observe:
+ * Public-read HTTP cache counters (session 138; fifth counter added
+ * session 140, Phase 16 #2). Exactly the five honest event classes the
+ * session-103 middleware can observe:
  * - `hits` — 200s served COMPLETELY from the store (fresh entry, handler
  *   never ran, zero SQL);
  * - `stores` — JSON 200 bodies captured into the store (covers the first
@@ -220,15 +225,26 @@ function copyMailTotals(m: MailTotals): MailTotals {
  * - `revalidations` — 304s answered by the cache layer, BOTH arms: the
  *   fresh-store 304 (zero SQL) and the stale revalidation where the
  *   handler did re-read but the bytes were unchanged (session-103
- *   honesty note — the DB read is what TTL expiry means).
+ *   honesty note — the DB read is what TTL expiry means);
+ * - `eligible` — whitelisted anonymous GETs whose HANDLER ran (session
+ *   140): the miss-side denominator. Counted EXACTLY ONCE per request at
+ *   the middleware's capture-branch entry, whatever the handler finally
+ *   answered (200 capture, stale 304, 4xx passthrough). Every `stores`
+ *   event rides an `eligible` request, so stores <= eligible always.
+ *   The honest served-from-cache rate is hits/(hits+eligible): of the
+ *   requests where the cache layer had to deliver a full body (or learn
+ *   to), how many came from the store. Fresh-store 304s sit OUTSIDE the
+ *   ratio on purpose — they delivered no body (the client already held
+ *   it); their count rides `revalidations`, whose two arms cannot be
+ *   decomposed with the keys that exist.
  */
-export const CACHE_COUNTERS = ['hits', 'stores', 'evictions', 'revalidations'] as const;
+export const CACHE_COUNTERS = ['hits', 'stores', 'evictions', 'revalidations', 'eligible'] as const;
 export type CacheCounter = (typeof CACHE_COUNTERS)[number];
 
 export type CacheTotals = Record<CacheCounter, number>;
 
 function freshCacheTotals(): CacheTotals {
-  return { hits: 0, stores: 0, evictions: 0, revalidations: 0 };
+  return { hits: 0, stores: 0, evictions: 0, revalidations: 0, eligible: 0 };
 }
 
 /** Copy so snapshots never alias the live tally (same doctrine as mail). */
@@ -488,7 +504,7 @@ export class RequestMetricsRegistry {
    * CACHE_COUNTERS for the exact semantics). Like `recordMail` the caller
    * (HttpCacheService) only records REAL events — a disabled feature
    * (HTTP_CACHE_TTL_SEC=0) passes requests through and counts nothing.
-   * Unlike mail there is NO catch-all bucket: the four counters are a
+   * Unlike mail there is NO catch-all bucket: the five counters are a
    * CLOSED set with exactly one producer each (a middleware branch or the
    * store's cap-drop path), so TypeScript makes a bad literal impossible
    * at the real call sites. A stray JS-level key is a defensive NO-OP (it

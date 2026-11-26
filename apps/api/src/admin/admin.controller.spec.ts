@@ -179,8 +179,9 @@ describe('AdminController HTTP', () => {
       },
       // Session 138: additive cache dimension (ADMIN global view only —
       // PREV_FIXTURE deliberately lacks it to prove window math ignores
-      // unknown tally keys on legacy stored rows).
-      cache: { hits: 2, stores: 3, evictions: 0, revalidations: 1 },
+      // unknown tally keys on legacy stored rows). Session 140 adds the
+      // fifth counter `eligible` (>= stores: every capture rode a handler pass).
+      cache: { hits: 2, stores: 3, evictions: 0, revalidations: 1, eligible: 3 },
       routeKeys: 2,
       overflowed: false,
       restaurantKeys: 0,

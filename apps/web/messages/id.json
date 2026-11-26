@@ -467,6 +467,7 @@
     "trafficCacheStores": "disimpan",
     "trafficCacheEvictions": "terusir",
     "trafficCacheRevalidations": "revalidasi 304",
+    "trafficCacheRate": "{x} dari {y} dilayani dari cache",
     "trafficCacheNote": "read publik anonim yang dilayani dari store dalam proses",
     "alertsHistoryHeading": "Riwayat peringatan",
     "alertsHistorySub": "Jendela {window} \u00b7 tick {interval}s \u00b7 dibaca {time}",
