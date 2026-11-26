@@ -761,8 +761,9 @@
   30-migration from-empty DB across TWO boots (boot-1 exact-object jq pin
   per request; boot-2 ttl=2 stale arm eligible 2 + fold-line grep), e2e
   139/139 green ×2 fresh-seed incl. the 5-key wire pin + OWNER-rung
-  strip-absent test + timing gate OK; bundle IN-PATH A/B uniform −2 B
-  (noise), table untouched.)
+  strip-absent test + timing gate OK; bundle: local A/B measured −2 B but
+  the CI gate read uniform +4 (session-132 class) — five rows re-adopted
+  to the run's exact numbers, /orders pair absorbed it in headroom.)
 - [ ] UX: FULLY-offline receipt restore — session 137 covers the API being
   down while the web server answers; the deeper case (browser cannot reach
   the web server at all) today loses the receipt even when the device

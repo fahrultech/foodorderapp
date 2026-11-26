@@ -68,10 +68,15 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
   list + stores<=eligible + payload-derived rate-line text + the OWNER
   rung strip-absent test) + timing gate OK.
 - Bundle: IN-PATH stash/pop A/B measured UNIFORM -2 B across all seven
-  budget routes (additive-key dictionary effect, noise magnitude) —
-  table untouched, /admin is not a tracked route; PERFORMANCE.md note
-  records the numbers (session-137/138 re-adopt doctrine if CI
-  disagrees).
+  budget routes — the FIRST push left the table untouched on that reading.
+  CI gate run 45819344073 then read the session-132 UNIFORM +4 B class on
+  all seven rows (five over budget by exactly +4, the /orders pair absorbed
+  it in session-137 headroom): a 2-file message-key addition shifted +4 on
+  CI while measuring -2 locally — the session-137 blind spot, confirming a
+  non-positive local A/B must NEVER talk you out of pre-funding a messages
+  edit. The five failing rows re-adopted to the run's exact CI numbers
+  (follow-up push); the two under-budget rows keep their headroom
+  (session-120 caveat). `/admin` is not a tracked route.
 - Sanitizer scan on added lines clean; `git diff --check` clean.
 
 **Left for next sessions:**

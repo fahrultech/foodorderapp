@@ -698,11 +698,11 @@ their split decisions separately.
 <!-- BUNDLE-BASELINE-START -->
 | Route | Baseline First Load JS+CSS, full chain (B, CI-measured, node 22.23.5) |
 |---|---|
-| `/` | 135869 |
-| `/restaurants/[id]` | 138940 |
-| `/cart` | 139402 |
-| `/checkout` | 142429 |
-| `/map` | 137107 |
+| `/` | 135873 |
+| `/restaurants/[id]` | 138944 |
+| `/cart` | 139406 |
+| `/checkout` | 142433 |
+| `/map` | 137111 |
 | `/orders/[id]` | 162874 |
 | `/orders/my` | 144408 |
 <!-- BUNDLE-BASELINE-END -->
@@ -717,6 +717,19 @@ not a positive class, so the CI-anchored table stays untouched (`/admin`
 is not a budget route and `lib/api.ts` gained an optional field only -
 type-only, zero emitted JS). If the CI gate reads a uniform +N, re-adopt
 per session-137/138 doctrine.
+
+Session-140 CI follow-up: the first gate run (d8608db, run 45819344073) read
+the UNIFORM +4 B class (session 132 doctrine strikes again - the two
+messages files' one added key each folds into the shared catalog chunk, and
+the local in-path -2 B was precisely the blind-spot direction: a measured
+local shift must not talk you OUT of pre-funding a message edit). Five rows
+exceeded by exactly +4 (annotation pair byte-consistent); /orders/[id]
+(measured 162861) and /orders/my (measured 144405) absorbed the shift
+inside their session-137 headroom. Re-adopted the five failing rows to
+THIS run's exact CI numbers (/ 135873, /restaurants/[id] 138944, /cart
+139406, /checkout 142433, /map 137111); the two under-budget rows keep
+their incidental headroom rather than chasing a wobble down (session-120
+caveat).
 
 Session-138 note: message-catalog edit (6 new Portal keys, HTTP-cache
 card row) = UNIFORM class per session 132/137 doctrine — the IN-PATH
