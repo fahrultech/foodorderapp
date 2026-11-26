@@ -4,6 +4,7 @@ import {
   Get,
   HttpCode,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -12,6 +13,7 @@ import {
   ApiOkResponse,
   ApiOperation,
   ApiParam,
+  ApiQuery,
   ApiTags,
 } from '@nestjs/swagger';
 import { UuidParam } from '../common/uuid';
@@ -29,13 +31,18 @@ import { Roles } from '../common/roles.decorator';
 import { UserRole } from '../users/user.entity';
 import { RateLimitGuard } from '../common/rate-limit/rate-limit.guard';
 import { RateLimit } from '../common/rate-limit/rate-limit.decorator';
+import { PaymentAccessGuard } from '../common/payment-access.guard';
 import { CurrentUser } from '../common/current-user.decorator';
 
 /**
- * Payments REST surface (Phase 5 "payment abstraction"). Every route is
- * JWT-only — payment is by definition an authenticated action — and rides
- * the `payments` rate-limit bucket. The whole client input for paying is
- * an order id; amounts are server-snapshotted, never accepted.
+ * Payments REST surface (Phase 5 "payment abstraction"). Money routes stay
+ * AUTHENTICATED actions: either a verified Bearer token (the primary rung)
+ * or the magic-link `rt` capability presented on a GUEST order (Phase 15 #3
+ * — one-click pay from the order email; owned orders remain bearer-only,
+ * see PaymentsService ladder docs). Refund routes are ADMIN/JWT-only, no
+ * capability rung. All these routes ride the `payments` rate-limit bucket.
+ * The whole client input for paying is an order id; amounts are
+ * server-snapshotted, never accepted.
  */
 @ApiTags('payments')
 @Controller('payments')
@@ -44,36 +51,44 @@ export class PaymentsController {
 
   @Post()
   @RateLimit('payments')
-  @UseGuards(RateLimitGuard, JwtAuthGuard)
-  @ApiBearerAuth()
-  @ApiOperation({ summary: 'Create (or replay) a payment intent for an order', description: 'Snapshots order.totalCents server-side and asks the configured gateway for an intent. Idempotent while an attempt is pending (the same row is returned, no second intent); a succeeded attempt makes this 409. A failed row is terminal — calling again starts a NEW attempt. Guest orders can be paid by any signed-in user; owned orders only by their owner (admins bypass, foreign orders 404).' })
+  @UseGuards(RateLimitGuard, PaymentAccessGuard)
+  @ApiQuery({ name: 'rt', required: false, description: 'Magic-link capability (Phase 15): the short-lived signed token from the order email. On GUEST orders it replaces the bearer entirely — one-click pay from the email. Invalid/expired/foreign tokens, and owned orders, answer the same 404 as an unknown order id. Without any rt the route is JWT-required (401).' })
+  @ApiOperation({ summary: 'Create (or replay) a payment intent for an order', description: 'Snapshots order.totalCents server-side and asks the configured gateway for an intent. Idempotent while an attempt is pending (the same row is returned, no second intent); a succeeded attempt makes this 409. A failed row is terminal — calling again opens a NEW attempt. Access: an owner/admin (or any signed-in user for guest orders) bearer, OR the magic-link `rt` token on a GUEST order (the payment row then carries no payer id). Foreign or tier-denied orders 404, existence not leaked.' })
   @ApiCreatedResponse({ type: PaymentResponse, description: 'Fresh intent: row + provider clientSecret. Replay of a live pending attempt: clientSecret null.' })
   @ApiError(400, 'orderId missing/not a UUID, or malformed body.')
-  @ApiError(401, 'Missing/invalid/expired access token.')
-  @ApiError(404, 'Unknown order id, or an order belonging to someone else (existence not leaked).')
+  @ApiError(401, 'No bearer token AND no rt capability presented.')
+  @ApiError(404, 'Unknown order id, an order belonging to someone else, or a valid-looking rt denied by the ladder (existence not leaked).')
   @ApiError(409, 'ORDER_ALREADY_PAID / ORDER_NOT_PAYABLE (order past pending/confirmed) / ORDER_CANCELLED.')
   @ApiError(429, 'Payments rate limit exceeded; Retry-After header says when to retry.')
   @ApiError(502, 'PAYMENT_GATEWAY_ERROR — provider refused to create the intent (the row is recorded as failed).')
-  async pay(@Body() dto: CreatePaymentDto, @CurrentUser() user: any) {
-    const { payment, clientSecret } = await this.service.pay(dto.orderId, user);
+  async pay(
+    @Body() dto: CreatePaymentDto,
+    @CurrentUser() user: any,
+    @Query('rt') rt?: string,
+  ) {
+    const { payment, clientSecret } = await this.service.pay(dto.orderId, user ?? null, rt);
     return { ...payment, clientSecret };
   }
 
   @Post(':id/capture')
   @HttpCode(200)
   @RateLimit('payments')
-  @UseGuards(RateLimitGuard, JwtAuthGuard)
-  @ApiBearerAuth()
+  @UseGuards(RateLimitGuard, PaymentAccessGuard)
   @ApiParam({ name: 'id', schema: { type: 'string', format: 'uuid' } })
+  @ApiQuery({ name: 'rt', required: false, description: 'Magic-link capability (Phase 15): settles a payment row that the same token created on a guest order (rows with a signed-in payer are capture-locked to that payer). Denials answer the same 404 as an unknown payment id. Without any rt the route is JWT-required (401).' })
   @ApiOperation({ summary: 'Capture a pending payment through the gateway', description: 'The mock settles synchronously (succeeded unless MOCK_PAY_GATEWAY_MODE=fail). Terminal states are idempotent-or-409: succeeded replays, failed answers PAYMENT_ALREADY_FAILED (start a new attempt), a cancelled order refuses capture. Amount comes from the snapshot — nothing capturable is client-supplied.' })
   @ApiOkResponse({ type: PaymentResponse })
   @ApiError(400, 'Malformed (non-UUID) payment id.')
-  @ApiError(401, 'Missing/invalid/expired access token.')
-  @ApiError(404, 'Unknown payment id, or one paid by another user (existence not leaked).')
+  @ApiError(401, 'No bearer token AND no rt capability presented.')
+  @ApiError(404, 'Unknown payment id, one paid by another user, or an rt the ladder denies (existence not leaked).')
   @ApiError(409, 'PAYMENT_ALREADY_FAILED / ORDER_CANCELLED.')
   @ApiError(429, 'Payments rate limit exceeded.')
-  capture(@UuidParam('id') id: string, @CurrentUser() user: any) {
-    return this.service.capture(id, user);
+  capture(
+    @UuidParam('id') id: string,
+    @CurrentUser() user: any,
+    @Query('rt') rt?: string,
+  ) {
+    return this.service.capture(id, user ?? null, rt);
   }
 
   @Post(':id/refund')
@@ -124,15 +139,19 @@ export class OrderPaymentsController {
   constructor(private readonly service: PaymentsService) {}
 
   @Get('')
-  @UseGuards(JwtAuthGuard)
-  @ApiBearerAuth()
+  @UseGuards(PaymentAccessGuard)
   @ApiParam({ name: 'orderId', schema: { type: 'string', format: 'uuid' } })
-  @ApiOperation({ summary: 'All payment attempts for one order (newest first)', description: 'Full history per order: failed retries included, amounts as snapped. Same access rules as POST /payments — owner, any authenticated user for guest orders, admin; foreign orders 404.' })
+  @ApiQuery({ name: 'rt', required: false, description: 'Magic-link capability (Phase 15): reads the payment history of the GUEST order the token was minted for (so the emailed receipt can show its own paid state with no account). Denials answer the same 404 as an unknown order id. Without any rt the route is JWT-required (401).' })
+  @ApiOperation({ summary: 'All payment attempts for one order (newest first)', description: 'Full history per order: failed retries included, amounts as snapped. Same access ladder as POST /payments — owner/admin (or any authenticated user for guest orders) bearer, or the magic-link `rt` on a guest order; foreign or tier-denied orders 404.' })
   @ApiOkResponse({ type: [PaymentResponse], description: 'All attempts for the order, newest first.' })
   @ApiError(400, 'Malformed (non-UUID) order id.')
-  @ApiError(401, 'Missing/invalid/expired access token.')
-  @ApiError(404, 'Unknown order id or an order belonging to another customer.')
-  list(@UuidParam('orderId') orderId: string, @CurrentUser() user: any) {
-    return this.service.listForOrder(orderId, user);
+  @ApiError(401, 'No bearer token AND no rt capability presented.')
+  @ApiError(404, 'Unknown order id, an order belonging to another customer, or an rt the ladder denies.')
+  list(
+    @UuidParam('orderId') orderId: string,
+    @CurrentUser() user: any,
+    @Query('rt') rt?: string,
+  ) {
+    return this.service.listForOrder(orderId, user ?? null, rt);
   }
 }

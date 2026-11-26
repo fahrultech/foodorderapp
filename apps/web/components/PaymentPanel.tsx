@@ -2,8 +2,9 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
-import { api, formatPrice, type PaymentAttempt } from '@/lib/api';
+import { api, ApiError, formatPrice, type PaymentAttempt } from '@/lib/api';
 import { authedCall } from '@/lib/authed-call';
+import { fallbackMessage } from '@/lib/locale-strings';
 import { useAuth } from '@/lib/auth';
 import { useTranslations } from 'next-intl';
 import PayButton from './PayButton';
@@ -12,10 +13,15 @@ import PayButton from './PayButton';
  * Payment status card for the order receipt page (Phase 5 "web pay button":
  * "consume intent/capture endpoints; receipt shows payment status").
  *
- * The whole surface is JWT-gated server-side, so:
- * - signed-out visitors get a sign-in hint (guest orders are payable by any
- *   signed-in account — that is the API's receipt-link rule, mirrored here
- *   only as copy, not as client logic);
+ * The money ladder (payments.service.ts) accepts a bearer OR the magic-link
+ * `rt` capability (Phase 15 #3 — one-click pay from the order email, GUEST
+ * orders only), so:
+ * - signed-out visitors WITHOUT a receipt token get the sign-in hint;
+ * - signed-out visitors who arrived through an emailed `?rt=` link transact
+ *   on that same capability — the panel reads, pays and captures with no
+ *   account, and the SERVER ladder is the authority: any denial (expired,
+ *   foreign, owned order) surfaces as the API's own 404/401 message, never
+ *   re-implemented here;
  * - signed-in users pull GET /orders/:id/payments and the card derives its
  *   view from THAT truth: a `succeeded` row (partial refunds ride inside)
  *   is the paid receipt; no succeeded row on a still-payable order shows
@@ -30,12 +36,15 @@ export default function PaymentPanel({
   orderStatus,
   totalCents,
   highlight = false,
+  receiptToken,
 }: {
   orderId: string;
   orderStatus: string;
   totalCents: number;
   /** Checkout redirected with ?pay=1 — visually elevate the pay affordance. */
   highlight?: boolean;
+  /** Emailed magic-link capability (Phase 15 #3): pays guest orders bearer-free. */
+  receiptToken?: string;
 }) {
   const { status, getAccessToken, logout } = useAuth();
   const t = useTranslations('Order');
@@ -43,26 +52,65 @@ export default function PaymentPanel({
   const [rows, setRows] = useState<PaymentAttempt[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  const [rtDenied, setRtDenied] = useState(false);
   const reload = useCallback(() => setReloadKey((k) => k + 1), []);
+  // A 404 from the money rung is the TIER refusal (owned order / expired /
+  // foreign token — the ladder's canonical shape), not a glitch: the honest
+  // panel state is the session-43 sign-in hint, so the rt arm collapses to
+  // no-rt on exactly that answer. Any other failure stays an error card.
+  const magic = receiptToken != null && receiptToken !== '' && !rtDenied;
 
   useEffect(() => {
-    if (status !== 'signedIn') return;
-    let active = true;
-    setRows(null);
-    setLoadError(null);
-    authedCall(getAccessToken, logout, (t) => api.listOrderPayments(t, orderId)).then(
-      (res) => {
-        if (!active) return;
-        if (res.ok) setRows(res.data);
-        else if (res.kind === 'error') setLoadError(res.message);
-        // signedOut: authedCall already cleared the session; the signed-out
-        // branch below renders as soon as `status` flips.
-      },
-    );
-    return () => {
-      active = false;
-    };
-  }, [status, orderId, reloadKey, getAccessToken, logout]);
+    if (status === 'signedIn') {
+      let active = true;
+      setRows(null);
+      setLoadError(null);
+      authedCall(getAccessToken, logout, (t) => api.listOrderPayments(t, orderId)).then(
+        (res) => {
+          if (!active) return;
+          if (res.ok) setRows(res.data);
+          else if (res.kind === 'error') setLoadError(res.message);
+          // signedOut: authedCall already cleared the session; the signed-out
+          // branch below renders as soon as `status` flips.
+        },
+      );
+      return () => {
+        active = false;
+      };
+    }
+    if (status === 'guest' && magic) {
+      // The emailed receipt pays its own guest order: the list read rides
+      // the SAME capability the page already unlocked the receipt with.
+      let active = true;
+      setRows(null);
+      setLoadError(null);
+      api
+        .listOrderPayments(null, orderId, receiptToken)
+        .then((r) => {
+          if (active) setRows(r);
+        })
+        .catch((err) => {
+          if (!active) return;
+          if (err instanceof ApiError && err.status === 404) {
+            setRtDenied(true);
+            setRows(null);
+            setLoadError(null);
+            return;
+          }
+          setLoadError(
+            err instanceof ApiError ? err.message : fallbackMessage('apiDown'),
+          );
+        });
+      return () => {
+        active = false;
+      };
+    }
+    return undefined;
+  }, [status, orderId, reloadKey, getAccessToken, logout, magic, receiptToken]);
+
+  // rows-based branches render for signed-in users AND for magic-link
+  // guests (the Phase 15 rung); a guest without the token keeps the hint.
+  const showRows = status === 'signedIn' || (magic && status === 'guest');
 
   const payable = orderStatus === 'pending' || orderStatus === 'confirmed';
   const paid = rows?.find((r) => r.status === 'succeeded') ?? null;
@@ -90,7 +138,7 @@ export default function PaymentPanel({
         </p>
       )}
 
-      {status === 'guest' && (
+      {status === 'guest' && !magic && (
         <p className="mt-2 text-sm text-stone-600" data-testid="payment-signin-hint">
           {payable ? (
             <>
@@ -105,7 +153,7 @@ export default function PaymentPanel({
         </p>
       )}
 
-      {status === 'signedIn' && loadError && (
+      {showRows && loadError && (
         <p
           role="alert"
           className="mt-2 rounded-xl bg-red-50 px-3 py-2 text-xs font-medium text-red-700"
@@ -118,13 +166,13 @@ export default function PaymentPanel({
         </p>
       )}
 
-      {status === 'signedIn' && !loadError && rows === null && (
+      {showRows && !loadError && rows === null && (
         <p className="mt-2 text-sm text-stone-500" data-testid="payment-loading">
           {t('payLoading')}
         </p>
       )}
 
-      {status === 'signedIn' && rows !== null && paid && (
+      {showRows && rows !== null && paid && (
         <div className="mt-2" data-testid="payment-paid">
           <p className="rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800">
             {t('paidLine', { price: formatPrice(paid.amountCents), provider: paid.provider })}
@@ -144,7 +192,7 @@ export default function PaymentPanel({
         </div>
       )}
 
-      {status === 'signedIn' && rows !== null && !paid && payable && (
+      {showRows && rows !== null && !paid && payable && (
         <div data-testid="payment-unpaid">
           <p className="mt-1 text-sm text-stone-600">
             {highlight
@@ -161,11 +209,22 @@ export default function PaymentPanel({
               {t('failedAttempts', { count: failedCount })}
             </p>
           )}
-          <PayButton orderId={orderId} totalCents={totalCents} onPaid={reload} onUnavailable={reload} />
+          {magic && status === 'guest' && (
+            <p className="mt-1 text-xs text-stone-500" data-testid="payment-rt-note">
+              {t('rtPayNote')}
+            </p>
+          )}
+          <PayButton
+            orderId={orderId}
+            totalCents={totalCents}
+            onPaid={reload}
+            onUnavailable={reload}
+            receiptToken={status === 'guest' && magic ? receiptToken : undefined}
+          />
         </div>
       )}
 
-      {status === 'signedIn' && rows !== null && !paid && !payable && (
+      {showRows && rows !== null && !paid && !payable && (
         <p className="mt-2 text-sm text-stone-600" data-testid="payment-unavailable">
           {fullyRefunded ? t('fullyRefunded') : t('noLongerPayable')}
           {t('statusSuffix', { status: orderStatus })}

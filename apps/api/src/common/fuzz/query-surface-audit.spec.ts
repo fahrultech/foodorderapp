@@ -115,6 +115,7 @@ type Check =
 const RESTAURANTS_SVC = 'restaurants/restaurants.service.ts';
 const REVIEWS_SVC = 'reviews/reviews.service.ts';
 const ORDERS_SVC = 'orders/orders.service.ts';
+const PAYMENTS_SVC = 'payments/payments.service.ts';
 const PROMOS_SVC = 'promos/promos.service.ts';
 const SEARCH_SVC = 'search/search.service.ts';
 
@@ -255,6 +256,63 @@ const REGISTRY: Record<string, RegistryEntry> = {
           ['where:[^\\n]*contactEmail', 'proof must NEVER become a SQL predicate'],
           ['findBy\\([^)]*contactEmail', 'proof must NEVER become a SQL predicate'],
           ['where:[^\\n]*receiptToken', 'the capability must NEVER become a SQL predicate'],
+        ],
+      },
+    ],
+  },
+
+  // Money rungs on the magic-link capability (Phase 15 #3): the same
+  // order-bound HMAC token, now admitted by PaymentAccessGuard on
+  // POST /payments, POST /payments/:id/capture and the order payments
+  // list. The token is NEVER a lookup key - the order/payment row loads by
+  // its own id and verifyReceiptAccessToken compares the binding IN
+  // MEMORY (guest-order / null-payer tier on the loaded row). Same
+  // in-memory doctrine as OrdersController.one above.
+  'PaymentsController.pay': {
+    params: [{ literal: 'rt', dto: null }],
+    disposition: 'HMAC capability verified in memory against the loaded order row - never bound into SQL',
+    checks: [
+      {
+        kind: 'must',
+        file: PAYMENTS_SVC,
+        regexes: [
+          ['verifyReceiptAccessToken\\(rt, orderId, this\\.receiptSecret\\(\\)\\)', 'rt rides the pure receipt-access verifier on the pay rung'],
+          ['order\\.userId !== null\\) throw new NotFoundException', 'capability tier: guest orders only, every denial the canonical 404'],
+        ],
+      },
+      {
+        kind: 'forbid',
+        file: PAYMENTS_SVC,
+        regexes: [
+          ['where:[^\\n]*\\brt\\b', 'the capability must NEVER become a SQL predicate'],
+          ['findBy\\([^)]*receiptToken', 'the capability must NEVER become a SQL predicate'],
+        ],
+      },
+    ],
+  },
+  'PaymentsController.capture': {
+    params: [{ literal: 'rt', dto: null }],
+    disposition: 'HMAC verified in memory against the loaded payment row (bound to payment.orderId) - never bound into SQL',
+    checks: [
+      {
+        kind: 'must',
+        file: PAYMENTS_SVC,
+        regexes: [
+          ['verifyReceiptAccessToken\\(rt, payment\\.orderId, this\\.receiptSecret\\(\\)\\)', 'rt re-verifies against the payment ORDER binding'],
+          ['payment\\.userId !== null', 'rows with a signed-in payer are capture-locked away from the rung'],
+        ],
+      },
+    ],
+  },
+  'OrderPaymentsController.list': {
+    params: [{ literal: 'rt', dto: null }],
+    disposition: 'same getOrderForPayment ladder as pay - in-memory capability check only',
+    checks: [
+      {
+        kind: 'must',
+        file: PAYMENTS_SVC,
+        regexes: [
+          ['listForOrder[\\s\\S]*?getOrderForPayment\\(orderId, actor, rt\\)', 'the list rung cannot drift off the pay ladder'],
         ],
       },
     ],

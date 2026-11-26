@@ -607,6 +607,7 @@
     "payLoading": "Memuat status pembayaran\u2026",
     "guestPayableTail": "untuk membayar pesanan ini \u2014 pesanan tamu bisa dibayar dari akun mana pun.",
     "guestLocked": "Masuk untuk melihat riwayat pembayaran pesanan ini.",
+    "rtPayNote": "Bayar lewat tautan dalam email Anda. Tanpa akun.",
     "retry": "Coba lagi",
     "paidLine": "Lunas \u2014 {price} via {provider}",
     "refundedAmount": "{price} dikembalikan",

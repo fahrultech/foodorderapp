@@ -284,11 +284,11 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['/reviews/{id}/reply', 'delete'],
       ['/menu/items/{id}', 'delete'],
       ['/menu/items/{id}/image-upload', 'post'],
-      ['/payments', 'post'],
-      ['/payments/{id}/capture', 'post'],
+      // Phase 15 #3: pay/capture/list ride the PaymentAccessGuard ladder —
+      // bearer is ONE door (anonymous without any rt still 401s at the
+      // guard); the doc no longer REQUIRES the header on these three.
       ['/payments/{id}/refund', 'post'],
       ['/payments/{id}/refunds', 'get'],
-      ['/orders/{orderId}/payments', 'get'],
       ['/notifications/push/subscriptions', 'post'],
       ['/notifications/push/subscriptions', 'delete'],
       ['/admin/overview', 'get'],
@@ -318,6 +318,13 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['/search', 'get'],
       ['/orders', 'post'], // optional auth: guest checkout
       ['/promos/validate', 'post'],
+      // Phase 15 #3: the pay ladder gained the magic-link `rt` rung, so
+      // these three money reads/writes no longer REQUIRE the header — the
+      // anonymous arm without any rt still answers 401 (guard), denials
+      // the canonical 404 (service ladder).
+      ['/payments', 'post'],
+      ['/payments/{id}/capture', 'post'],
+      ['/orders/{orderId}/payments', 'get'],
       ['/restaurants/{id}/reviews', 'get'],
       ['/health', 'get'],
       ['/notifications/push/config', 'get'],

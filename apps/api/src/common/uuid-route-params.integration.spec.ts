@@ -32,6 +32,7 @@ import { AddressesService } from '../users/addresses.service';
 import { AccountDataService } from '../users/account-data.service';
 
 import { JwtAuthGuard } from './jwt-auth.guard';
+import { PaymentAccessGuard } from './payment-access.guard';
 import { RolesGuard } from './roles.guard';
 import { DriverOnlyGuard } from './driver-only.guard';
 import { OptionalJwtAuthGuard } from './optional-jwt-auth.guard';
@@ -235,6 +236,10 @@ describe('uuid route params — ParseUUIDPipe sweep (live HTTP, production pipes
       ],
     })
       .overrideGuard(JwtAuthGuard)
+      .useValue(openGuard)
+      // Phase 15 #3: the payments money routes moved onto the ladder
+      // guard — open it here too, so the pipe sweep still reaches handlers.
+      .overrideGuard(PaymentAccessGuard)
       .useValue(openGuard)
       .overrideGuard(RolesGuard)
       .useValue(openGuard)

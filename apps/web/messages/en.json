@@ -607,6 +607,7 @@
     "payLoading": "Loading payment status\u2026",
     "guestPayableTail": "to pay for this order \u2014 guest orders can be paid from any account.",
     "guestLocked": "Sign in to view this order\u2019s payment history.",
+    "rtPayNote": "Paying with the link in your email. No account needed.",
     "retry": "Retry",
     "paidLine": "Paid \u2014 {price} via {provider}",
     "refundedAmount": "{price} refunded",

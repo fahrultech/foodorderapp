@@ -7,7 +7,8 @@ import { useTranslations } from 'next-intl';
 
 /**
  * Pay button for a payable order (Phase 5 "web pay button").
- * One click = intent (POST /payments) + capture (POST /payments/:id/capture).
+ * One click = intent (POST /payments) + capture (POST /payments/:id/capture),
+ * with either the session bearer or (Phase 15 #3) the guest magic-link token.
  * The mock gateway settles capture synchronously; a real provider adapter
  * drops in behind the same two endpoints without changing this component.
  *
@@ -24,6 +25,7 @@ export default function PayButton({
   totalCents,
   onPaid,
   onUnavailable,
+  receiptToken,
 }: {
   orderId: string;
   totalCents: number;
@@ -31,6 +33,8 @@ export default function PayButton({
   onPaid: () => void;
   /** Server says the order can never be paid from here (409 not-payable/cancelled): refresh or hide. */
   onUnavailable?: () => void;
+  /** Magic-link rung (Phase 15 #3): pays a GUEST order bearer-free from the emailed receipt. */
+  receiptToken?: string;
 }) {
   const { getAccessToken } = useAuth();
   const t = useTranslations('Order');
@@ -40,20 +44,24 @@ export default function PayButton({
   const pay = useCallback(async () => {
     setError(null);
     const token = await getAccessToken();
-    if (!token) {
+    // Bearer rung when there is a session; the magic-link rung (guest with
+    // an emailed `rt`) rides the capability instead — the API ladder picks
+    // the same precedence, the client just never sends NEITHER.
+    if (!token && !receiptToken) {
       setError(t('sessionExpired'));
       return;
     }
+    const rt = token ? undefined : receiptToken;
     try {
       setStage('intent');
-      const intent = await api.createPayment(token, orderId);
+      const intent = await api.createPayment(token, orderId, rt);
       setStage('capture');
       if (intent.status === 'succeeded') {
         // Replay race: the attempt settled server-side already.
         onPaid();
         return;
       }
-      const captured = await api.capturePayment(token, intent.id);
+      const captured = await api.capturePayment(token, intent.id, rt);
       if (captured.status === 'succeeded') {
         onPaid();
         return;
@@ -96,7 +104,7 @@ export default function PayButton({
         setError(t('apiUnreachable'));
       }
     }
-  }, [getAccessToken, orderId, onPaid, onUnavailable, t]);
+  }, [getAccessToken, orderId, onPaid, onUnavailable, receiptToken, t]);
 
   return (
     <div className="mt-3" data-testid="pay-button-wrap">

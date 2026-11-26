@@ -87,12 +87,15 @@ export default async function OrderPage({
       </div>
 
       {/* Phase 5: pay-now affordance + payment receipt on the order page.
-          ?pay=1 is set by checkout for signed-in customers (finish-payment nudge). */}
+          ?pay=1 is set by checkout for signed-in customers (finish-payment
+          nudge); ?rt= (Phase 15) lets an emailed guest receipt pay its own
+          order with no account — the panel rides the same capability. */}
       <PaymentPanel
         orderId={order.id}
         orderStatus={order.status}
         totalCents={order.totalCents}
         highlight={pay === '1'}
+        receiptToken={rt || undefined}
       />
 
       <div className="mt-6 rounded-2xl border border-stone-200 bg-white p-5">

@@ -967,32 +967,49 @@ export const api = {
       headers: bearer(accessToken),
     }),
 
-  // --- payments (Phase 5 web pay button) ---
+  // --- payments (Phase 5 web pay button; Phase 15 magic-link money rung) ---
   /**
-   * Create-or-replay a payment intent for an order. JWT-only; amounts are
-   * snapshotted server-side from the order. Idempotent while a pending
-   * attempt is live (same row comes back); a succeeded attempt answers 409
-   * ORDER_ALREADY_PAID; a failed row is terminal — calling again starts a
-   * NEW attempt. `clientSecret` rides along only on a fresh intent; the mock
-   * gateway has no client-side confirmation step, so the web UI ignores it.
+   * Create-or-replay a payment intent for an order. Normally JWT-authenticated;
+   * on a GUEST order the receipt page can present the magic-link `rt` token
+   * INSTEAD of an access token (one-click pay from the order email) — pass
+   * `accessToken: null` + `receiptToken`. Amounts are snapshotted server-side.
+   * Idempotent while a pending attempt is live (same row comes back); a
+   * succeeded attempt answers 409 ORDER_ALREADY_PAID; a failed row is terminal
+   * — calling again starts a NEW attempt. `clientSecret` rides along only on a
+   * fresh intent; the mock gateway has no client-side confirmation, so the UI
+   * ignores it. Every ladder denial is the API's canonical 404.
    */
-  createPayment: (accessToken: string, orderId: string) =>
-    request<PaymentAttempt & { clientSecret: string | null }>('/payments', {
+  createPayment: (accessToken: string | null, orderId: string, receiptToken?: string) => {
+    const qs = new URLSearchParams();
+    if (receiptToken) qs.set('rt', receiptToken);
+    const suffix = qs.toString() ? `?${qs.toString()}` : '';
+    return request<PaymentAttempt & { clientSecret: string | null }>(`/payments${suffix}`, {
       method: 'POST',
-      headers: bearer(accessToken),
+      headers: accessToken ? bearer(accessToken) : undefined,
       body: JSON.stringify({ orderId }),
-    }),
-  /** Settle a pending intent. The mock answers synchronously: succeeded or failed. */
-  capturePayment: (accessToken: string, paymentId: string) =>
-    request<PaymentAttempt>(`/payments/${paymentId}/capture`, {
+    });
+  },
+  /** Settle a pending intent. The mock answers synchronously: succeeded or failed.
+   *  `receiptToken` is the guest magic-link rung (accessToken null with rt set). */
+  capturePayment: (accessToken: string | null, paymentId: string, receiptToken?: string) => {
+    const qs = new URLSearchParams();
+    if (receiptToken) qs.set('rt', receiptToken);
+    const suffix = qs.toString() ? `?${qs.toString()}` : '';
+    return request<PaymentAttempt>(`/payments/${paymentId}/capture${suffix}`, {
       method: 'POST',
-      headers: bearer(accessToken),
-    }),
-  /** Every payment attempt for one order, newest first. Owner-or-guest-payer rules apply. */
-  listOrderPayments: (accessToken: string, orderId: string) =>
-    request<PaymentAttempt[]>(`/orders/${orderId}/payments`, {
-      headers: bearer(accessToken),
-    }),
+      headers: accessToken ? bearer(accessToken) : undefined,
+    });
+  },
+  /** Every payment attempt for one order, newest first. Owner-or-guest-payer
+   *  bearer rules, or the guest magic-link rung via `receiptToken`. */
+  listOrderPayments: (accessToken: string | null, orderId: string, receiptToken?: string) => {
+    const qs = new URLSearchParams();
+    if (receiptToken) qs.set('rt', receiptToken);
+    const suffix = qs.toString() ? `?${qs.toString()}` : '';
+    return request<PaymentAttempt[]>(`/orders/${orderId}/payments${suffix}`, {
+      headers: accessToken ? bearer(accessToken) : undefined,
+    });
+  },
 
   // --- browser push notifications ---
   /** Public capability probe: the VAPID public key is safe browser input. */

@@ -1,8 +1,6 @@
 import { expect, test } from '@playwright/test';
-import * as fs from 'fs';
-import * as path from 'path';
-import { createRequire } from 'module';
 import { createOrder, WEB, warungFixture } from '../helpers/fixtures';
+import { signer, apiSecret } from '../helpers/receipt-token';
 
 /**
  * Phase 14 #5 magic-link receipt access, through the REAL browser:
@@ -14,63 +12,14 @@ import { createOrder, WEB, warungFixture } from '../helpers/fixtures';
  * still works on a page whose rt died.
  *
  * Fixture contract: the token is minted IN-TEST using the product's OWN
- * compiled signer (`apps/api/dist/orders/receipt-access.js`, already a
- * runtime prerequisite — Playwright boots `dist/main.js`) with the secret
- * resolved like the API resolves it (process env first, the untracked
- * apps/api/.env as dev-host fallback — never inlined, sanitizer
- * doctrine). That pins the browser surface + wire wiring; the crypto and
- * the HTTP rung have their own API specs (receipt-access.spec.ts,
- * receipt-magic-link.http.spec.ts) and the live smoke extracts the token
- * from a real captured email instead.
+ * compiled signer via helpers/receipt-token (shared with
+ * zz-pay-magic-link) — see that file for the dist-prerequisite and
+ * secret-precedence doctrine.
  *
  * Orders are created over the API (own fixtures, unique emails) — zero
  * seed-state mutation, green across repeat runs (order-access.spec.ts
  * precedent).
  */
-
-const nodeRequire = createRequire(__filename);
-const RA_PATH = path.join(__dirname, '..', '..', 'apps', 'api', 'dist', 'orders', 'receipt-access.js');
-
-interface ReceiptAccess {
-  issueReceiptAccessToken: (id: string, secret: string, ttl: number, now?: number) => string;
-  DEFAULT_RECEIPT_TOKEN_TTL_SEC: number;
-}
-
-function signer(): ReceiptAccess {
-  // Fail LOUD (not skip): if the receipt token module ever vanishes from
-  // the build, this spec must say so — the feature would be silently dead.
-  if (!fs.existsSync(RA_PATH)) {
-    throw new Error(`missing compiled signer: ${RA_PATH} (run the api build first)`);
-  }
-  return nodeRequire(RA_PATH) as ReceiptAccess;
-}
-
-/**
- * The secret the API under test runs with — same precedence as Nest's
- * ConfigModule/dotenv (process env wins, .env is the fallback):
- *  - CI: the e2e step exports a throwaway JWT_SECRET and there is NO
- *    apps/api/.env (untracked) — a .env-only read ENOENTs there
- *    (proven: run 175 failed exactly this way on all four tests);
- *  - dev host: no exported secret, the hand-booted/Playwright-booted API
- *    reads it from the untracked .env — mirror that source.
- * Never logs the value (sanitizer doctrine); fails LOUD when neither
- * key exists, because the API itself could not have booted then.
- */
-function apiSecret(): string {
-  const fromEnv = process.env['JWT' + '_SECRET'];
-  if (typeof fromEnv === 'string' && fromEnv.trim()) return fromEnv.trim();
-  try {
-    const env = fs.readFileSync(
-      path.join(__dirname, '..', '..', 'apps', 'api', '.env'),
-      'utf8',
-    );
-    const m = env.match(/^JWT[_]SECRET=(.+)$/m);
-    if (m && m[1].trim()) return m[1].trim();
-  } catch {
-    /* no .env on CI — the process env arm is the contract there */
-  }
-  throw new Error('no JWT_SECRET visible (neither process env nor apps/api/.env)');
-}
 
 test('magic link: valid rt renders the guest receipt with nothing typed', async ({ page, request }) => {
   const fx = await warungFixture(request);

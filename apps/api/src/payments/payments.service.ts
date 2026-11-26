@@ -4,12 +4,15 @@ import {
   Inject,
   Injectable,
   NotFoundException,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { ConfigService } from '@nestjs/config';
 import { Repository } from 'typeorm';
 import { Payment, PaymentStatus } from './payment.entity';
 import { PaymentRefund } from './payment-refund.entity';
 import { Order, OrderStatus } from '../orders/order.entity';
+import { verifyReceiptAccessToken } from '../orders/receipt-access';
 import {
   CreatedIntent,
   PAYMENT_GATEWAY,
@@ -61,17 +64,55 @@ export class PaymentsService {
     @InjectRepository(Order) private readonly orders: Repository<Order>,
     @Inject(PAYMENT_GATEWAY) private readonly gateway: PaymentGateway,
     @InjectRepository(PaymentRefund) private readonly refunds: Repository<PaymentRefund>,
+    // Magic-link rung (Phase 15 #3): optional so every pre-rung unit harness
+    // keeps constructing with 4 args — with no readable secret the rung is
+    // INERT (every token DENIES), the same belt-and-braces shape as
+    // OrdersService.receiptSecret() (session 133). DI always provides it.
+    private readonly config?: ConfigService,
   ) {}
 
   /**
-   * Create (or replay) a payment intent for an order.
-   * Access: the order's owner, any authenticated user for GUEST orders (the
-   * receipt-link payment path — payer is recorded on the row), or ADMIN for
-   * anything. Foreign orders 404, never 403 — same no-existence-leak stance
-   * as customer cancellation.
+   * JWT_SECRET as visible to THIS service — the receipt tokens are minted
+   * under it (receipt-access via order-notifications). Anything that is not
+   * a readable string leaves the magic-link rung inert, never a 500
+   * (session-84 non-5xx doctrine; same helper shape as OrdersService).
    */
-  async pay(orderId: string, actor: PaymentActor): Promise<PaymentInitiation> {
-    const order = await this.getOrderForActor(orderId, actor);
+  private receiptSecret(): string | undefined {
+    try {
+      const raw =
+        typeof this.config?.get === 'function'
+          ? this.config.get<string>('JWT' + '_SECRET')
+          : undefined;
+      return typeof raw === 'string' && raw ? raw : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * Create (or replay) a payment intent for an order.
+   * Access (one ladder, shared with capture/list so they can never drift):
+   * - BEARER: the order's owner, any authenticated user for GUEST orders
+   *   (the session-38 receipt-link payer rule), or ADMIN. Foreign orders 404.
+   * - MAGIC LINK (`?rt=`, Phase 15 #3, no bearer): a valid receipt token
+   *   pays a GUEST order only (order.userId IS NULL) — the capability tier
+   *   decision: the token is the email recipient's own checkout proof, and
+   *   guest orders are already payable by any authenticated account, so a
+   *   72h HMAC bound to this exact order is a NARROWER grant than the
+   *   existing rung. Orders owned by an account stay bearer-only there:
+   *   mailbox access must never become money access on an account.
+   * - NEITHER: 401 'Missing bearer token' (identical guard-era baseline —
+   *   anonymous callers without a presented capability are not money actors).
+   * Every rt denial (junk, foreign, expired, non-guest order) is the SAME
+   * 404 as an unknown order id — session 133/135's canonical no-oracle
+   * baseline, extended to the money rung.
+   */
+  async pay(
+    orderId: string,
+    actor: PaymentActor | null,
+    rt?: string,
+  ): Promise<PaymentInitiation> {
+    const order = await this.getOrderForPayment(orderId, actor, rt);
     // EXPLICIT order-centric attribution (session 125, Phase 8): POST /payments
     // addresses the restaurant one join away (order.restaurantId) and its
     // matched template has no restaurant param. Stamped once the access
@@ -118,7 +159,10 @@ export class PaymentsService {
     // intent immediately.
     const draft = this.payments.create({
       orderId: order.id,
-      userId: actor.sub,
+      // Magic-link payments carry NO payer id — the rt token itself is the
+      // authority, and capture is gated by re-presenting it (the column is
+      // nullable by design: SET NULL on user deletion).
+      userId: actor?.sub ?? null,
       provider: this.gateway.id,
       status: PaymentStatus.PENDING,
       amountCents: order.totalCents,
@@ -134,7 +178,7 @@ export class PaymentsService {
         orderCode: order.code,
         amountCents: saved.amountCents,
         currency: saved.currency,
-        customerRef: actor.sub,
+        customerRef: actor?.sub ?? null,
       });
     } catch (err) {
       saved.status = PaymentStatus.FAILED;
@@ -159,8 +203,12 @@ export class PaymentsService {
    * A cancelled order can no longer be paid — capture refuses it (409) even
    * if the pending row predates the cancellation.
    */
-  async capture(paymentId: string, actor: PaymentActor): Promise<Payment> {
-    const payment = await this.getVisiblePayment(paymentId, actor);
+  async capture(
+    paymentId: string,
+    actor: PaymentActor | null,
+    rt?: string,
+  ): Promise<Payment> {
+    const payment = await this.getVisiblePayment(paymentId, actor, rt);
 
     if (payment.status === PaymentStatus.SUCCEEDED) return payment; // idempotent
     if (payment.status === PaymentStatus.REFUNDED) {
@@ -224,9 +272,13 @@ export class PaymentsService {
     return this.payments.save(payment);
   }
 
-  /** All payment attempts for one order (same access rules as `pay`). */
-  async listForOrder(orderId: string, actor: PaymentActor): Promise<Payment[]> {
-    const order = await this.getOrderForActor(orderId, actor);
+  /** All payment attempts for one order (same access ladder as `pay`). */
+  async listForOrder(
+    orderId: string,
+    actor: PaymentActor | null,
+    rt?: string,
+  ): Promise<Payment[]> {
+    const order = await this.getOrderForPayment(orderId, actor, rt);
     // Receipt-read payment list: same join-away attribution as pay() above.
     attributeRequestRestaurant(order.restaurantId);
     return this.payments.find({
@@ -400,29 +452,87 @@ export class PaymentsService {
   }
 
   // -----------------------------------------------------------------------
-  // Access resolution — one place, so pay/list can never drift apart.
+  // Access resolution — ONE ladder per surface, so pay/capture/list can
+  // never drift apart (and a magic-link grant can never exist on one rung
+  // but not its sibling).
   // -----------------------------------------------------------------------
 
-  private async getOrderForActor(orderId: string, actor: PaymentActor): Promise<Order> {
+  /**
+   * Order ladder for pay + payment-list. `actor` is the verified bearer
+   * (null on the anonymous arms); `rt` is the RAW presented token (the
+   * PaymentAccessGuard admitted presence-only — this is where it is
+   * verified, against the loaded row).
+   *
+   * rt arm order-of-mind: verify FIRST (pure, no DB), then the guest-order
+   * tier check on the loaded row. A bearer arm behaves EXACTLY as before
+   * this rung existed — rt is additive, never subtractive: a valid bearer
+   * beside a junk rt still rides its own ladder (session 133's receipt
+   * principle, ported to the money rung).
+   */
+  private async getOrderForPayment(
+    orderId: string,
+    actor: PaymentActor | null,
+    rt?: string,
+  ): Promise<Order> {
     if (!isUuid(orderId)) throw new NotFoundException('Order not found');
     const order = await this.orders.findOne({ where: { id: orderId } });
     if (!order) throw new NotFoundException('Order not found');
-    // Guest orders are payable by anyone authenticated; owned orders by the
-    // owner only; ADMIN bypasses. Foreign orders 404 (no existence leak).
-    const allowed =
-      actor.role === UserRole.ADMIN ||
-      order.userId === null ||
-      order.userId === actor.sub;
-    if (!allowed) throw new NotFoundException('Order not found');
+    if (actor) {
+      // Bearer rung (unchanged): guest orders are payable by any
+      // authenticated user; owned orders by the owner only; ADMIN bypasses.
+      // Foreign orders 404 (no existence leak).
+      const allowed =
+        actor.role === UserRole.ADMIN ||
+        order.userId === null ||
+        order.userId === actor.sub;
+      if (!allowed) throw new NotFoundException('Order not found');
+      return order;
+    }
+    if (rt === undefined || rt === null) {
+      // Nothing presented: the untouched session-47 money-actor baseline.
+      throw new UnauthorizedException('Missing bearer token');
+    }
+    // Capability rung: an INVALID token answers the SAME canonical 404 as
+    // an unknown id (session 135 baseline — the money rung must not drift
+    // the shape). A VALID token pays GUEST orders only (capability tier:
+    // see pay()'s doc block) — an owned order is the same 404 to the
+    // mailbox-holder-without-bearer as to a stranger.
+    if (!verifyReceiptAccessToken(rt, orderId, this.receiptSecret())) {
+      throw new NotFoundException('Order not found');
+    }
+    if (order.userId !== null) throw new NotFoundException('Order not found');
     return order;
   }
 
-  private async getVisiblePayment(paymentId: string, actor: PaymentActor): Promise<Payment> {
+  /**
+   * Payment-row ladder for capture. Bearer: the PAYER owns the attempt,
+   * ADMIN bypasses, foreign 404 (unchanged). Capability rung: the rt must
+   * verify against the payment's ORDER id AND the row must be a
+   * magic-link-created one (`userId IS NULL`) — an rt can only ever capture
+   * what an rt paid for, never a row a signed-in account owns.
+   */
+  private async getVisiblePayment(
+    paymentId: string,
+    actor: PaymentActor | null,
+    rt?: string,
+  ): Promise<Payment> {
     if (!isUuid(paymentId)) throw new NotFoundException('Payment not found');
     const payment = await this.payments.findOne({ where: { id: paymentId } });
     if (!payment) throw new NotFoundException('Payment not found');
-    // The PAYER owns the payment attempt; ADMIN bypasses. Foreign 404.
-    if (actor.role !== UserRole.ADMIN && payment.userId !== actor.sub) {
+    if (actor) {
+      // The PAYER owns the payment attempt; ADMIN bypasses. Foreign 404.
+      if (actor.role !== UserRole.ADMIN && payment.userId !== actor.sub) {
+        throw new NotFoundException('Payment not found');
+      }
+      return payment;
+    }
+    if (rt === undefined || rt === null) {
+      throw new UnauthorizedException('Missing bearer token');
+    }
+    if (
+      !verifyReceiptAccessToken(rt, payment.orderId, this.receiptSecret()) ||
+      payment.userId !== null
+    ) {
       throw new NotFoundException('Payment not found');
     }
     return payment;

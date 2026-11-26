@@ -187,7 +187,11 @@ describe('payments HTTP surface (real guards + pipes, mocked service)', () => {
     });
     expect(res.status).toBe(201);
     // actor came from the VERIFIED token, amount/provider are server-side.
-    expect(svc.pay).toHaveBeenCalledWith(ORDER_ID, expect.objectContaining({ sub: CUSTOMER, role: UserRole.CUSTOMER }));
+    expect(svc.pay).toHaveBeenCalledWith(
+      ORDER_ID,
+      expect.objectContaining({ sub: CUSTOMER, role: UserRole.CUSTOMER }),
+      undefined, // no rt presented on the bearer arm
+    );
     expect(svc.pay.mock.calls[0][1]).not.toHaveProperty('amountCents');
     expect(res.json).toMatchObject({ id: PAY_ID, orderId: ORDER_ID, status: 'pending', clientSecret: 'mock_secret_new' });
     expect(res.json.amountCents).toBe(4200); // integer cents on the wire
@@ -196,7 +200,11 @@ describe('payments HTTP surface (real guards + pipes, mocked service)', () => {
   it('POST /payments/:id/capture: 200 (pinned), passes the uuid + actor', async () => {
     const res = await request(app, 'POST', `/api/payments/${PAY_ID}/capture`, { token });
     expect(res.status).toBe(200);
-    expect(svc.capture).toHaveBeenCalledWith(PAY_ID, expect.objectContaining({ sub: CUSTOMER }));
+    expect(svc.capture).toHaveBeenCalledWith(
+      PAY_ID,
+      expect.objectContaining({ sub: CUSTOMER }),
+      undefined, // no rt presented on the bearer arm
+    );
     expect(res.json).toMatchObject({ id: PAY_ID, status: 'pending' });
   });
 
