@@ -390,6 +390,7 @@ describe('AdminController HTTP', () => {
       restockBacklogMax: 0,
       emailMinAttempts: 5,
       emailFailurePctMax: 50,
+      cacheEvictionsMax: 500,
     },
     rules: [
       {
@@ -449,6 +450,15 @@ describe('AdminController HTTP', () => {
         observed: null,
         threshold: 50,
         detail: 'no email sends attempted yet — rule not evaluable',
+      },
+      // Session 139 added the EIGHTH rule + the cache ceiling knob above.
+      {
+        id: 'cache_saturation',
+        firing: false,
+        severity: 'warning',
+        observed: 0,
+        threshold: 500,
+        detail: '0 cache-store evictions within the 500 ceiling (store cap 500)',
       },
     ],
   };

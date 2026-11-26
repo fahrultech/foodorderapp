@@ -8,6 +8,7 @@ import {
   OVERFLOW_KEY,
   RequestMetricsRegistry,
 } from '../common/metrics/request-metrics';
+import { MAX_HTTP_CACHE_ENTRIES } from '../common/http-cache/http-cache';
 
 /**
  * The evaluator runs against snapshots produced by the REAL registry — a
@@ -50,6 +51,7 @@ describe('resolveAlertThresholds', () => {
       ALERT_5XX_RATE_PCT_MAX: '0',
       ALERT_P95_MS_MAX: '0',
       ALERT_MIN_REQUESTS: '1',
+      ALERT_CACHE_EVICTIONS_MAX: '0',
     });
     expect(t).toEqual({
       fiveXxRatePctMax: 0,
@@ -60,6 +62,7 @@ describe('resolveAlertThresholds', () => {
       restockBacklogMax: 0,
       emailMinAttempts: 5,
       emailFailurePctMax: 50,
+      cacheEvictionsMax: 0,
     });
     expect(resolveAlertThresholds({ ALERT_5XX_RATE_PCT_MAX: '-0.1' }).fiveXxRatePctMax).toBe(0.5);
   });
@@ -156,7 +159,7 @@ describe('evaluateAlerts — error_budget', () => {
 
   it('zero threshold + min 1: a lone 5xx out of one request is a verdict', () => {
     const snap = registrySnapshot(many('GET /api/x', 1, 500, 10));
-    const report = evaluateAlerts(snap, { fiveXxRatePctMax: 0, p95MsMax: 100000, minRequests: 1, rateLimitPctMax: 5, snapshotStaleAfterSec: null, restockBacklogMax: 0, emailMinAttempts: 5, emailFailurePctMax: 50 });
+    const report = evaluateAlerts(snap, { fiveXxRatePctMax: 0, p95MsMax: 100000, minRequests: 1, rateLimitPctMax: 5, snapshotStaleAfterSec: null, restockBacklogMax: 0, emailMinAttempts: 5, emailFailurePctMax: 50, cacheEvictionsMax: 500 });
     expect(rule(report, 'error_budget')).toMatchObject({ firing: true, observed: 100 });
   });
 
@@ -240,7 +243,7 @@ describe('evaluateAlerts — snapshot_stale (session 109)', () => {
 
   it('no observation (the synchronous fold-line consumer): rule present, NOT firing, honest detail', () => {
     const report = evaluateAlerts(snap(999999));
-    expect(report.rules).toHaveLength(7);
+    expect(report.rules).toHaveLength(8);
     const s = rule(report, 'snapshot_stale');
     expect(s).toMatchObject({ firing: false, severity: 'warning', observed: null });
     expect(s.detail).toMatch(/not evaluated/);
@@ -343,7 +346,7 @@ describe('evaluateAlerts — rate_limit_pressure (session 123)', () => {
 
   it('rule is present FIFTH with default ceiling 5% and warning severity', () => {
     const report = evaluateAlerts(registrySnapshot(() => undefined));
-    expect(report.rules).toHaveLength(7);
+    expect(report.rules).toHaveLength(8);
     expect(report.rules[4].id).toBe('rate_limit_pressure');
     expect(report.rules[4]).toMatchObject({ firing: false, severity: 'warning', threshold: 5 });
   });
@@ -414,7 +417,7 @@ describe('evaluateAlerts — restock_repair_backlog (Phase 14)', () => {
 
   it('rule is present SIXTH with default ceiling 0 and warning severity', () => {
     const report = evaluateAlerts(snap());
-    expect(report.rules).toHaveLength(7);
+    expect(report.rules).toHaveLength(8);
     expect(report.rules[5].id).toBe('restock_repair_backlog');
     expect(report.rules[5]).toMatchObject({ firing: false, severity: 'warning', threshold: 0 });
   });
@@ -511,7 +514,7 @@ describe('evaluateAlerts — email_delivery_failure (session 134)', () => {
 
   it('rule is present SEVENTH with error severity and the default knobs', () => {
     const report = evaluateAlerts(mailSnap(() => undefined));
-    expect(report.rules).toHaveLength(7);
+    expect(report.rules).toHaveLength(8); // session 139 added the EIGHTH rule
     expect(report.rules[6].id).toBe('email_delivery_failure');
     expect(report.rules[6]).toMatchObject({ firing: false, severity: 'error', threshold: 50 });
   });
@@ -621,23 +624,126 @@ describe('evaluateAlerts — email_delivery_failure (session 134)', () => {
   });
 });
 
+describe('evaluateAlerts — cache_saturation (session 139)', () => {
+  // Snapshots ride the REAL registry so totals.cache is the exact shape
+  // /admin/metrics and the fold line emit (session-138 wiring).
+  const cacheSnap = (fill: (reg: RequestMetricsRegistry) => void) =>
+    registrySnapshot((reg) => {
+      // Keep the request-derived rules cold: one 200 sample never touches
+      // the budget/p95 rules and stays under every requests floor.
+      reg.record('GET /api/x', 200, 1);
+      fill(reg);
+    });
+
+  const evict = (n: number) => (reg: RequestMetricsRegistry) => {
+    for (let i = 0; i < n; i++) reg.recordCache('evictions');
+  };
+
+  it('rule is present EIGHTH with default ceiling = store capacity and warning severity', () => {
+    const report = evaluateAlerts(cacheSnap(() => undefined));
+    expect(report.rules).toHaveLength(8);
+    expect(report.rules[7].id).toBe('cache_saturation');
+    expect(report.rules[7]).toMatchObject({
+      firing: false,
+      severity: 'warning',
+      threshold: MAX_HTTP_CACHE_ENTRIES,
+    });
+  });
+
+  it('zero evictions: quiet with honest numbers (a store that fits is NOT saturation)', () => {
+    const report = evaluateAlerts(
+      cacheSnap((reg) => {
+        reg.recordCache('hits');
+        reg.recordCache('stores');
+        reg.recordCache('revalidations');
+      }),
+    );
+    const cs = rule(report, 'cache_saturation');
+    expect(cs).toMatchObject({ firing: false, observed: 0 });
+    expect(cs.detail).toMatch(/0 cache-store evictions within the 500 ceiling/);
+  });
+
+  it('ONLY evictions move the number: a store full of hits never fires', () => {
+    const report = evaluateAlerts(cacheSnap((reg) => {
+      for (let i = 0; i < 600; i++) reg.recordCache('hits');
+      for (let i = 0; i < 600; i++) reg.recordCache('stores');
+    }));
+    expect(rule(report, 'cache_saturation')).toMatchObject({ firing: false, observed: 0 });
+  });
+
+  it('fires STRICTLY above the ceiling: evictions AT the ceiling stay quiet', () => {
+    const at = evaluateAlerts(cacheSnap(evict(3)), { ...DEFAULT_ALERT_THRESHOLDS, cacheEvictionsMax: 3 });
+    expect(rule(at, 'cache_saturation')).toMatchObject({ firing: false, observed: 3, threshold: 3 });
+    const over = evaluateAlerts(cacheSnap(evict(4)), {
+      ...DEFAULT_ALERT_THRESHOLDS,
+      cacheEvictionsMax: 3,
+    });
+    const cs = rule(over, 'cache_saturation');
+    expect(cs).toMatchObject({ firing: true, observed: 4, severity: 'warning' });
+    expect(cs.detail).toMatch(/4 cache-store evictions exceed the 3 ceiling \(store cap 500\)/);
+    expect(over.status).toBe('alerting');
+    expect(over.firingRules).toEqual(['cache_saturation']);
+  });
+
+  it('tightened 0 ceiling: the FIRST eviction fires ALONE (proving the chain)', () => {
+    const report = evaluateAlerts(cacheSnap(evict(1)), {
+      ...DEFAULT_ALERT_THRESHOLDS,
+      cacheEvictionsMax: 0,
+    });
+    expect(rule(report, 'cache_saturation')).toMatchObject({ firing: true, observed: 1, threshold: 0 });
+    expect(summarizeAlerts(report)).toEqual({ status: 'alerting', firing: ['cache_saturation'] });
+  });
+
+  it('a default-ceiling store pinned at 1000 distinct URLs overflows FULL capacity and fires', () => {
+    // 500 fill with zero evictions; the next 501 spill as pure overflow.
+    const report = evaluateAlerts(cacheSnap(evict(501)));
+    expect(rule(report, 'cache_saturation')).toMatchObject({ firing: true, observed: 501 });
+  });
+
+  it('hand-built snapshot WITHOUT totals.cache (pre-138 shape): honest not-evaluated, never a false fire', () => {
+    const snap = registrySnapshot(() => undefined);
+    const legacy = { ...snap, totals: { ...snap.totals } } as ReturnType<RequestMetricsRegistry['snapshot']>;
+    delete (legacy.totals as { cache?: unknown }).cache;
+    const report = evaluateAlerts(legacy);
+    const cs = rule(report, 'cache_saturation');
+    expect(cs).toMatchObject({ firing: false, observed: null });
+    expect(cs.detail).toMatch(/no cache tallies in this snapshot — rule not evaluated/);
+  });
+
+  it('ALERT_CACHE_EVICTIONS_MAX parsing: integers pass, 2.9 floors, garbage/negative/blank fall back to the store cap, 0 is LEGAL', () => {
+    expect(resolveAlertThresholds({ ALERT_CACHE_EVICTIONS_MAX: '7' }).cacheEvictionsMax).toBe(7);
+    expect(resolveAlertThresholds({ ALERT_CACHE_EVICTIONS_MAX: '2.9' }).cacheEvictionsMax).toBe(2);
+    expect(resolveAlertThresholds({ ALERT_CACHE_EVICTIONS_MAX: '0' }).cacheEvictionsMax).toBe(0);
+    expect(resolveAlertThresholds({ ALERT_CACHE_EVICTIONS_MAX: 'half' }).cacheEvictionsMax).toBe(
+      MAX_HTTP_CACHE_ENTRIES,
+    );
+    expect(resolveAlertThresholds({ ALERT_CACHE_EVICTIONS_MAX: '-1' }).cacheEvictionsMax).toBe(
+      MAX_HTTP_CACHE_ENTRIES,
+    );
+    expect(resolveAlertThresholds({ ALERT_CACHE_EVICTIONS_MAX: '' }).cacheEvictionsMax).toBe(
+      MAX_HTTP_CACHE_ENTRIES,
+    );
+    expect(resolveAlertThresholds({}).cacheEvictionsMax).toBe(MAX_HTTP_CACHE_ENTRIES);
+  });
+});
+
 describe('evaluateAlerts — combinations', () => {
   it('multiple simultaneous breaches list every firing rule in rule order', () => {
     const reg = new RequestMetricsRegistry(3);
     for (const p of ['/a', '/b', '/c', '/d']) reg.record(`GET ${p}`, 500, 3000);
     // min sample 1: this is a tiny synthetic registry, the budget rule is
     // otherwise (correctly) gated for n=4.
-    const report = evaluateAlerts(reg.snapshot(), { fiveXxRatePctMax: 0.5, p95MsMax: 1000, minRequests: 1, rateLimitPctMax: 5, snapshotStaleAfterSec: null, restockBacklogMax: 0, emailMinAttempts: 5, emailFailurePctMax: 50 });
+    const report = evaluateAlerts(reg.snapshot(), { fiveXxRatePctMax: 0.5, p95MsMax: 1000, minRequests: 1, rateLimitPctMax: 5, snapshotStaleAfterSec: null, restockBacklogMax: 0, emailMinAttempts: 5, emailFailurePctMax: 50, cacheEvictionsMax: 500 });
     expect(report.status).toBe('alerting');
     expect(report.firingRules).toEqual(['error_budget', 'p95_latency', 'route_key_overflow']);
-    expect(report.rules).toHaveLength(7);
+    expect(report.rules).toHaveLength(8);
     expect(summarizeAlerts(report)).toEqual({
       status: 'alerting',
       firing: ['error_budget', 'p95_latency', 'route_key_overflow'],
     });
   });
 
-  it('all SEVEN rules can fire and the list stays in rule order', () => {
+  it('all EIGHT rules can fire and the list stays in rule order', () => {
     const reg = new RequestMetricsRegistry(3);
     for (const p of ['/a', '/b', '/c', '/d']) reg.record(`GET ${p}`, 500, 3000);
     // One guard-marked 429 (folds into `other` past the cap — the throttle
@@ -646,9 +752,12 @@ describe('evaluateAlerts — combinations', () => {
     // One FAILED email send past a tightened attempts floor (1) lights the
     // session-134 mail rule too.
     reg.recordMail('status', false);
+    // One eviction past a tightened cache ceiling (0) lights the
+    // session-139 cache-saturation rule.
+    reg.recordCache('evictions');
     const report = evaluateAlerts(
       { ...reg.snapshot(), uptimeSec: 999999 },
-      { fiveXxRatePctMax: 0.5, p95MsMax: 1000, minRequests: 1, rateLimitPctMax: 5, snapshotStaleAfterSec: null, restockBacklogMax: 0, emailMinAttempts: 1, emailFailurePctMax: 0 },
+      { fiveXxRatePctMax: 0.5, p95MsMax: 1000, minRequests: 1, rateLimitPctMax: 5, snapshotStaleAfterSec: null, restockBacklogMax: 0, emailMinAttempts: 1, emailFailurePctMax: 0, cacheEvictionsMax: 0 },
       { enabled: true, intervalSec: 300, lastCapturedAtMs: null },
       { backlog: 1, graceMinutes: 10 },
     );
@@ -660,6 +769,7 @@ describe('evaluateAlerts — combinations', () => {
       'rate_limit_pressure',
       'restock_repair_backlog',
       'email_delivery_failure',
+      'cache_saturation',
     ]);
   });
 

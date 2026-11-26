@@ -349,6 +349,7 @@ describe('request metrics — live middleware chain', () => {
       restockBacklogMax: 0,
       emailMinAttempts: 5,
       emailFailurePctMax: 50,
+      cacheEvictionsMax: 500,
     });
     metricsService.logSnapshot();
     await drain();
@@ -506,5 +507,39 @@ describe('request metrics — live middleware chain', () => {
     expect((on as unknown as { timer: unknown }).timer).not.toBeNull();
     on.onModuleDestroy(); // clean up the real interval
     expect((on as unknown as { timer: unknown }).timer).toBeNull();
+  });
+
+  it('service ctor maps EVERY alert knob by NAME: a per-key probe cannot silently drop a mapping (session 139)', () => {
+    // The live smoke of session 139 caught this class: a new threshold
+    // field exists on the interface + the resolver, but the service's
+    // explicit config.get() map skips it, so the knob is inert in
+    // production while every unit test stays green. One sentinel per
+    // knob pins the WHOLE mapping: drop a line, this fails.
+    const probe: Record<string, string> = {
+      ALERT_5XX_RATE_PCT_MAX: '1',
+      ALERT_P95_MS_MAX: '77',
+      ALERT_RATE_LIMIT_PCT_MAX: '8',
+      ALERT_MIN_REQUESTS: '11',
+      ALERT_SNAPSHOT_STALE_AFTER_SEC: '12',
+      ALERT_RESTOCK_BACKLOG_MAX: '13',
+      ALERT_EMAIL_MIN_ATTEMPTS: '14',
+      ALERT_EMAIL_FAILURE_PCT_MAX: '15',
+      ALERT_CACHE_EVICTIONS_MAX: '16',
+    };
+    const svc = new RequestMetricsService({
+      get: (key: string) => probe[key],
+    } as unknown as ConfigService);
+    expect(svc.alertThresholds).toEqual({
+      fiveXxRatePctMax: 1,
+      p95MsMax: 77,
+      rateLimitPctMax: 8,
+      minRequests: 11,
+      snapshotStaleAfterSec: 12,
+      restockBacklogMax: 13,
+      emailMinAttempts: 14,
+      emailFailurePctMax: 15,
+      cacheEvictionsMax: 16,
+    });
+    svc.onModuleDestroy(); // METRICS_LOG_INTERVAL_SEC absent -> default timer
   });
 });

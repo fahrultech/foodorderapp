@@ -269,6 +269,16 @@ export class EnvVars {
   @IsString()
   ALERT_EMAIL_FAILURE_PCT_MAX?: string;
 
+  // cache_saturation ceiling (session 139) — cumulative since-boot
+  // public-read HTTP-cache store EVICTIONS tolerated before the rule
+  // fires. Default 500 = a full store capacity (MAX_HTTP_CACHE_ENTRIES)
+  // of overflow past the initial fill (evictions are pure overflow).
+  // Fires STRICTLY above; garbage/negative/blank falls back, 0 is legal
+  // = "any eviction alerts". Parsed in src/ops/alerts.ts.
+  @IsOptional()
+  @IsString()
+  ALERT_CACHE_EVICTIONS_MAX?: string;
+
   // ── Rate limiting (all optional) ─────────────────────────────────────────
   @IsOptional()
   @IsString()

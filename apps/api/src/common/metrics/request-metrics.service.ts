@@ -57,6 +57,7 @@ export class RequestMetricsService implements OnModuleDestroy {
       ALERT_RESTOCK_BACKLOG_MAX: config.get<string>('ALERT_RESTOCK_BACKLOG_MAX'),
       ALERT_EMAIL_MIN_ATTEMPTS: config.get<string>('ALERT_EMAIL_MIN_ATTEMPTS'),
       ALERT_EMAIL_FAILURE_PCT_MAX: config.get<string>('ALERT_EMAIL_FAILURE_PCT_MAX'),
+      ALERT_CACHE_EVICTIONS_MAX: config.get<string>('ALERT_CACHE_EVICTIONS_MAX'),
     });
     if (this.intervalSec > 0) {
       this.timer = setInterval(() => this.logSnapshot(), this.intervalSec * 1000);

@@ -93,7 +93,10 @@ export class AdminController {
       'BACKLOG_MAX; evaluated from an orphan count over the session-73 predicate) and ' +
       'email_delivery_failure (email transport failures as a share of attempted sends, ' +
       'ALERT_EMAIL_MIN_ATTEMPTS floor + ALERT_EMAIL_FAILURE_PCT_MAX ceiling — fully derived ' +
-      'from the registry totals, so the fold line carries it too). ' +
+      'from the registry totals, so the fold line carries it too) and cache_saturation ' +
+      '(public-read HTTP-cache store evictions past ALERT_CACHE_EVICTIONS_MAX, default 500 = ' +
+      'a full store capacity of overflow — the zero-SQL promise degrading; registry-derived, ' +
+      'warning severity). ' +
       'Cumulative-since-boot ' +
       'totals inherited from GET /admin/metrics; the periodic `request_metrics` fold line ' +
       'carries the same verdict compactly (without the two DB-backed observations). ' +

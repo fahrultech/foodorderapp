@@ -82,6 +82,19 @@
  *     users don't), a lit rule here means receipts and status notices are
  *     NOT reaching customers — a real feature outage, just off the request
  *     path.
+ *   - cache_saturation (session 139): the session-138 registry tallies
+ *     every public-read cache event, and evictions are PURE overflow — a
+ *     working set that fits the 500-URL store NEVER evicts, so climbing
+ *     evictions mean the store is pinned at capacity and every request
+ *     past the cap silently re-runs the handler (the zero-SQL promise
+ *     degrades). Fully SNAPSHOT-DERIVED like the mail rule: the ADMIN
+ *     pull, the fold line and alert-scan all read the same
+ *     totals.cache.evictions with ZERO extra observations. Fires when the
+ *     since-boot count STRICTLY exceeds ALERT_CACHE_EVICTIONS_MAX (default
+ *     500 = a full store capacity of overflow; 0 is legal — "any eviction
+ *     alerts"). WARNING severity like route_key_overflow: the cache is a
+ *     performance layer, users still get correct answers — just slower and
+ *     with more SQL.
  *
  * Cumulative-since-boot caveat inherited from the registry (session 85):
  * an early 5xx burst keeps the budget rule lit until traffic dilutes it.
@@ -95,6 +108,7 @@ import {
   MetricsSnapshot,
   OVERFLOW_KEY,
 } from '../common/metrics/request-metrics';
+import { MAX_HTTP_CACHE_ENTRIES } from '../common/http-cache/http-cache';
 
 export type AlertRuleId =
   | 'error_budget'
@@ -103,7 +117,8 @@ export type AlertRuleId =
   | 'snapshot_stale'
   | 'rate_limit_pressure'
   | 'restock_repair_backlog'
-  | 'email_delivery_failure';
+  | 'email_delivery_failure'
+  | 'cache_saturation';
 export type AlertSeverity = 'error' | 'warning';
 export type AlertStatus = 'ok' | 'alerting';
 
@@ -188,6 +203,16 @@ export interface AlertThresholds {
    * above).
    */
   emailFailurePctMax: number;
+  /**
+   * Maximum cumulative since-boot HTTP-cache store evictions the
+   * cache_saturation rule tolerates before firing (session 139). Default
+   * 500 = a full store capacity (MAX_HTTP_CACHE_ENTRIES) of overflow past
+   * the initial fill — evictions are PURE overflow, so a working set that
+   * fits the cap never produces any. Fires STRICTLY above; integer
+   * semantics (evictions, not percent); 0 is a legal tightened ceiling
+   * meaning "any eviction alerts" (proving the chain / cap-honest fleets).
+   */
+  cacheEvictionsMax: number;
 }
 
 export const DEFAULT_ALERT_THRESHOLDS: AlertThresholds = {
@@ -225,6 +250,13 @@ export const DEFAULT_ALERT_THRESHOLDS: AlertThresholds = {
   // ALERT_EMAIL_FAILURE_PCT_MAX.
   emailMinAttempts: 5,
   emailFailurePctMax: 50,
+  // Cache saturation (session 139): fire only past a FULL store capacity
+  // of cumulative evictions. The first 500 distinct URLs fill the store
+  // with ZERO evictions, so any overflow is pure working-set spill; 500
+  // more means the cap is genuinely pinned rather than briefly overshot.
+  // Tighten to 0 for "any eviction alerts" fleets. Tune with
+  // ALERT_CACHE_EVICTIONS_MAX.
+  cacheEvictionsMax: MAX_HTTP_CACHE_ENTRIES,
 };
 
 export interface AlertRuleResult {
@@ -233,7 +265,8 @@ export interface AlertRuleResult {
   severity: AlertSeverity;
   /**
    * The number the verdict rests on: 5xx rate in percent / p95 ms estimate /
-   * distinct route keys / snapshot age in seconds / 429 share in percent.
+   * distinct route keys / snapshot age in seconds / 429 share in percent /
+   * email failure share in percent / cache-store eviction count.
    * Null when not evaluable (no samples yet, the sample is below
    * `minRequests`, or the rule is exempt/not supplied).
    */
@@ -324,6 +357,13 @@ export function resolveAlertThresholds(
       env.ALERT_EMAIL_FAILURE_PCT_MAX,
       DEFAULT_ALERT_THRESHOLDS.emailFailurePctMax,
       0,
+    ),
+    // Cache saturation (session 139): whole-evictions ceiling like the
+    // restock backlog — thresholdNumber keeps the floor-0 policy (garbage/
+    // negative/blank fall back to the store-capacity default, 0 is legal),
+    // floor() folds a fractional 2.9 into 2.
+    cacheEvictionsMax: Math.floor(
+      thresholdNumber(env.ALERT_CACHE_EVICTIONS_MAX, DEFAULT_ALERT_THRESHOLDS.cacheEvictionsMax, 0),
     ),
   };
 }
@@ -516,6 +556,33 @@ export function evaluateAlerts(
         `${thresholds.emailFailurePctMax}% ceiling`;
   }
 
+  // ── rule 8: HTTP-cache saturation (registry totals, session 139) ───────
+  // Fully SNAPSHOT-DERIVED like rule 7: the session-138 registry already
+  // folds every store eviction into totals.cache, so the ADMIN pull, the
+  // synchronous fold line and alert-scan evaluate it identically with
+  // ZERO extra observations. Evictions are PURE overflow (filling the
+  // store never evicts), so a lit rule means the working set has pinned
+  // the cap and the zero-SQL promise is degrading request by request.
+  // An absent totals.cache (a hand-built or pre-138 snapshot) is an
+  // honest NOT-evaluated, never a fabricated zero. No min-sample floor:
+  // this is an integer count like the restock backlog, not a share.
+  let csFiring = false;
+  let csObserved: number | null = null;
+  let csDetail: string;
+  const cache = totals.cache;
+  if (!cache) {
+    csDetail = 'no cache tallies in this snapshot — rule not evaluated';
+  } else {
+    csObserved = cache.evictions;
+    csFiring = cache.evictions > thresholds.cacheEvictionsMax;
+    csDetail = csFiring
+      ? `${cache.evictions} cache-store evictions exceed the ${thresholds.cacheEvictionsMax} ` +
+        `ceiling (store cap ${MAX_HTTP_CACHE_ENTRIES}) — the public-read store is pinned at ` +
+        `capacity and every overflow silently re-runs the handler, degrading the zero-SQL promise`
+      : `${cache.evictions} cache-store evictions within the ${thresholds.cacheEvictionsMax} ` +
+        `ceiling (store cap ${MAX_HTTP_CACHE_ENTRIES})`;
+  }
+
   const rules: AlertRuleResult[] = [
     {
       id: 'error_budget',
@@ -572,6 +639,14 @@ export function evaluateAlerts(
       observed: mdObserved,
       threshold: thresholds.emailFailurePctMax,
       detail: mdDetail,
+    },
+    {
+      id: 'cache_saturation',
+      firing: csFiring,
+      severity: 'warning',
+      observed: csObserved,
+      threshold: thresholds.cacheEvictionsMax,
+      detail: csDetail,
     },
   ];
 

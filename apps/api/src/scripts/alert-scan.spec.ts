@@ -139,6 +139,18 @@ describe('runScan — exit-code classification', () => {
     expect(outcome.escalated).toBe(false);
   });
 
+  it('cache_saturation rides the SAME exit-1 contract (session 139): again ZERO scan logic change', async () => {
+    const { fn } = stubFetch([
+      ok({ access_token: 'tok-1' }),
+      ok({ status: 'alerting', firingRules: ['cache_saturation'] }),
+      ok({ streak: { alerting: 1, currentStatus: 'alerting' } }),
+    ]);
+    const outcome = await runScan(CFG, fn as never);
+    expect(outcome.exitCode).toBe(1);
+    expect(outcome.report!.firingRules).toEqual(['cache_saturation']);
+    expect(outcome.escalated).toBe(false);
+  });
+
   // --- Phase 11: repeated-fire escalation (">=3 consecutive bumps the note") ---
 
   it('escalates at the streak threshold — exit code STAYS 1 (a chronic fire pages louder, never changes class)', async () => {

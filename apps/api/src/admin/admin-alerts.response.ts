@@ -68,6 +68,15 @@ export class AlertThresholdsResponse {
       '0 is a legal tightened ceiling meaning "any failed mail alerts".',
   })
   emailFailurePctMax: number;
+  @ApiProperty({
+    type: 'integer',
+    description:
+      'cache_saturation ceiling in evictions (session 139, ALERT_CACHE_EVICTIONS_MAX, default ' +
+      '500 = a full store capacity MAX_HTTP_CACHE_ENTRIES of overflow past the initial fill). ' +
+      'Cumulative since-boot public-read cache store evictions fire the rule when they STRICTLY ' +
+      'exceed this value; 0 is a legal tightened ceiling meaning "any eviction alerts".',
+  })
+  cacheEvictionsMax: number;
 }
 
 export class AlertRuleResultResponse {
@@ -81,6 +90,7 @@ export class AlertRuleResultResponse {
       'rate_limit_pressure',
       'restock_repair_backlog',
       'email_delivery_failure',
+      'cache_saturation',
     ],
   })
   id: string;
@@ -100,7 +110,7 @@ export class AlertRuleResultResponse {
     nullable: true,
     description:
       'The number the verdict rests on (5xx rate % / p95 ms estimate / distinct route keys / ' +
-      'snapshot age s / 429 share %); ' +
+      'snapshot age s / 429 share % / email failure share % / cache evictions count); ' +
       'null when the rule is not evaluable (no samples or sample below minRequests).',
   })
   observed: number | null;
