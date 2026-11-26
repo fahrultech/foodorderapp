@@ -703,10 +703,21 @@ their split decisions separately.
 | `/cart` | 139384 |
 | `/checkout` | 142411 |
 | `/map` | 137089 |
-| `/orders/[id]` | 159951 |
+| `/orders/[id]` | 162856 |
 | `/orders/my` | 144390 |
 <!-- BUNDLE-BASELINE-END -->
 
+Session-137 note: `/orders/[id]` only, +2905 B (159951 -> 162856). The
+receipt body became a shared client component (`ReceiptBody.tsx`) so the
+offline-restore island can re-render the SAME view from localStorage
+(Phase 15 receipt resilience) - the page's presentation JSX moved from
+zero-JS RSC into the route's own client chunk, which is the whole delta.
+No shared-chain change: the other six routes' IN-PATH sums were
+byte-identical across the stash/pop A/B builds (135815/138886/139349/
+142374/137054/144348 on both sides), so ONLY this row moves; delta =
+tree 162806 - HEAD 159901 measured in-path, added onto the CI-anchored
+row like session 136. Cached-view extras (`CachedReceiptFallback`,
+`lib/order-cache`, 3 new Order keys) ride the same page-local chunk.
 Session-136 note: ALL SEVEN rows +42 B (the uniform class of a
 `lib/api.ts` edit folding into the shared chain chunk every route carries -
 session 132 doctrine) plus +195 B page-local on `/orders/[id]` = 237 total

@@ -3,6 +3,93 @@
 Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
+## 2026-11-26 15:50 — Session 137 — receipt offline resilience: live views persist per-id, an API drop restores them honestly (UX, Phase 15 #4)
+
+**Built:**
+
+- Web: `lib/order-cache.ts` — the device receipt store
+  (`foodorder.receipts.v1`, map of orderId -> {order, savedAt}): every
+  SUCCESSFUL receipt view persists its row (cap 10, oldest-savedAt pruned);
+  reads are shape-guarded AND id-pinned (a corrupt/stale/foreign entry is
+  dropped, never rendered), nothing throws (quota/privacy mode = silent no-op,
+  the cache is an enhancement only). Display-only by contract — the copy can
+  never author a mutation; a live re-read refreshes it.
+- Web: the receipt's entire success view moved VERBATIM from
+  `app/orders/[id]/page.tsx` into `components/ReceiptBody.tsx` (ONE source
+  doctrine) as a client component — App Router still server-renders it into
+  the same SSR HTML, so every existing receipt pin renders byte-identically.
+  Two new props drive the feature: `persist` (live server read stores the
+  row) and `offline` (cached restore SUPPRESSES the live-API islands —
+  PaymentPanel, OrderLiveFeed, RateOrderCard — because a network drop is not
+  a data failure and would only paint failure cards over the banner; the
+  static timeline/delivery-card and the localStorage-working OrderAgain
+  button stay).
+- Web: `components/CachedReceiptFallback.tsx` — rendered by the server ONLY
+  when its own read failed DOWN (`isApiDown`, session-77 split). Cache hit ->
+  amber `role=status` "Showing a saved copy" banner with the savedAt clock +
+  full offline ReceiptBody; miss/corrupt -> shared `api-offline` card
+  (PortalOffline furniture). Retry = `router.refresh()` (force-dynamic page
+  re-runs the failed server read). The 4xx branch keeps today's byte-
+  identical not-found card — the no-existence-oracle contract did NOT widen.
+- Web: `/account` deletion now calls `clearOrderCache()` after a successful
+  DELETE (GDPR parity: server anonymizes rows, the browser drops its copies).
+- i18n: 3 new `Order` keys x EN/ID (`cachedTitle/cachedBody/cachedRetry`,
+  ICU `{date}` rendered as a locale-formatted STRING to dodge numeric
+  grouping); whole-namespace EN/ID key parity + ICU token-set audit green
+  (93 keys); surgical text-line inserts (net +3 lines/file, duplicate-key
+  veto re-parse — session-136 doctrine).
+- e2e: `zz-receipt-offline.spec.ts` — REAL network-drop emulation: the
+  config-booted API is SIGTERMed for the down legs and re-spawned (webServer
+  env replicated) in `finally`. One persistent-context ladder: live view
+  persists -> unviewed id answers the offline card (no borrow, no not-found
+  lie) -> viewed id restores banner + rows with payment/live-feed islands
+  proven GATED OFF -> unknown uuid while down restores NOTHING cached ->
+  corrupt copy rejected by the shape guard -> ID locale banner byte-strings
+  -> restart -> live view returns and RE-PERSISTS -> 4xx unknown id keeps
+  the classic not-found card (no island leak). 28 assertions.
+- Docs: ARCHITECTURE receipt-resilience bullet; PERFORMANCE BUNDLE-BASELINE:
+  `/orders/[id]` 159951 -> 162856 (+2905 IN-PATH A/B — the page's JSX moved
+  from zero-JS RSC into its own client chunk; the other six routes were
+  byte-identical across the stash/pop builds, so only this row moves).
+
+**Verified:**
+
+- API: `npm run build` green; jest 109 suites / 1552 tests — EXACT
+  session-136 counts, delta 0 (no API source touched).
+- Web: `npm run build` green x4 (incl. the clean-HEAD A/B build);
+  `npm run budget` gate OK all 7 routes after the row re-adoption.
+- curl smoke on the live dev stack (:3000 web kept serving while :4000 was
+  killed): live SSR 5/5 (code, item row, payment panel, no island, no
+  order-again on pending); DOWN branch 4/4 (island testid SSR'd, honest
+  "Cannot reach the API" heading, no not-found marker, API-down confirmed);
+  post-restart 4xx split 4/4 (unknown id + bare no-proof both keep the
+  not-found card, zero island leakage). Two first-FAILs were harness greps
+  matching the serialized message catalog — re-probed with DOM-only markers
+  (element testids / ids), which the catalog cannot forge.
+- Chromium proof (separate persistent-profile runs): persist-shape 1/1,
+  restore ladder 8/8 (banner EN copy, restored rows, savedAt clock
+  "Nov 26, 03:40 PM", both islands gated off, no not-found leak, contact
+  block, corrupt -> offline card).
+- e2e: new spec green standalone x2; FULL suite 137 -> 138 tests green x2
+  CONSECUTIVE on fresh seeds (2.7-2.8 min each) — the mid-suite API
+  kill/restart left every later spec (zz-restaurant-eta, zz-tracking-polish)
+  green; kill leg 51-67 ms, restart leg 1.9 s (fixture-timing ceiling 15 s).
+- Sanitizer scan: 654 added lines, 0 U+2026 / asterisk-mask / backslash-u
+  tokens; `git diff --check` clean; messages diffs net +3/+3 lines.
+
+**Left for next sessions:**
+
+- FULLY-offline (browser cannot reach the web server either): the SW already
+  falls back to the `/offline` shell for `/orders/*` navigations (sw.js
+  catch-all) — restoring the receipt THERE needs `/offline`'s hashed chunks
+  precached at install (today only the HTML is in APP_SHELL). The island +
+  store are ready to reuse; the decision is the precache strategy.
+- `/orders/my` history rows are not cached (the item scoped the receipt).
+- A second read of a CACHED receipt deliberately does NOT refresh savedAt
+  (honest clock) — if operators ever want "last LIVE view" semantics, the
+  writer is the single place to change.
+
+---
 ## 2026-11-26 12:40 — Session 136 — magic-link MONEY rung: one-click pay from the order email (guest orders), capability tier pinned (Product, Phase 15 #3)
 
 **Built:**

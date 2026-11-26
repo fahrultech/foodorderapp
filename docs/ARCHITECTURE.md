@@ -325,6 +325,21 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   matching the cancel route's convention. Orders stored without an email
   (legacy rows, API clients that omitted it) simply have no guest rung,
   and without a JWT_SECRET visible to the service the token rung is inert.
+- **Receipt offline resilience (session 137)** — every successful receipt
+  view persists its row per-id in localStorage (`lib/order-cache`, capped
+  10, shape-guarded, id-pinned on read; the browser copy is display-only
+  and can never author a mutation). When the receipt route's server read
+  fails DOWN (network drop/5xx, `isApiDown`), the page hands off to
+  `CachedReceiptFallback`: a saved copy restores the FULL receipt body
+  (`ReceiptBody` — one source for live and cached) under an amber
+  "saved copy" banner with the save time, with the live-API islands
+  (payment panel, live feed, rating) gated OFF so they cannot dress the
+  drop up as data failure; with no copy it renders the shared
+  `api-offline` card, never the not-found lie. A 4xx answer keeps the
+  byte-identical not-found path — the no-existence-oracle contract did
+  NOT widen: denials never learn the island branch. Successful account
+  deletion clears the device copies (GDPR parity with the server-side
+  anonymization).
 - **Driver assignment is a separate, exact-role API boundary** — users may carry
   the `driver` role, while orders keep a nullable indexed `driverId` FK to users
   (`ON DELETE SET NULL`). Owners (or admins through the established owner-route

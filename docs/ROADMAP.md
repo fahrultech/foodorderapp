@@ -677,12 +677,23 @@
   `Order.rtPayNote` EN/ID key; e2e 134→137 green ×2 fresh-seed + timing
   gate OK; bundle: +42 B uniform shared-chunk class +195 B page-local,
   all seven rows re-adopted IN-PATH A/B.)
-- [ ] UX: receipt offline resilience — the PWA worker (session 59) caches
+- [x] UX: receipt offline resilience — the PWA worker (session 59) caches
   the app shell but a placed-order receipt vanishes when the network
   drops mid-view. Cache the LAST successfully fetched order row per id in
   localStorage (rendered with an honest "cached" banner reusing the
   PortalLoadFailed furniture doctrine), EN/ID + e2e with network-offline
-  emulation.
+  emulation. (2026-11-26, session 137; success views persist per-id in
+  `lib/order-cache` (cap 10, shape+id guards), the page's whole success view
+  extracted verbatim into client-capable `ReceiptBody` (ONE source; SSR HTML
+  unchanged) with `persist`/`offline` props — the cached restore gates the
+  live-API islands OFF, `CachedReceiptFallback` renders banner+savedAt clock
+  or the shared `api-offline` card (never the not-found lie; 4xx keeps the
+  byte-identical denial card — no-oracle not widened), /account deletion
+  clears device copies; 3 Order keys EN/ID; API delta 0 (109/1552); curl
+  smoke 5/5 live + 4/4 down + 4/4 4xx on a REAL API kill; persistent-profile
+  browser proof 9/9; e2e `zz-receipt-offline` (mid-suite API kill/restart,
+  28 assertions incl. ID locale), suite 137->138 green x2 consecutive
+  fresh-seed; bundle /orders/[id] +2905 in-path A/B, row re-adopted.)
 - [ ] Perf: HTTP-cache hit-rate visibility — the session-103 store serves
   200s/304s invisibly: k6 can measure it but the ADMIN dashboard cannot.
   Additive `cache` totals (hits/stores/evictions, 304 revalidations) on
