@@ -38,10 +38,18 @@ export default defineConfig({
       // roles in one serial minute. Rate-limit behavior has its own API
       // integration specs; raise only this test server's auth bucket so adding
       // a role flow cannot make unrelated browser tests order-dependent.
+      // RATE_LIMIT_PAYMENTS_MAX=100 (session 136, CI run 180): the same
+      // per-BUCKET trap session 78 caught by hand became structural once
+      // zz-pay-magic-link joined the tail - pay-order + live-feed +
+      // zz-pay-magic-link + zz-restaurant-eta cross 10 payment POSTs inside
+      // one sliding minute, and the payOrder 429 backoffs accumulate INSIDE
+      // the OUTER timed leg (nesting does not credit out), tripping the
+      // fixture-timing ceiling on an innocent spec. The payments-limiter
+      // contract itself is API-spec territory.
       // HTTP_CACHE_TTL_SEC=0 (session 103): write-then-assert flows and the
       // seed-absolute specs must never read a cached copy of a public browse
       // response; the caching contract lives in API specs + the live smoke.
-      command: 'RATE_LIMIT_AUTH_MAX=100 HTTP_CACHE_TTL_SEC=0 node dist/main.js',
+      command: 'RATE_LIMIT_AUTH_MAX=100 RATE_LIMIT_PAYMENTS_MAX=100 HTTP_CACHE_TTL_SEC=0 node dist/main.js',
       cwd: '../apps/api',
       url: 'http://localhost:4000/api/health',
       reuseExistingServer: true,

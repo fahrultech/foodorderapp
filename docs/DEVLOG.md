@@ -108,6 +108,21 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
   pre-existing entries' convention and verified against the service
   source with the harness's own regex engine).
 
+**CI postscript (same day, run 180):** API/web/PG15/16 jobs green - the
+IN-PATH-re-adopted bundle table was accepted first-try (+49..+51 B
+margins) - but the e2e job's FIXTURE-TIMING GATE failed on
+`eta-complete-order-2` (23,096 ms > 15,000 ms): pay-order + live-feed +
+the new zz-pay-magic-link + zz-restaurant-eta together cross 10 payment
+POSTs inside one sliding 60s window (bucket default 10/min/IP), the
+innocent eta leg's payOrder absorbed the 429 backoffs, and nested
+limiter waits do NOT credit out of an outer timed leg (gate label
+arithmetic). The suite itself passed; local legs of the same label run
+92..155 ms. Fix: `RATE_LIMIT_PAYMENTS_MAX=100` in the playwright
+webServer env (the session-47 AUTH-bucket precedent, arithmetic
+commented in `e2e/playwright.config.ts`); the payments-limiter contract
+stays API-spec territory. Collision cluster 12/12 green on the raised
+boot before pushing.
+
 **Left for next sessions:**
 
 - Phase 15 #4 (receipt offline resilience) and #5 (HTTP-cache hit-rate
