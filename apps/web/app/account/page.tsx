@@ -6,6 +6,7 @@ import { useTranslations } from 'next-intl';
 import { useAuth } from '@/lib/auth';
 import { authedCall } from '@/lib/authed-call';
 import { ApiError, api, type AccountDeleteResult, type NotificationSettings } from '@/lib/api';
+import { clearOrderCache } from '@/lib/order-cache';
 
 /**
  * In-app GDPR self-service (the session-63 API endpoints finally get a
@@ -150,6 +151,10 @@ export default function AccountPage() {
     } catch {
       /* fall through to the deleted state regardless */
     }
+    // Phase 15 GDPR hygiene: the server anonymized its rows; the receipt
+    // offline cache (lib/order-cache) is the device-side copy we can and
+    // must drop too — deletion should not leave receipts behind locally.
+    clearOrderCache();
     setDeleted(result);
     setDeleting(false);
   }
