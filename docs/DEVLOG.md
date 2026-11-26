@@ -3,6 +3,84 @@
 Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
+## 2026-11-26 17:35 — Session 138 — HTTP-cache hit-rate visibility: cache tallies on the ADMIN snapshot + traffic panel strip (Perf, Phase 15 #5)
+
+**Built:**
+
+- API: `cache` dimension on the metrics registry (session-123/134
+  GLOBAL-ONLY shape rule, third application): `CACHE_COUNTERS` is a CLOSED
+  set of four honest event classes — `hits` (200s served completely from
+  the store, zero SQL), `stores` (captured JSON 200 bodies, first misses
+  AND stale re-captures), `evictions` (URL-cap drops), `revalidations`
+  (cache-layer 304s, both the fresh zero-SQL arm and the stale
+  unchanged-bytes arm; an Express-native freshness 304 before any store
+  entry is deliberately NOT counted). `recordCache` no-ops on a stray
+  key (no catch-all by design; a JS-level typo can never NaN-pollute the
+  pinned shape). `restaurantSnapshot()` never emits the key, so the
+  OWNER-rung pin-set from sessions 85/98/116 stays byte-identical.
+- API: producers wired with ONE-owner-per-class (totals can never
+  double-count): `createHttpCacheMiddleware` records hits/revalidations/
+  stores at its three branches via a new OPTIONAL `onCacheEvent`
+  (existing uncounted embeddings keep compiling); `HttpCacheStore` gains
+  an optional `onEvict` fired exactly once per entry ACTUALLY dropped
+  (re-set refresh and `clear()` never fire); `HttpCacheService` injects
+  `RequestMetricsService` and wires both, `HttpCacheModule` imports
+  `MetricsModule`. The periodic `request_metrics` fold inherits
+  `totals.cache` with zero extra wiring (snapshot-derived, session-134
+  precedent). Swagger: `MetricsCacheTotalsResponse` + `totals.cache` on
+  the ADMIN model only; admin route description updated.
+- Web: `lib/api.ts` gains TYPE-ONLY `MetricsCacheTotals` + optional
+  `totals.cache` (the shared totals type must also satisfy the restaurant
+  payload, which never carries it); `TrafficPanel` renders a compact
+  cache strip PRESENCE-GATED on `totals.cache` — structurally impossible
+  on the OWNER rung (its payload lacks the key; the ARCHITECTURE
+  sentence "the component only ever reads totals/routes/generatedAt/
+  uptimeSec" was updated to state the exception honestly); 6 new Portal
+  EN/ID keys (zero ICU
+  params; surgical line-insert with duplicate-key veto + parity audit,
+  net +6 lines per file).
+- e2e: `admin-traffic.spec.ts` extends the payload-DOM cross-check to the
+  cache strip (exact 4-key wire pin + per-card toLocaleString mirror vs
+  the SAME captured payload — cumulative-since-boot makes absolutes
+  untestable, the binding is what is proven) and adds an OWNER-rung test
+  (route.intercept reads the wire body INSIDE the handler, dodging the
+  session-99 navigate-away json trap): the scoped metrics payload has NO
+  `cache` key and the strip count is 0 while the shared panel renders.
+
+**Verified:**
+
+- API build green; full jest 109 suites / 1564 tests (+12: 7 registry, 1
+  store onEvict, 4 integration ladders incl. an exact miss/hit/reval
+  ladder, a ttl=1 stale revalidation arm, a cap=1 eviction ladder, and
+  the ttl=0 all-zero disabled arm) vs 1552 at session 137.
+- Live smoke 15/15 on a 30-migration from-empty scratch DB driving the
+  REAL HttpCacheService wiring: pristine zeros; exact ladder {hits:2,
+  revalidations:2, stores:2, evictions:0} with the bearer read counted
+  NOTHING; owner metrics payload has no cache key; 500-URL flood past
+  the cap lands EXACTLY stores 502 / evictions 2, the re-miss after
+  eviction 503/3; the fold line carries `cache` with the right number;
+  a second TTL=0 boot tallies all-zero and ships no public
+  cache-control; zero 5xx across both boots.
+- Web build green; FULL e2e 139/139 GREEN x2 CONSECUTIVE fresh-seed runs
+  (~3.5 min each); fixture-timing gate OK.
+- Bundle: IN-PATH stash/pop A/B measured a UNIFORM +9 B on all seven
+  budget routes (message-catalog edit = session-132/137 class; the clean
+  side reproduced session-137's recorded numbers byte-for-byte); table
+  pre-funded +9 onto the CI-anchored rows. `/admin` and
+  `/dashboard/analytics` are not table routes.
+
+**Left for next sessions:**
+
+- Confirm the CI bundle gate agrees with the pre-funded +9; on RED
+  re-adopt to the run's CI-measured numbers (session-137 doctrine).
+- No alert RULE on the cache dimension yet (evictions growth or a
+  collapsing hit share could ride the snapshot-derived engine like
+  session 134's mail rule did) - deliberately out of scope here.
+- A derived hit-rate (hits+revalidations over store-eligible GETs) needs
+  an "eligible misses" counter the middleware does not keep today; the
+  four raw tallies answer the roadmap's ask as stated.
+
+---
 ## 2026-11-26 15:50 — Session 137 — receipt offline resilience: live views persist per-id, an API drop restores them honestly (UX, Phase 15 #4)
 
 **Built:**

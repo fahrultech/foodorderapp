@@ -763,10 +763,24 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   the route still 200 (a dead smoke detector never 5xxs like a fire).
   The web owner panel (`/dashboard/analytics`, session 99)
   consumes the route through the SHARED `TrafficPanel`, generalized to a
-  structural `TrafficView` Pick — the component only ever reads
-  totals/routes/generatedAt/uptimeSec, so a global field cannot ride onto
+  structural `TrafficView` Pick — the component reads totals/routes/
+  generatedAt/uptimeSec plus ONE presence-gated ADMIN-only field
+  (`totals.cache`, session 138 — rendered ONLY when the key exists, which
+  a restaurant snapshot never does), so a global field cannot ride onto
   the OWNER rung through it even by accident, and the panel chunk stays
   code-split behind the `traffic != null` render gate (session 90 rule).
+  The cache dimension itself (session 138): `recordCache` tallies four
+  CLOSED event classes — `hits` (200s served completely from the store),
+  `stores` (captured 200 bodies), `evictions` (URL-cap drops) and
+  `revalidations` (cache-layer 304s, both the fresh zero-SQL arm and the
+  stale unchanged-bytes arm; an Express-native freshness 304 before any
+  store entry is NOT counted) — on GLOBAL totals only, the third time the
+  `throttled`/`mail` shape rule applies. One producer per class (the
+  middleware branches own hits/stores/revalidations, the store's `onEvict`
+  owns evictions), so totals can never double-count; a disabled feature
+  (TTL=0) records nothing, surfacing as honest zeros. The ADMIN route
+  serves it verbatim and the periodic fold line inherits it with zero
+  extra wiring.
   On top of the snapshots sits the DI-free alert engine
   `ops/alerts.ts` (session 86): seven rules — `error_budget` (5xx rate vs
   the 99.5% availability SLO, gated by a minimum sample), `p95_latency`

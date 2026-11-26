@@ -698,14 +698,26 @@ their split decisions separately.
 <!-- BUNDLE-BASELINE-START -->
 | Route | Baseline First Load JS+CSS, full chain (B, CI-measured, node 22.23.5) |
 |---|---|
-| `/` | 135860 |
-| `/restaurants/[id]` | 138931 |
-| `/cart` | 139393 |
-| `/checkout` | 142420 |
-| `/map` | 137098 |
-| `/orders/[id]` | 162865 |
-| `/orders/my` | 144399 |
+| `/` | 135869 |
+| `/restaurants/[id]` | 138940 |
+| `/cart` | 139402 |
+| `/checkout` | 142429 |
+| `/map` | 137107 |
+| `/orders/[id]` | 162874 |
+| `/orders/my` | 144408 |
 <!-- BUNDLE-BASELINE-END -->
+
+Session-138 note: message-catalog edit (6 new Portal keys, HTTP-cache
+card row) = UNIFORM class per session 132/137 doctrine — the IN-PATH
+stash/pop A/B measured exactly +9 B on ALL SEVEN routes (clean 135815/
+138886/139349/142374/137054/162806/144348 -> tree 135824/138895/139358/
+142383/137063/162815/144357), byte-identical to the session-137 CI shift
+magnitude. Rows pre-funded +9 onto the CI-anchored 137 numbers; `/admin`
+and `/dashboard/analytics` (the only pages importing `TrafficPanel`) are
+NOT budget-table routes, so the panel's own chunk movement is invisible
+to this table by design. `lib/api.ts` gained TYPE-ONLY additions
+(interface + optional field) — zero emitted JS, no chain shift. If the CI
+gate disagrees, re-adopt to ITS measured numbers (session-137 doctrine).
 
 Session-137 CI follow-up: the first gate run after that commit went RED
 UNIFORM +9 B on ALL SEVEN routes (run 45779323226 annotations: five exact

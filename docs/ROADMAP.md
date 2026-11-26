@@ -694,11 +694,67 @@
   browser proof 9/9; e2e `zz-receipt-offline` (mid-suite API kill/restart,
   28 assertions incl. ID locale), suite 137->138 green x2 consecutive
   fresh-seed; bundle /orders/[id] +2905 in-path A/B, row re-adopted.)
-- [ ] Perf: HTTP-cache hit-rate visibility — the session-103 store serves
+- [x] Perf: HTTP-cache hit-rate visibility — the session-103 store serves
   200s/304s invisibly: k6 can measure it but the ADMIN dashboard cannot.
   Additive `cache` totals (hits/stores/evictions, 304 revalidations) on
-  the global metrics snapshot + a small card row on `/admin` traffic
-  panel (never on the OWNER rung — session-85 rule), specs + curl smoke.
+  the global metrics snapshot + a small card row on `/admin` traffic panel
+  (never on the OWNER rung — session-85 rule), specs + curl smoke.
+  (2026-11-26, session 138; CLOSED-set four counters on the GLOBAL totals
+  — third application of the throttled/mail shape rule, restaurant view
+  never carries the key; ONE producer per class: middleware branches own
+  hits/stores/revalidations via optional `onCacheEvent`, the store's
+  `onEvict` owns evictions, `HttpCacheService` wires both — fold line
+  inherits with zero extra wiring; `recordCache` no-ops a stray key (no
+  NaN-pollution of the pinned shape); disabled TTL=0 counts NOTHING;
+  swagger `MetricsCacheTotalsResponse` ADMIN-only; web strip PRESENCE-GATED
+  on `totals.cache` (6 Portal keys EN/ID, type-only api.ts additions);
+  +12 tests (109/1564) incl. exact ladder + ttl=1 stale arm + cap=1
+  eviction ladder; live smoke 15/15 on a 30-migration from-empty DB with
+  hand-computed flood arithmetic (502 stores/2 evictions, re-miss 503/3),
+  fold grep, second ttl=0 boot zeros, owner key-absence, zero 5xx; e2e
+  139/139 green x2 fresh-seed + timing gate OK; bundle uniform +9 B
+  in-path A/B, all seven rows pre-funded (CI confirms).)
+
+## Phase 16 — Cache truth, offline depth & write-side sweeps (opened 2026-11-26, Phase 15 exhausted; from the Ops / Perf / UX / Product / Test evergreen loops)
+
+- [ ] Ops: cache-saturation ALERT rule — session 138 made hits/stores/
+  evictions/revalidations visible but nothing PAGES on them: a store pinned
+  at the 500-entry cap (evictions climbing every request) silently degrades
+  the zero-SQL promise. Add rule 8 `cache_saturation` to the
+  snapshot-derived engine (evictions vs an env floor, warning severity like
+  `route_key_overflow`; 0 legal, garbage→default, never crash-boot) riding
+  the fold line + `ops/alert-scan.sh` exit codes with ZERO extra wiring,
+  `GET /admin/alerts` round-trip pin, unit matrix + live smoke firing the
+  rule ALONE (session-123 arms recipe).
+- [ ] Perf: honest cache hit-RATE — session 138 left the denominator
+  uncounted (a derived rate needs an `eligible` counter: whitelisted
+  anonymous GETs that ran the handler = the misses the store could have
+  served). Add the 5th counter at the capture branch, mirror it in the
+  web type + a derived `x of y served from cache` line in the strip, and
+  re-pin the exact-arithmetic ladders (unit + integration + live).
+- [ ] UX: FULLY-offline receipt restore — session 137 covers the API being
+  down while the web server answers; the deeper case (browser cannot reach
+  the web server at all) today loses the receipt even when the device
+  holds a copy: teach the offline app-shell path to surface the
+  `lib/order-cache` banner + saved copy for `/orders/<id>` URLs. Playwright
+  `context.setOffline(true)` proof, EN/ID, no new server round-trips.
+- [ ] Product: magic-link capability in the PUSH payload url — session 133
+  put the `?rt=` token in receipt EMAILS; pushes still land on the bare
+  receipt URL and rely on the session surviving the app switch. Attach the
+  same minted token to the order-status push payloads (guests have no push
+  subscriptions — signed-in only), pin expiry/tier behavior against the
+  session-136 money ladder, live smoke on the captured token.
+- [ ] Test: write-side property sweep — session 135's constant-outcome
+  doctrine applied to `POST /orders`: seeded-mutation sweep over real
+  bodies (option-choice sets, promo codes, qty/stock edges, address shape)
+  through the real pipe + filter asserting ONLY canonical outcomes
+  (201/400/401/403/409 + the exact error-code set), zero 5xx, and
+  write-nothing on every denial (row-count deltas vs the seeded baseline).
+- [ ] Perf: query-logger + EXPLAIN audit of the ORDER reads — session-79's
+  method never ran on `GET /orders/my` (status filter + pagination +
+  items-load) or the owner inbox list: prove constant statement shape,
+  index-served status/createdAt paths, no N+1 on order items; findings in
+  docs/PERFORMANCE.md + contract specs, fix what the logger catches.
 
 ## Completed
 - 2026-10-17 — Phase 0: monorepo scaffold, NestJS API (auth, restaurants, menu, orders, status machine, health), Next.js storefront (browse, detail, cart, checkout, order page), docker compose + Dockerfiles, seed data, jest unit tests, CI-ready scripts.
