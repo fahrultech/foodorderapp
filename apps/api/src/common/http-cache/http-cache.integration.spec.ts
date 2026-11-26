@@ -103,7 +103,7 @@ function request(app: INestApplication, method: string, path: string, headers?: 
   });
 }
 
-async function bootChain(ttlSec: number, minBytes = 0): Promise<{
+async function bootChain(ttlSec: number, minBytes = 0, storeCap = 50): Promise<{
   app: INestApplication;
   registry: RequestMetricsRegistry;
   store: HttpCacheStore;
@@ -111,7 +111,10 @@ async function bootChain(ttlSec: number, minBytes = 0): Promise<{
   root: PinoInstance;
 }> {
   const registry = new RequestMetricsRegistry();
-  const store = new HttpCacheStore(50);
+  // Session 138: the SAME wiring HttpCacheService installs in production —
+  // store cap evictions tally through onEvict, middleware branches through
+  // onCacheEvent, both into one registry (ONE producer per event class).
+  const store = new HttpCacheStore(storeCap, () => registry.recordCache('evictions'));
   const lines: Record<string, unknown>[] = [];
   let buf = '';
   const stream = new Writable({
@@ -138,7 +141,11 @@ async function bootChain(ttlSec: number, minBytes = 0): Promise<{
   app.use(createRequestMetricsMiddleware(registry));
   app.use(createHttpLoggingMiddleware(root));
   app.use(createBrowseCompressionMiddleware({ minBytes }));
-  app.use(createHttpCacheMiddleware({ ttlSec, store }));
+  app.use(createHttpCacheMiddleware({
+    ttlSec,
+    store,
+    onCacheEvent: (counter) => registry.recordCache(counter),
+  }));
   app.useLogger(new PinoLoggerService(root));
   await app.listen(0);
   return { app, registry, store, lines, root };
@@ -290,6 +297,161 @@ describe('public-read http cache — live middleware chain', () => {
     expect(reval.headers.etag).toBe(warm.headers.etag);
     expect(calls.detail).toBe(before);
     expect(registry.restaurantSnapshot(OTHER_RID).totals.byStatus['3xx']).toBe(1);
+  });
+});
+
+describe('public-read http cache — cache-dimension tally, exact (session 138)', () => {
+  let app: INestApplication;
+  let registry: RequestMetricsRegistry;
+
+  // OWN bootChain so the four counters are hand-pinnable to the ladder
+  // below — the shared first describe accumulates across five `it` blocks
+  // and cannot carry exact absolutes without ordering fragility.
+  beforeAll(async () => {
+    ({ app, registry } = await bootChain(60, 0, 50));
+    for (const k of Object.keys(calls)) calls[k as keyof typeof calls] = 0;
+    version = 1;
+  });
+  afterAll(async () => {
+    await app.close();
+  });
+
+  it('miss=store, fresh-200=hit, INM=revalidation; non-targets + bearer count NOTHING', async () => {
+    expect(registry.snapshot().totals.cache).toEqual({
+      hits: 0,
+      stores: 0,
+      evictions: 0,
+      revalidations: 0,
+    });
+
+    const first = await request(app, 'GET', '/api/restaurants');
+    expect(first.status).toBe(200);
+    expect(registry.snapshot().totals.cache).toEqual({
+      hits: 0,
+      stores: 1, // captured
+      evictions: 0,
+      revalidations: 0,
+    });
+
+    const hit = await request(app, 'GET', '/api/restaurants'); // fresh, no INM
+    expect(hit.status).toBe(200);
+    expect(registry.snapshot().totals.cache).toMatchObject({ hits: 1, stores: 1 });
+
+    const reval = await request(app, 'GET', '/api/restaurants', { 'if-none-match': first.headers.etag! });
+    expect(reval.status).toBe(304);
+    expect(registry.snapshot().totals.cache).toEqual({
+      hits: 1,
+      stores: 1,
+      evictions: 0,
+      revalidations: 1, // fresh-store 304, zero SQL
+    });
+
+    // A second fresh hit after the revalidation still tallies (order-free:
+    // the entry is unchanged).
+    const hit2 = await request(app, 'GET', '/api/restaurants');
+    expect(hit2.status).toBe(200);
+    expect(registry.snapshot().totals.cache).toMatchObject({ hits: 2, stores: 1, revalidations: 1 });
+
+    // Every opt-out path leaves the tally EXACTLY where it was.
+    await request(app, 'GET', '/api/restaurants', { authorization: 'Bearer unit-*-jwt' });
+    await request(app, 'GET', `/api/restaurants/${RID}/menu`);
+    await request(app, 'POST', '/api/restaurants');
+    await request(app, 'HEAD', '/api/restaurants');
+    expect(registry.snapshot().totals.cache).toEqual({
+      hits: 2,
+      stores: 1,
+      evictions: 0,
+      revalidations: 1,
+    });
+  });
+
+  it('STALE revalidation with unchanged bytes tallies store+revalidation (never a hit)', async () => {
+    // OWN ttl=1 boot: the fresh store CANNOT go stale on the ladder above
+    // (TTL 60 s), and a stale entry re-running the handler is precisely the
+    // arm whose honesty needs pinning — session-103's "the DB read already
+    // happened" case, now visible in the tally.
+    const stale = await bootChain(1, 0, 50);
+    try {
+      const before = stale.registry.snapshot().totals.cache;
+      expect(before).toEqual({ hits: 0, stores: 0, evictions: 0, revalidations: 0 });
+      const first = await request(stale.app, 'GET', '/api/restaurants');
+      expect(stale.registry.snapshot().totals.cache.stores).toBe(1);
+      await new Promise((resolve) => setTimeout(resolve, 1200)); // TTL expiry
+      const reval = await request(stale.app, 'GET', '/api/restaurants', {
+        'if-none-match': first.headers.etag!,
+      });
+      expect(reval.status).toBe(304);
+      // handler RE-RAN (unavoidable without server-side versioning), the
+      // unchanged bytes RE-CAPTURED (store #2) and the 304 folded as a
+      // revalidation — NOT a hit: this branch never served store bytes.
+      expect(stale.registry.snapshot().totals.cache).toEqual({
+        hits: 0,
+        stores: 2,
+        evictions: 0,
+        revalidations: 1,
+      });
+    } finally {
+      await stale.app.close();
+    }
+  });
+
+  it('disabled feature counts NOTHING: ttl=0 passes every whitelisted read through', async () => {
+    const off = await bootChain(0, 0, 50);
+    try {
+      const a = await request(off.app, 'GET', '/api/restaurants');
+      expect(a.headers['cache-control']).toBeUndefined();
+      await request(off.app, 'GET', '/api/restaurants');
+      await request(off.app, 'GET', '/api/restaurants', { 'if-none-match': a.headers.etag ?? '' });
+      expect(off.registry.snapshot().totals.cache).toEqual({
+        hits: 0,
+        stores: 0,
+        evictions: 0,
+        revalidations: 0,
+      });
+    } finally {
+      await off.app.close();
+    }
+  });
+});
+
+describe('public-read http cache — eviction tally at the cap (session 138)', () => {
+  let app: INestApplication;
+  let registry: RequestMetricsRegistry;
+
+  // cap=1: every NEW distinct URL evicts the previous single entry, so the
+  // onEvict fold is exercised exactly once per overflow — the ONE event
+  // class the middleware branches never emit.
+  beforeAll(async () => {
+    ({ app, registry } = await bootChain(60, 0, 1));
+    for (const k of Object.keys(calls)) calls[k as keyof typeof calls] = 0;
+    version = 1;
+  });
+  afterAll(async () => {
+    await app.close();
+  });
+
+  it('overflow records evictions WITHOUT touching hits/stores/revalidations shape', async () => {
+    const a = await request(app, 'GET', '/api/restaurants'); // store #1
+    expect(registry.snapshot().totals.cache).toMatchObject({ evictions: 0, stores: 1 });
+    const b = await request(app, 'GET', '/api/search?q=x'); // store #2 -> evicts #1
+    expect(registry.snapshot().totals.cache).toMatchObject({ evictions: 1, stores: 2 });
+    const c = await request(app, 'GET', '/api/search?q=y'); // store #3 -> evicts #2
+    expect(registry.snapshot().totals.cache).toMatchObject({ evictions: 2, stores: 3 });
+    // the just-evicted /api/restaurants is a MISS now: re-store, evict #3
+    const again = await request(app, 'GET', '/api/restaurants');
+    expect(again.status).toBe(200);
+    expect(registry.snapshot().totals.cache).toEqual({
+      hits: 0,
+      stores: 4,
+      evictions: 3,
+      revalidations: 0,
+    });
+    // a fresh hit on the surviving entry tallies a hit, no new store/evict
+    await request(app, 'GET', '/api/restaurants');
+    expect(registry.snapshot().totals.cache).toMatchObject({ hits: 1, stores: 4, evictions: 3 });
+    void a;
+    void b;
+    void c;
   });
 });
 

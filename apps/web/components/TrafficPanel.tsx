@@ -24,6 +24,11 @@ import type { MetricsSnapshot } from '@/lib/api';
  * - 4xx responses do NOT burn the error budget (client mistakes are not
  *   availability failures); only 5xx does. That is the whole alerting
  *   signal the metrics middleware records the status class for.
+ * - Session 138 exception, stated plainly: the panel DOES read one
+ *   ADMIN-only field — `totals.cache` — but ONLY behind a presence check.
+ *   The OWNER-rung guarantee is not "the panel never reads it", it is
+ *   "the scoped payload never carries it", so the strip renders on
+ *   /admin alone (pinned by the e2e absence assertion on /dashboard).
  */
 
 /** Availability SLO the stub budgets against: at most 0.5% of responses 5xx. */
@@ -179,6 +184,50 @@ export default function TrafficPanel({
           tone={budget.consumedPct === null ? 'neutral' : budget.withinBudget ? 'good' : 'bad'}
         />
       </div>
+
+      {/* Session 138: HTTP-cache visibility — the session-103 store served
+          200s/304s invisibly (k6-only). PRESENCE-GATED render: the OWNER
+          rung's scoped payload never carries totals.cache (session-85
+          rule), so this strip structurally cannot appear on /dashboard —
+          same "field absence = no render" doctrine as the panel reading
+          ONLY structural fields elsewhere. */}
+      {totals.cache && (
+        <div
+          className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1 rounded-2xl border border-stone-200 bg-white px-5 py-3 text-sm shadow-sm"
+          data-testid="traffic-cache-strip"
+          role="group"
+          aria-label={t('trafficCacheTitle')}
+        >
+          <span className="text-xs font-bold uppercase tracking-[0.16em] text-stone-500">
+            {t('trafficCacheTitle')}
+          </span>
+          <span data-testid="traffic-cache-hits" className="text-stone-600">
+            {t('trafficCacheHits')}{' '}
+            <span className="font-bold tabular-nums text-stone-900">
+              {totals.cache.hits.toLocaleString()}
+            </span>
+          </span>
+          <span data-testid="traffic-cache-stores" className="text-stone-600">
+            {t('trafficCacheStores')}{' '}
+            <span className="font-bold tabular-nums text-stone-900">
+              {totals.cache.stores.toLocaleString()}
+            </span>
+          </span>
+          <span data-testid="traffic-cache-evictions" className="text-stone-600">
+            {t('trafficCacheEvictions')}{' '}
+            <span className={`font-bold tabular-nums ${totals.cache.evictions > 0 ? 'text-amber-700' : 'text-stone-900'}`}>
+              {totals.cache.evictions.toLocaleString()}
+            </span>
+          </span>
+          <span data-testid="traffic-cache-revalidations" className="text-stone-600">
+            {t('trafficCacheRevalidations')}{' '}
+            <span className="font-bold tabular-nums text-stone-900">
+              {totals.cache.revalidations.toLocaleString()}
+            </span>
+          </span>
+          <span className="text-xs text-stone-400">{t('trafficCacheNote')}</span>
+        </div>
+      )}
 
       <div className="mt-6 overflow-x-auto rounded-2xl border border-stone-200 bg-white shadow-sm" data-testid="traffic-route-table">
         <table className="min-w-full text-left text-sm">

@@ -1,6 +1,6 @@
 import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { MailChannel, RequestMetricsRegistry } from './request-metrics';
+import { CacheCounter, MailChannel, RequestMetricsRegistry } from './request-metrics';
 import { createRequestMetricsMiddleware } from './request-metrics.middleware';
 import {
   AlertReport,
@@ -94,6 +94,15 @@ export class RequestMetricsService implements OnModuleDestroy {
    */
   recordMail(channel: MailChannel, ok: boolean): void {
     this.registry.recordMail(channel, ok);
+  }
+
+  /**
+   * Cache-dimension fold (session 138) — the ONLY write path the public-read
+   * cache layer uses. Exposed as a method (not the raw registry) so the
+   * cache middleware cannot accidentally reach into request tallies.
+   */
+  recordCache(counter: CacheCounter): void {
+    this.registry.recordCache(counter);
   }
 
   /**

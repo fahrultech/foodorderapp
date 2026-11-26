@@ -54,6 +54,17 @@
  * on a per-restaurant view (ADMIN telemetry, OWNER-rung shape contract).
  * Disabled transport sends nothing — nothing is counted (a channel the
  * operator never configured must not look like a failing one).
+ *
+ * Cache dimension (session 138, Phase 15 "HTTP-cache hit-rate visibility"):
+ * `recordCache(counter)` tallies the session-103 public-read store's work
+ * (200s served from the store, bytes captured into it, cap evictions,
+ * 304 revalidations answered). The GLOBAL totals gain an additive `cache`
+ * object — third time the same rule: like `throttled` and `mail` it NEVER
+ * appears on a per-restaurant view (ADMIN telemetry, OWNER-rung shape
+ * contract). Only REAL cache-layer events count: with
+ * HTTP_CACHE_TTL_SEC=0 the middleware passes every request through and
+ * records nothing, so a disabled feature shows as zeros, never phantom
+ * activity.
  */
 
 export const HISTOGRAM_BOUNDS_MS = [5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000] as const;
@@ -196,6 +207,35 @@ function copyMailTotals(m: MailTotals): MailTotals {
   };
 }
 
+/**
+ * Public-read HTTP cache counters (session 138). Exactly the four honest
+ * event classes the session-103 middleware can observe:
+ * - `hits` — 200s served COMPLETELY from the store (fresh entry, handler
+ *   never ran, zero SQL);
+ * - `stores` — JSON 200 bodies captured into the store (covers the first
+ *   miss of a URL AND the stale re-capture after TTL expiry);
+ * - `evictions` — entries dropped by the MAX_HTTP_CACHE_ENTRIES cap
+ *   (cost signal only: an eviction never breaks correctness, it just makes
+ *   the next read of that URL a handler pass);
+ * - `revalidations` — 304s answered by the cache layer, BOTH arms: the
+ *   fresh-store 304 (zero SQL) and the stale revalidation where the
+ *   handler did re-read but the bytes were unchanged (session-103
+ *   honesty note — the DB read is what TTL expiry means).
+ */
+export const CACHE_COUNTERS = ['hits', 'stores', 'evictions', 'revalidations'] as const;
+export type CacheCounter = (typeof CACHE_COUNTERS)[number];
+
+export type CacheTotals = Record<CacheCounter, number>;
+
+function freshCacheTotals(): CacheTotals {
+  return { hits: 0, stores: 0, evictions: 0, revalidations: 0 };
+}
+
+/** Copy so snapshots never alias the live tally (same doctrine as mail). */
+function copyCacheTotals(c: CacheTotals): CacheTotals {
+  return { ...c };
+}
+
 export interface HistogramBucket {
   /** Inclusive upper bound in ms; null = +Inf (everything above the last bound). */
   leMs: number | null;
@@ -237,6 +277,11 @@ export interface MetricsSnapshot {
      * since boot like everything else here.
      */
     mail: MailTotals;
+    /**
+     * Public-read HTTP cache tallies (session 138; GLOBAL-only field —
+     * restaurant views never carry the key). Cumulative since boot.
+     */
+    cache: CacheTotals;
     routeKeys: number;
     overflowed: boolean;
     /** Distinct success-created restaurant buckets (session 98 dimension). */
@@ -382,6 +427,7 @@ export class RequestMetricsRegistry {
   private readonly routes = new Map<string, RouteAgg>();
   private readonly restaurantBuckets = new Map<string, RestaurantBucket>();
   private mail: MailTotals = freshMailTotals();
+  private cache: CacheTotals = freshCacheTotals();
   private startedAt = Date.now();
   private overflowed = false;
   private restaurantCapTripped = false;
@@ -434,6 +480,23 @@ export class RequestMetricsRegistry {
     const tally = this.mail[channel] ?? this.mail.general;
     tally.attempts += 1;
     if (!ok) tally.failures += 1;
+  }
+
+  /**
+   * Cache-dimension fold (session 138): ONE event of the named class,
+   * recorded by the public-read cache layer at each honest branch (see
+   * CACHE_COUNTERS for the exact semantics). Like `recordMail` the caller
+   * (HttpCacheService) only records REAL events — a disabled feature
+   * (HTTP_CACHE_TTL_SEC=0) passes requests through and counts nothing.
+   * Unlike mail there is NO catch-all bucket: the four counters are a
+   * CLOSED set with exactly one producer each (a middleware branch or the
+   * store's cap-drop path), so TypeScript makes a bad literal impossible
+   * at the real call sites. A stray JS-level key is a defensive NO-OP (it
+   * must never NaN-pollute the shape every spec pins) — if a future branch
+   * ever needs a new class, add it to CACHE_COUNTERS so it lands honestly.
+   */
+  recordCache(counter: CacheCounter): void {
+    if (Object.prototype.hasOwnProperty.call(this.cache, counter)) this.cache[counter] += 1;
   }
 
   /**
@@ -524,6 +587,7 @@ export class RequestMetricsRegistry {
         // must never alias the live tallies (later sends must not mutate
         // an already-returned view).
         mail: copyMailTotals(this.mail),
+        cache: copyCacheTotals(this.cache),
         routeKeys: this.routes.has(OVERFLOW_KEY) ? this.routes.size - 1 : this.routes.size,
         overflowed: this.overflowed,
         restaurantKeys: this.restaurantBuckets.size,
@@ -578,6 +642,7 @@ export class RequestMetricsRegistry {
     this.routes.clear();
     this.restaurantBuckets.clear();
     this.mail = freshMailTotals();
+    this.cache = freshCacheTotals();
     this.startedAt = Date.now();
     this.overflowed = false;
     this.restaurantCapTripped = false;

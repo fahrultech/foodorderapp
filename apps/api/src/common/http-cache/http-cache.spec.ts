@@ -127,4 +127,27 @@ describe('HttpCacheStore — bounded URL-keyed store', () => {
   it('MAX_HTTP_CACHE_ENTRIES is the documented cap', () => {
     expect(MAX_HTTP_CACHE_ENTRIES).toBe(500);
   });
+
+  // Session 138: the metrics registry tallies evictions THROUGH this exact
+  // callback, so a cap drop must fire ONCE per real deletion — and a re-set
+  // refresh, a clear(), or an under-cap set must never fire it.
+  it('onEvict fires exactly once per ENTRY ACTUALLY DROPPED at the cap', () => {
+    let evictions = 0;
+    const store = new HttpCacheStore(2, () => {
+      evictions += 1;
+    });
+    store.set('u1', entry(100, 'a')); // under cap: no fire
+    expect(evictions).toBe(0);
+    store.set('u1', entry(150, 'a2')); // re-set: refresh, no fire
+    expect(evictions).toBe(0);
+    store.set('u2', entry(200, 'b')); // fills to the cap: no fire yet
+    expect(evictions).toBe(0);
+    store.set('u3', entry(300, 'c')); // overflow: u1 dropped -> fire once
+    expect(evictions).toBe(1);
+    store.set('u4', entry(400, 'd')); // overflow again: oldest now u2 -> fire
+    expect(evictions).toBe(2);
+    expect(store.size).toBe(2);
+    store.clear(); // clear is a reset, NOT an eviction
+    expect(evictions).toBe(2);
+  });
 });

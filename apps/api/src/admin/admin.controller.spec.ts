@@ -177,6 +177,10 @@ describe('AdminController HTTP', () => {
         status: { attempts: 1, failures: 0 },
         general: { attempts: 0, failures: 0 },
       },
+      // Session 138: additive cache dimension (ADMIN global view only —
+      // PREV_FIXTURE deliberately lacks it to prove window math ignores
+      // unknown tally keys on legacy stored rows).
+      cache: { hits: 2, stores: 3, evictions: 0, revalidations: 1 },
       routeKeys: 2,
       overflowed: false,
       restaurantKeys: 0,

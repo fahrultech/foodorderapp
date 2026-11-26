@@ -1,4 +1,5 @@
 import {
+  CACHE_COUNTERS,
   HISTOGRAM_BOUNDS_MS,
   MAIL_CHANNELS,
   OVERFLOW_KEY,
@@ -306,6 +307,73 @@ describe('request metrics — mail delivery tally (session 134)', () => {
     reg.reset();
     const snap = reg.snapshot();
     for (const ch of MAIL_CHANNELS) expect(snap.totals.mail[ch]).toEqual({ attempts: 0, failures: 0 });
+  });
+});
+
+describe('request metrics — HTTP cache tally (session 138)', () => {
+  it('totals.cache carries ALL four counters at zeros on a pristine registry', () => {
+    const snap = new RequestMetricsRegistry().snapshot();
+    expect(snap.totals.cache).toEqual({ hits: 0, stores: 0, evictions: 0, revalidations: 0 });
+    for (const c of CACHE_COUNTERS) expect(snap.totals.cache[c]).toBe(0);
+  });
+
+  it('recordCache counts one per class; classes never cross', () => {
+    const reg = new RequestMetricsRegistry();
+    reg.recordCache('hits');
+    reg.recordCache('hits');
+    reg.recordCache('stores');
+    reg.recordCache('revalidations');
+    const cache = reg.snapshot().totals.cache;
+    expect(cache).toEqual({ hits: 2, stores: 1, evictions: 0, revalidations: 1 });
+  });
+
+  it('a stray JS-level key is a NO-OP — the pinned four-key shape can never be polluted', () => {
+    const reg = new RequestMetricsRegistry();
+    (reg as { recordCache(c: string): void }).recordCache('purges');
+    const cache = reg.snapshot().totals.cache;
+    expect(Object.keys(cache).sort()).toEqual([...CACHE_COUNTERS].sort());
+    for (const c of CACHE_COUNTERS) expect(cache[c]).toBe(0);
+  });
+
+  it('the cache tally NEVER touches request counters or route rows (orthogonal dimension)', () => {
+    const reg = new RequestMetricsRegistry();
+    reg.recordCache('stores');
+    const snap = reg.snapshot();
+    expect(snap.totals.requests).toBe(0);
+    expect(snap.routes).toEqual([]);
+    expect(snap.totals.cache.stores).toBe(1);
+  });
+
+  it('snapshots COPY the tally: later events never mutate an already-returned view', () => {
+    const reg = new RequestMetricsRegistry();
+    reg.recordCache('hits');
+    const before = reg.snapshot();
+    reg.recordCache('hits');
+    reg.recordCache('evictions');
+    expect(before.totals.cache).toEqual({ hits: 1, stores: 0, evictions: 0, revalidations: 0 });
+    expect(reg.snapshot().totals.cache).toEqual({ hits: 2, stores: 0, evictions: 1, revalidations: 0 });
+  });
+
+  it('the restaurant dimension NEVER emits cache (same OWNER-rung shape contract as throttled + mail)', () => {
+    const RID = '5f0a1b2c-3d4e-4f50-9a8b-7c6d5e4f3a2b';
+    const reg = new RequestMetricsRegistry();
+    reg.record('GET /api/restaurants/:id', 200, 5, RID);
+    reg.recordCache('hits');
+    expect(reg.snapshot().totals.cache.hits).toBe(1);
+    const b = reg.restaurantSnapshot(RID);
+    expect(Object.keys(b.totals)).not.toContain('cache');
+    for (const row of b.routes) expect(Object.keys(row)).not.toContain('cache');
+    const entries = reg.restaurantEntries();
+    expect(Object.keys(entries[RID].totals)).not.toContain('cache');
+  });
+
+  it('reset() zeroes the cache tally too', () => {
+    const reg = new RequestMetricsRegistry();
+    reg.recordCache('stores');
+    reg.recordCache('revalidations');
+    reg.reset();
+    const snap = reg.snapshot();
+    for (const c of CACHE_COUNTERS) expect(snap.totals.cache[c]).toBe(0);
   });
 });
 

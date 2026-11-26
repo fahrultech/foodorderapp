@@ -125,11 +125,19 @@ export interface CacheEntry {
  * benign case like `?limit=10` vs `?limit=010` merely costs one extra
  * entry — never a wrong body, because every entry was captured from the
  * handler itself.
+ *
+ * The optional `onEvict` callback (session 138) lets the metrics registry
+ * tally cap evictions without the store importing anything: it fires once
+ * per entry actually dropped on overflow (a re-set of an EXISTING key is a
+ * refresh, never an eviction, so it never fires).
  */
 export class HttpCacheStore {
   private readonly entries = new Map<string, CacheEntry>();
 
-  constructor(private readonly maxEntries: number = MAX_HTTP_CACHE_ENTRIES) {}
+  constructor(
+    private readonly maxEntries: number = MAX_HTTP_CACHE_ENTRIES,
+    private readonly onEvict?: () => void,
+  ) {}
 
   get(urlKey: string): CacheEntry | undefined {
     return this.entries.get(urlKey);
@@ -148,7 +156,10 @@ export class HttpCacheStore {
           oldestKey = key;
         }
       }
-      if (oldestKey !== null) this.entries.delete(oldestKey);
+      if (oldestKey !== null) {
+        this.entries.delete(oldestKey);
+        if (this.onEvict) this.onEvict();
+      }
     }
     this.entries.set(urlKey, entry);
   }

@@ -82,6 +82,23 @@ export class MetricsMailTotalsResponse {
   general: MetricsMailTallyResponse;
 }
 
+/**
+ * Public-read HTTP cache tallies (session 138, Phase 15 "HTTP-cache hit-rate
+ * visibility") — the session-103 store's work, cumulative since API boot.
+ * Four honest event classes, ONE producer each (middleware branches + the
+ * store's cap-drop path), so the totals can never double-count.
+ */
+export class MetricsCacheTotalsResponse {
+  @ApiProperty({ type: 'integer', description: '200s served COMPLETELY from the store (fresh entry within TTL — handler never ran, zero SQL).' })
+  hits: number;
+  @ApiProperty({ type: 'integer', description: 'JSON 200 bodies captured into the store — first miss of a URL AND stale re-captures after TTL expiry.' })
+  stores: number;
+  @ApiProperty({ type: 'integer', description: 'Entries dropped by the MAX_HTTP_CACHE_ENTRIES cap (cost signal only — eviction never breaks correctness).' })
+  evictions: number;
+  @ApiProperty({ type: 'integer', description: '304s answered by the cache layer, BOTH arms: fresh-store zero-SQL 304s and stale revalidations where the handler re-read but the bytes were unchanged. An Express-native freshness 304 BEFORE any store entry is NOT counted here.' })
+  revalidations: number;
+}
+
 export class MetricsTotalsResponse {
   @ApiProperty({ type: 'integer' })
   requests: number;
@@ -105,6 +122,16 @@ export class MetricsTotalsResponse {
       '`throttled`, the scoped RestaurantMetricsTotalsResponse never carries the key.',
   })
   mail: MetricsMailTotalsResponse;
+  @ApiProperty({
+    type: () => MetricsCacheTotalsResponse,
+    description:
+      'Public-read HTTP cache tallies since API boot (session 138): store hits, captures, ' +
+      'cap evictions and cache-layer 304 revalidations. Zeros while the feature is disabled ' +
+      '(HTTP_CACHE_TTL_SEC=0) — only REAL middleware/store events count. ADMIN global view ' +
+      'only: like `throttled` and `mail`, the scoped RestaurantMetricsTotalsResponse never ' +
+      'carries the key (session-85 rule).',
+  })
+  cache: MetricsCacheTotalsResponse;
   @ApiProperty({ type: 'integer', description: 'Distinct tracked route keys (excludes the "other" overflow bucket).' })
   routeKeys: number;
   @ApiProperty({ type: 'boolean', description: 'True if the route-key cap ever tripped and folded new routes into "other".' })

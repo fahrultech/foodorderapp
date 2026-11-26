@@ -539,6 +539,25 @@ export interface MetricsRouteRow {
   histogram: Array<{ leMs: number | null; count: number }>;
 }
 
+/**
+ * Public-read HTTP cache tallies, cumulative since API boot (session 138).
+ * ADMIN GLOBAL view only — the scoped GET /restaurants/:id/metrics payload
+ * NEVER carries the key (session-85 rule, same contract as the API-side
+ * `throttled`/`mail` dimensions), which is why `totals.cache` is OPTIONAL
+ * on the shared type: TrafficPanel renders its cache strip ONLY when the
+ * field is present, so an OWNER rung structurally cannot show global data.
+ */
+export interface MetricsCacheTotals {
+  /** 200s served completely from the store (fresh entry, zero SQL). */
+  hits: number;
+  /** JSON 200 bodies captured into the store (misses + stale re-captures). */
+  stores: number;
+  /** Entries dropped by the store's URL cap (cost signal, never correctness). */
+  evictions: number;
+  /** 304s answered by the cache layer (fresh zero-SQL + stale unchanged arms). */
+  revalidations: number;
+}
+
 export interface MetricsSnapshot {
   generatedAt: string;
   uptimeSec: number;
@@ -553,6 +572,8 @@ export interface MetricsSnapshot {
     p95Ms: number | null;
     p99Ms: number | null;
     maxMs: number | null;
+    /** Session 138 — see MetricsCacheTotals: present ONLY on the ADMIN view. */
+    cache?: MetricsCacheTotals;
   };
   routes: MetricsRouteRow[];
 }

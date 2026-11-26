@@ -1,4 +1,5 @@
 import type { NextFunction, Request, Response } from 'express';
+import type { CacheCounter } from '../metrics/request-metrics';
 import {
   type CacheTarget,
   HttpCacheStore,
@@ -40,9 +41,24 @@ import {
 export interface HttpCacheMiddlewareOptions {
   ttlSec: number;
   store: HttpCacheStore;
+  /**
+   * Cache-dimension recorder (session 138). OPTIONAL on purpose: specs and
+   * any other embedding may run the chain uncounted. The store's OWN
+   * evictions ride the store's onEvict, never this callback — every event
+   * class has exactly ONE producer, so totals can never double-count.
+   */
+  onCacheEvent?: (counter: CacheCounter) => void;
 }
 
 const CACHE_CONTROL_NO_VARIANT = new Set(['content-length', 'content-type', 'transfer-encoding']);
+
+/** Null-safe cache-event fold — the recorder is optional by design. */
+function record(
+  onCacheEvent: ((counter: CacheCounter) => void) | undefined,
+  counter: CacheCounter,
+): void {
+  if (onCacheEvent) onCacheEvent(counter);
+}
 
 function toBuffer(chunk: unknown, encoding?: unknown): Buffer {
   if (Buffer.isBuffer(chunk)) return chunk;
@@ -72,7 +88,7 @@ function markTemplate(req: Request, target: CacheTarget): void {
 }
 
 export function createHttpCacheMiddleware(options: HttpCacheMiddlewareOptions) {
-  const { ttlSec, store } = options;
+  const { ttlSec, store, onCacheEvent } = options;
   const ttlMs = ttlSec * 1000;
 
   return function httpCacheMiddleware(req: Request, res: Response, next: NextFunction): void {
@@ -93,11 +109,13 @@ export function createHttpCacheMiddleware(options: HttpCacheMiddlewareOptions) {
     if (fresh && entry) {
       markTemplate(req, target);
       if (etagMatches(req.headers['if-none-match'], entry.etag)) {
+        record(onCacheEvent, 'revalidations'); // fresh-store 304: zero SQL
         res.statusCode = 304;
         setCacheHeaders(res, entry.etag, ttlSec);
         res.end();
         return;
       }
+      record(onCacheEvent, 'hits'); // 200 straight from the store: zero SQL
       res.statusCode = 200;
       res.setHeader('Content-Type', entry.contentType);
       res.setHeader('Content-Length', entry.body.length);
@@ -146,11 +164,13 @@ export function createHttpCacheMiddleware(options: HttpCacheMiddlewareOptions) {
       if (res.statusCode === 200 && contentType.includes('application/json')) {
         const etag = etagFor(body);
         store.set(urlKey, { etag, body, contentType, storedAtMs: Date.now() });
+        record(onCacheEvent, 'stores'); // captured into the store (cap evictions ride onEvict)
         setCacheHeaders(res, etag, ttlSec);
         if (etagMatches(req.headers['if-none-match'], etag)) {
           // Stale revalidation with an unchanged body: handler DID read
           // (unavoidable without cheap server-side versioning), the
           // response only skips the bytes.
+          record(onCacheEvent, 'revalidations');
           res.statusCode = 304;
           for (const header of CACHE_CONTROL_NO_VARIANT) res.removeHeader(header);
           if (typeof callback === 'function') (callback as () => void)();
