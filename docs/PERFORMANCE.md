@@ -707,6 +707,17 @@ their split decisions separately.
 | `/orders/my` | 144408 |
 <!-- BUNDLE-BASELINE-END -->
 
+Session-140 note: Phase 16 #2 adds the fifth cache counter (`eligible`,
+the hit-rate denominator) to the SAME additive shape. Web delta is the
+TrafficPanel strip line + 1 Portal key x2 locales: the IN-PATH stash/pop
+A/B measured UNIFORM -2 B on all seven routes (HEAD 135824/138895/139358/
+142383/137063/162815/144357 -> tree 135822/138893/139356/142381/137061/
+162813/144355) - an additive-key dictionary effect at noise magnitude,
+not a positive class, so the CI-anchored table stays untouched (`/admin`
+is not a budget route and `lib/api.ts` gained an optional field only -
+type-only, zero emitted JS). If the CI gate reads a uniform +N, re-adopt
+per session-137/138 doctrine.
+
 Session-138 note: message-catalog edit (6 new Portal keys, HTTP-cache
 card row) = UNIFORM class per session 132/137 doctrine — the IN-PATH
 stash/pop A/B measured exactly +9 B on ALL SEVEN routes (clean 135815/

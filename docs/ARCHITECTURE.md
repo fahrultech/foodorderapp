@@ -769,15 +769,24 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   a restaurant snapshot never does), so a global field cannot ride onto
   the OWNER rung through it even by accident, and the panel chunk stays
   code-split behind the `traffic != null` render gate (session 90 rule).
-  The cache dimension itself (session 138): `recordCache` tallies four
+  The cache dimension itself (session 138; fifth counter session 140,
+  Phase 16 #2): `recordCache` tallies five
   CLOSED event classes — `hits` (200s served completely from the store),
-  `stores` (captured 200 bodies), `evictions` (URL-cap drops) and
+  `stores` (captured 200 bodies), `evictions` (URL-cap drops),
   `revalidations` (cache-layer 304s, both the fresh zero-SQL arm and the
   stale unchanged-bytes arm; an Express-native freshness 304 before any
-  store entry is NOT counted) — on GLOBAL totals only, the third time the
+  store entry is NOT counted) and `eligible` (whitelisted anonymous GETs
+  whose HANDLER ran — the misses the store could have served, counted once
+  at the capture-branch entry whatever the handler finally answered). The
+  honest served-from-cache RATE the ADMIN strip derives is
+  hits/(hits+eligible): of the requests needing a full body delivery (or
+  a re-learn), how many the store served. Fresh-store 304s sit OUTSIDE the
+  ratio on purpose — they delivered no body — and the stale 304 arm is
+  already inside `eligible`; `stores <= eligible` holds by construction.
+  The tally rides GLOBAL totals only, the third time the
   `throttled`/`mail` shape rule applies. One producer per class (the
-  middleware branches own hits/stores/revalidations, the store's `onEvict`
-  owns evictions), so totals can never double-count; a disabled feature
+  middleware branches own hits/stores/revalidations/eligible, the store's
+  `onEvict` owns evictions), so totals can never double-count; a disabled feature
   (TTL=0) records nothing, surfacing as honest zeros. The ADMIN route
   serves it verbatim and the periodic fold line inherits it with zero
   extra wiring.

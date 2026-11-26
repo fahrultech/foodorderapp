@@ -739,12 +739,30 @@
   arithmetic with fold line + scan exit 1, default-500 arm stays quiet on
   the SAME flood, garbage-knob arm falls back without crash; web/e2e delta
   0, swagger ops 78 unchanged.)
-- [ ] Perf: honest cache hit-RATE — session 138 left the denominator
+- [x] Perf: honest cache hit-RATE — session 138 left the denominator
   uncounted (a derived rate needs an `eligible` counter: whitelisted
   anonymous GETs that ran the handler = the misses the store could have
   served). Add the 5th counter at the capture branch, mirror it in the
   web type + a derived `x of y served from cache` line in the strip, and
   re-pin the exact-arithmetic ladders (unit + integration + live).
+  (2026-11-26, session 140; fifth CLOSED counter `eligible` recorded ONCE
+  at the middleware capture-branch entry (whatever the handler finally
+  answered — 200 capture, stale 304, 4xx passthrough); bearer/POST/HEAD/
+  sub-path/ttl=0 count NOTHING, so `stores <= eligible` holds by
+  construction and the honest served-from-cache rate is hits/(hits+
+  eligible) with fresh-store 304s deliberately outside the ratio (they
+  deliver no body). Snapshot + fold line + alert rule 8 inherit the key
+  with zero consumer changes; swagger ADMIN model gains `eligible`; web
+  `lib/api.ts` gains OPTIONAL `eligible?` (honest absence on a pre-140
+  wire) + TrafficPanel a presence-gated `traffic-cache-rate` line "x of y
+  served from cache" + 1 Portal EN/ID key. No route/DTO/migration change
+  (ops stays 78). 109 suites/1575 tests (+1, every exact ladder RE-PINNED
+  not loosened + a new 4xx-passthrough test), live smoke 27/27 on a
+  30-migration from-empty DB across TWO boots (boot-1 exact-object jq pin
+  per request; boot-2 ttl=2 stale arm eligible 2 + fold-line grep), e2e
+  139/139 green ×2 fresh-seed incl. the 5-key wire pin + OWNER-rung
+  strip-absent test + timing gate OK; bundle IN-PATH A/B uniform −2 B
+  (noise), table untouched.)
 - [ ] UX: FULLY-offline receipt restore — session 137 covers the API being
   down while the web server answers; the deeper case (browser cannot reach
   the web server at all) today loses the receipt even when the device

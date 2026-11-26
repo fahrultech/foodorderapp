@@ -3,6 +3,87 @@
 Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
+## 2026-11-26 20:55 — Session 140 — honest cache hit-rate: the fifth `eligible` counter + derived strip line (Perf, Phase 16 #2)
+
+**Built:**
+
+- API: fifth CLOSED cache counter `eligible` on the session-138 registry
+  dimension (CACHE_COUNTERS now five, freshCacheTotals gains eligible: 0,
+  the recordCache hasOwnProperty gate admits it automatically). ONE
+  producer, at the middleware's capture-branch ENTRY (session-103
+  miss-or-stale fall-through): every whitelisted anonymous GET whose
+  HANDLER ran counts exactly once, whatever the handler finally answered
+  (200 capture, stale 304, 4xx passthrough). Bearer'd requests,
+  non-targets, HEAD/POST and ttl<=0 never reach the branch and count
+  NOTHING (session-138 honest-zeros rule holds: a disabled feature shows
+  zeros, not phantom eligible). Invariant by construction: stores <=
+  eligible (every capture rides a handler pass). The honest
+  served-from-cache RATE is hits/(hits+eligible); fresh-store 304s sit
+  OUTSIDE the ratio on purpose (no body delivered — their count already
+  rides revalidations, whose two arms cannot be decomposed with the keys
+  that exist; the stale 304 arm is inside eligible). The snapshot, the
+  periodic fold line and alert rule 8 inherit the new key with ZERO
+  consumer changes (snapshot-derived, session-134 doctrine); no route,
+  DTO or migration change — ops surface stays 78.
+- API: swagger `MetricsCacheTotalsResponse.eligible` + the ADMIN route
+  description now names the fifth counter; docs comments updated
+  four->five wherever the closed set was described.
+- Web: `lib/api.ts` — `eligible?: number` (OPTIONAL: honest absence on a
+  pre-140 wire; the shared type still satisfies the restaurant payload).
+  `TrafficPanel` cache strip gains the derived line
+  `traffic-cache-rate` — "x of y served from cache" (x = hits, y =
+  hits + eligible, toLocaleString-formatted params) rendered ONLY when
+  the wire carries a numeric eligible — OWNER rung structurally cannot
+  show it (payload lacks totals.cache; session-85 rule untouched). One
+  new `Portal.trafficCacheRate` EN/ID key (surgical line-insert, net +1
+  line per file, duplicate-key veto + parity + ICU token-set checks all
+  clean).
+
+**Verified:**
+
+- API build green; full jest 109 suites / 1575 tests (+1 vs session
+  139's 1574: every exact ladder re-pinned for the 5-key shape, NOT
+  loosened). Unit registry pins: pristine five-key zeros incl eligible,
+  stray-key no-op against the 5-key set, copy-semantics + reset loops.
+  Integration exact ladders: miss=eligible+stores (1/1), replay=hit
+  (eligible stays 1), fresh-304=ineligible (reval 1, eligible 1),
+  bearer/POST/HEAD/sub-path move NOTHING, stale arm = eligible 2 with
+  stores 2 reval 1 hits 0 (the handler RE-RAN — never a hit), ttl=0 arm
+  all-zeros incl eligible; NEW test: a whitelisted 4xx passthrough counts
+  eligible EXACTLY once per request and stores nothing (no negative
+  caching), via a probe controller arm; admin fixture carries the 5-key
+  cache.
+- Live smoke 27/27 on a 30-migration from-empty scratch DB, TWO boots:
+  boot 1 exact-object jq pins after every single request through the
+  whole ladder (search miss/hit/304, list miss, detail miss, unknown-uuid
+  404 with NO cache-control, bearer+POST inert, stores<=eligible, OWNER
+  /restaurants/:id/metrics has NO cache key, zero 5xx); boot 2 (TTL=2)
+  the stale arm exact + LATEST-fold-line grep carrying
+  eligible:2 + zero 5xx. First run 26/27: the fold grep read the FIRST
+  tick (legitimately eligible:1 — pre-stale-INM timing), fixed to poll
+  the latest fold line until the exact value lands; second run 27/27.
+- Web build green; full Playwright 139/139 green x2 on fresh
+  seed (first run had hit a stale-state DB — reseeded, then x2) incl.
+  the extended admin-traffic wire pin (5-key exact toEqual + sorted-key
+  list + stores<=eligible + payload-derived rate-line text + the OWNER
+  rung strip-absent test) + timing gate OK.
+- Bundle: IN-PATH stash/pop A/B measured UNIFORM -2 B across all seven
+  budget routes (additive-key dictionary effect, noise magnitude) —
+  table untouched, /admin is not a tracked route; PERFORMANCE.md note
+  records the numbers (session-137/138 re-adopt doctrine if CI
+  disagrees).
+- Sanitizer scan on added lines clean; `git diff --check` clean.
+
+**Left for next sessions:**
+
+- With the denominator live, session 139's cache_saturation rule can
+  graduate from the raw cumulative-evictions ceiling to a share-based
+  view (e.g. evictions vs eligible growth) — needs windowing first, since
+  both counters are since-boot (session-85 caveat).
+- Phase 16 #3: FULLY-offline receipt restore — the browser-cannot-reach-
+  the-web-server case for /orders/<id> URLs.
+
+---
 ## 2026-11-26 18:55 — Session 139 — cache_saturation alert rule: evictions past a store-capacity ceiling, warning severity, snapshot-derived (Ops, Phase 16 #1)
 
 **Built:**
