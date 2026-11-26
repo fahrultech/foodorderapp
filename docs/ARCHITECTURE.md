@@ -1062,7 +1062,28 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   (409 `ORDER_CANCELLED`). Access: owner pays their order, ADMIN pays any,
   GUEST orders are payable by any authenticated payer (the receipt-link path
   — payer is recorded on the row); foreign owned orders 404 (no existence
-  leak, same stance as cancel). Rows persist BEFORE the intent call, so a
+  leak, same stance as cancel).
+  **DECISION (Phase 15 #3 — capability tiers on the money ladder):** the
+  magic-link `rt` token was extended from VIEW into a PAY rung for GUEST
+  orders ONLY. The reasoning is a strict-narrower substitution: a guest
+  order was already payable by ANY signed-in account, so admitting its
+  72h order-bound HMAC email token is a strictly narrower grant than the
+  rung it joins — and without it the guest checkout the app deliberately
+  ships (session 76) left money states the customer could never settle
+  without inventing an account at the worst moment. Orders OWNED by an
+  account stay bearer-only for money: mailbox access must never become
+  money access on an account, so a valid rt on an owned order answers the
+  SAME canonical 404 as a stranger (read ≠ transact is the tier). Capture
+  follows the same shape mirrored on the ROW: an rt settles only payments
+  with `userId IS NULL` (what the rung itself created), never a
+  signed-in payer's attempt. Anonymous without any presented `rt` keeps the
+  untouched 401 `Missing bearer token` baseline (`PaymentAccessGuard`:
+  bearer attempt = strict JwtAuthGuard semantics, never a silent downgrade;
+  presence-only admission, verification lives in the service ladder beside
+  the loaded row — never a SQL predicate). A future real-gateway adapter
+  inherits this posture: the rung INITIATES the intent; card entry/customer
+  authorization stays provider-side, so the tier question is settled at the
+  API boundary, not per adapter. Rows persist BEFORE the intent call, so a
   gateway explosion is recorded as a FAILED row + surfaced as 502
   `PAYMENT_GATEWAY_ERROR`, never lost. `payments` bucket throttles pay+capture
   together (default 10/min/IP). **Refunds** (same bucket): the optional

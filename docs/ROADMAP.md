@@ -650,7 +650,7 @@
   smoke 21/21 on a 30-migration from-empty DB driving the REAL
   captured-email token through the full app incl. equivalence arms;
   web/e2e delta 0 — evidence-only increment.)
-- [ ] Product: one-click pay from the magic link — session 133 made guests
+- [x] Product: one-click pay from the magic link — session 133 made guests
   VIEW the receipt from their email, but payment stays bearer-only by
   design (session 43's sign-in hint): an unauthenticated email recipient
   still cannot pay. Decide explicitly: either extend `POST /payments` +
@@ -659,6 +659,24 @@
   may transact), or record the refusal in ARCHITECTURE with the reason
   (capability tiers: read vs write). Whichever ships: specs + live smoke
   + e2e + EN/ID copy for any new panel state.
+  (2026-11-26, session 136; DECISION = SHIP with a tier: rt pays GUEST
+  orders only (strictly narrower than the session-38 "any signed-in user
+  may pay a guest order" rung), owned orders keep rt at VIEW — mailbox
+  access never becomes money access on an account (ARCHITECTURE decision
+  paragraph). `PaymentAccessGuard` (bearer attempt never downgraded;
+  presence-only admission; anonymous-without-rt keeps the byte-identical
+  401), service ladder verifies the HMAC against the LOADED row in memory
+  (never a SQL predicate), rt rows carry no payer id, capture settles only
+  rt-created rows, every denial the canonical 404 (session-135 baseline
+  preserved); swagger ops move to the optional-bearer list; +2 suites/+36
+  tests (109/1552) incl. a wire suite proving the money POSTs carry no
+  Authorization header, live smoke 37/37 driving REAL captured-email
+  tokens with the confirm-gate flip pinned both ways (402 unpaid → 200
+  after magic-link payment); web panel pays guest orders off the same
+  token (tier denial collapses honestly to the sign-in hint), one new
+  `Order.rtPayNote` EN/ID key; e2e 134→137 green ×2 fresh-seed + timing
+  gate OK; bundle: +42 B uniform shared-chunk class +195 B page-local,
+  all seven rows re-adopted IN-PATH A/B.)
 - [ ] UX: receipt offline resilience — the PWA worker (session 59) caches
   the app shell but a placed-order receipt vanishes when the network
   drops mid-view. Cache the LAST successfully fetched order row per id in

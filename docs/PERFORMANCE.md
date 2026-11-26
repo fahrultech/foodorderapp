@@ -698,15 +698,22 @@ their split decisions separately.
 <!-- BUNDLE-BASELINE-START -->
 | Route | Baseline First Load JS+CSS, full chain (B, CI-measured, node 22.23.5) |
 |---|---|
-| `/` | 135809 |
-| `/restaurants/[id]` | 138880 |
-| `/cart` | 139342 |
-| `/checkout` | 142369 |
-| `/map` | 137047 |
-| `/orders/[id]` | 159714 |
-| `/orders/my` | 144348 |
+| `/` | 135851 |
+| `/restaurants/[id]` | 138922 |
+| `/cart` | 139384 |
+| `/checkout` | 142411 |
+| `/map` | 137089 |
+| `/orders/[id]` | 159951 |
+| `/orders/my` | 144390 |
 <!-- BUNDLE-BASELINE-END -->
 
+Session-136 note: ALL SEVEN rows +42 B (the uniform class of a
+`lib/api.ts` edit folding into the shared chain chunk every route carries -
+session 132 doctrine) plus +195 B page-local on `/orders/[id]` = 237 total
+(PaymentPanel's guest-magic-link branch + PayButton rt rung + the new
+message key). Deltas measured IN-PATH (stash -> clean build -> --print ->
+pop -> rebuild), CI-anchored by addition onto the run-175 table - the
+phantom cancels because both builds shared this checkout path.
 Session-133 note: ALL SEVEN rows +3 B (run 175 gate: 135806→135809,
 138877→138880, 139339→139342, 142366→142369, 137044→137047 for the five
 CI-named routes; the annotation feed truncated the two /orders rows as

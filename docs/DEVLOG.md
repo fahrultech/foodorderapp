@@ -3,6 +3,120 @@
 Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
+## 2026-11-26 12:40 — Session 136 — magic-link MONEY rung: one-click pay from the order email (guest orders), capability tier pinned (Product, Phase 15 #3)
+
+**Built:**
+
+- DECISION (recorded in ARCHITECTURE.md, the item's explicit "decide
+  either/or"): the `rt` capability was EXTENDED from VIEW into a PAY rung
+  for GUEST orders ONLY. Justification: guest orders were already payable
+  by ANY signed-in account (session 38), so a 72h HMAC token bound to the
+  exact order is a strictly-narrower grant than the rung it joins — and
+  without it the shipped guest checkout (session 76) left unpaid money
+  states the customer could never settle without inventing an account
+  mid-receipt. ACCOUNT-OWNED orders keep rt at VIEW: mailbox access must
+  never become money access on an account (read-vs-write tier). A future
+  real-gateway adapter inherits the posture: the rung INITIATES the
+  intent, card auth stays provider-side.
+- API: new `common/payment-access.guard.ts` — bearer attempt = strict
+  JwtAuthGuard semantics (an invalid bearer is NEVER silently downgraded
+  to the guest rung), no-bearer requests are admitted ONLY when an `rt`
+  param is PRESENTED (presence-only; verification needs the loaded row),
+  anonymous-without-rt keeps the byte-identical 401 'Missing bearer
+  token' envelope of session 47's pins. `PaymentsService` gained the
+  ladder: pay/list share `getOrderForPayment` (bearer rungs unchanged;
+  rt arm = pure `verifyReceiptAccessToken` vs the order id + guest-order
+  tier on the loaded row; denials are the SAME canonical 404 as an
+  unknown id — session 135's baseline preserved on the money rung);
+  capture mirrors it on the ROW (`rt` settles only `userId IS NULL` rows
+  bound to its own order — a signed-in payer's attempt is capture-locked);
+  rt-created payment rows carry NO payer id and the gateway input's
+  customerRef goes null. `receiptSecret()` ported with the same
+  belt-and-braces inert-rung shape as session 133. Swagger: `rt`
+  @ApiQuery documented on all three ops; the ops move to the
+  deliberately-public list (optional-bearer convention of `POST /orders`
+  and `/promos/validate`); op count unchanged (80). No migration, no new
+  env (JWT_SECRET + RECEIPT_TOKEN_TTL_SEC unchanged), no entity change —
+  `payments.userId` was already nullable by design.
+- API tests: +2 suites/+36 tests — `payment-rt-access.spec.ts` (21 unit
+  ladder cases: success + row shape, 401 baseline, junk/foreign/expired/
+  empty-string denials byte-identical to unknown-id, the owned-order tier
+  404, inert-config arm, bearer-additive arms, replay/409 arms, capture
+  tier + cross-order binding, cancelled-order gate riding the rung) and
+  `payment-rt-access.http.spec.ts` (15 wire cases over real guards +
+  pipe + filter + live sockets: the no-Authorization-header success
+  round-trip, repeated-`rt` array transport denying 404 never 500,
+  malformed-bearer-beside-valid-rt staying 401, history/list shapes).
+  Migrated harnesses: query-surface-audit REGISTRY gained the three
+  @Query sites (in-memory-only evidence + SQL-predicate forbid rules),
+  the uuid pipe-sweep opens the new guard, controller arg pins updated.
+- Web: `api.createPayment/capturePayment/listOrderPayments` take the rt
+  rung (accessToken nullable + `rt` via URLSearchParams, the session-133
+  percent-safety idiom); `PaymentPanel` gained the guest-magic arm — rows
+  load bearer-free off the same token, a 404 tier denial collapses
+  HONESTLY back to the session-43 sign-in hint (the ladder's canonical
+  denial is a tier statement, not a glitch), non-404 failures stay the
+  error card; `PayButton` pays intent+capture on rt when no session; the
+  receipt page passes `?rt=` through. One new `Order.rtPayNote` key ×
+  EN/ID (parity + ICU-token asserts before merge).
+- e2e: receipt-token minting extracted to `e2e/helpers/receipt-token.ts`
+  (ONE source, session-106 doctrine; zz-magic-link migrated byte-equal in
+  behavior); new `zz-pay-magic-link.spec.ts` 3 tests — full guest
+  click-to-paid through the browser INCLUDING the wire assertion that
+  both money POSTs carry the rt query and NO Authorization header, the
+  paid pill surviving a reload; owned-order tier pin (receipt renders,
+  panel keeps the sign-in hint, zero pay affordance); ID-locale byte-pin
+  of the new note via an intercepted list read. First-run single failure
+  was the known strict-mode double-text trap (order code rides h1 + the
+  reference line) — harness fix, not a product bug.
+
+**Verified:**
+
+- API: `npm run build` green; jest 109 suites / 1552 tests (+2 suites
+  /+36 vs session 135's 107/1516) full run green.
+- Live smoke 37/37 on a 30-migration from-empty scratch DB, gate ON by
+  default and SMTP-capture rig: the REAL captured-email rt token drives
+  intent -> capture -> history (row `userId IS NULL` exact in psql,
+  amounts from the snapshot); the product payoff pinned BOTH ways —
+  owner confirm answers 402 while unpaid and 200 after the magic-link
+  payment; owned-order tier 404 wrote NOTHING (payment-count delta),
+  cross-order capture 404, a bearer-created row is rt-capture-locked
+  while its payer still captures; expired (ttl=1 live mint) and junk
+  denials byte-identical canonical 404s; zero level-50 log lines.
+  (Two harness bugs found+fixed mid-run: the pino msg-escape parser
+  trap — the session-122 warning verbatim — and an unbound-variable
+  typo.)
+- Web: `npm run build` green; full e2e 137/137 green x2 consecutive on
+  fresh seeds (134->137) + fixture-timing gate OK both runs.
+- Bundle gate: IN-PATH stash-rebuild A/B — `lib/api.ts` rode the shared
+  chain chunk (+42 B on ALL seven routes, the session-132 uniform class)
+  plus +195 B page-local on `/orders/[id]` (PaymentPanel/PayButton/one
+  message key); all seven baselines re-adopted CI-anchored by addition
+  (e.g. `/orders/[id]` 159714 -> 159951), gate OK +49..+51 B local
+  margins.
+- Messages merge caught a REAL trap the standing lesson only half-covered:
+  the surgical line-insert re-emitted its anchor line, leaving a DUPLICATE
+  guestLocked key + a glued retry line in both JSONs — `json.loads` parses
+  duplicate keys silently (last-wins, same value), so the build and e2e
+  stayed green over dirty bytes. Caught by a dedicated re-read; deduped,
+  then strict re-parse (object_pairs_hook duplicate-key veto) and a
+  NET-ONE-LINE diff-vs-HEAD proof per file; rebuilt (bundle sums
+  byte-identical) and the full suite re-greened x2 on the corrected tree.
+- Sanitizer scans: added lines codepoint-checked for U+2026 masks,
+  asterisk-mask sequences and backslash-u escape text — clean (the one
+  over-escaped registry block was rewritten byte-identical to the
+  pre-existing entries' convention and verified against the service
+  source with the harness's own regex engine).
+
+**Left for next sessions:**
+
+- Phase 15 #4 (receipt offline resilience) and #5 (HTTP-cache hit-rate
+  visibility) stand as written.
+- Optional follow-up: the guest bilingual email copy could nudge
+  "pay in one tap" now that the money rung exists — copy-only change,
+  session-122 template file (`notifications/email-copy.ts`).
+
+---
 ## 2026-11-25 20:10 — Session 135 — magic-link token-structure fuzz sweep: 240 seeded `?rt=` mutations + the pinned lenient-decode equivalence classes (Test, Phase 15 #2)
 
 **Built:**
