@@ -698,15 +698,25 @@ their split decisions separately.
 <!-- BUNDLE-BASELINE-START -->
 | Route | Baseline First Load JS+CSS, full chain (B, CI-measured, node 22.23.5) |
 |---|---|
-| `/` | 135851 |
-| `/restaurants/[id]` | 138922 |
-| `/cart` | 139384 |
-| `/checkout` | 142411 |
-| `/map` | 137089 |
-| `/orders/[id]` | 162856 |
-| `/orders/my` | 144390 |
+| `/` | 135860 |
+| `/restaurants/[id]` | 138931 |
+| `/cart` | 139393 |
+| `/checkout` | 142420 |
+| `/map` | 137098 |
+| `/orders/[id]` | 162865 |
+| `/orders/my` | 144399 |
 <!-- BUNDLE-BASELINE-END -->
 
+Session-137 CI follow-up: the first gate run after that commit went RED
+UNIFORM +9 B on ALL SEVEN routes (run 45779323226 annotations: five exact
+measures 135860/138931/139393/142420/137098 vs the 136-137 table; the
+/orders pair truncated as always in 171/173/175). CAUSE: the three new
+Order message keys fold into the shared messages chunk every route's chain
+carries - session-132's UNIFORM-+N CLASS, exactly why message edits are
+never page-local. The +2905 in-path delta ABOVE is therefore the correct
+page-local figure on top of the shared shift; rows re-adopted to this run's
+CI numbers: +9 to all seven (162856->162865 and 144399 for the truncated
+pair extrapolated per session 133 precedent - accepted first-try there).
 Session-137 note: `/orders/[id]` only, +2905 B (159951 -> 162856). The
 receipt body became a shared client component (`ReceiptBody.tsx`) so the
 offline-restore island can re-render the SAME view from localStorage

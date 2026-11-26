@@ -51,6 +51,12 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
   `/orders/[id]` 159951 -> 162856 (+2905 IN-PATH A/B — the page's JSX moved
   from zero-JS RSC into its own client chunk; the other six routes were
   byte-identical across the stash/pop builds, so only this row moves).
+  CORRECTION (same day): the first CI gate run went RED UNIFORM +9 B on ALL
+  SEVEN routes - the three new Order message keys fold into the shared
+  messages chunk (session-132 uniform class - the local A/B could only prove
+  the PAGE-LOCAL delta was shared-shift-free; a message-catalog edit must
+  still be assumed shared until a CI run says otherwise). ALL rows re-adopted
+  to the run's CI numbers (see PERFORMANCE.md session-137 follow-up note).
 
 **Verified:**
 
