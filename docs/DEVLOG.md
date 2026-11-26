@@ -3,6 +3,74 @@
 Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
+## 2026-11-26 18:55 — Session 139 — cache_saturation alert rule: evictions past a store-capacity ceiling, warning severity, snapshot-derived (Ops, Phase 16 #1)
+
+**Built:**
+
+- API: EIGHTH rule `cache_saturation` in the DI-free `ops/alerts.ts`
+  engine — fully SNAPSHOT-DERIVED like session 134's mail rule: reads
+  `totals.cache.evictions` (session-138 tallies) so the ADMIN pull, the
+  synchronous `request_metrics` fold line and `ops/alert-scan.sh`
+  evaluate it identically with ZERO extra observations and zero wiring
+  changes on the consumer side. Fires STRICTLY above
+  `ALERT_CACHE_EVICTIONS_MAX` (integer semantics like
+  `ALERT_RESTOCK_BACKLOG_MAX`; default = `MAX_HTTP_CACHE_ENTRIES` 500 =
+  a full store capacity of spill — the first 500 distinct URLs fill the
+  store with zero evictions, so any eviction count is pure overflow and
+  a ceiling at store-capacity means a PINNED working set, not a brief
+  overshoot; 0 is a legal tightened ceiling "any eviction alerts";
+  garbage/negative/blank fall back, never crash-boot). WARNING severity
+  like route_key_overflow: correctness never breaks — latency and SQL
+  load do. An absent `totals.cache` (hand-built or pre-138 snapshot) is
+  an honest NOT-evaluated, never a fabricated zero. No min-sample floor
+  (count, not share).
+- API: wiring — `AlertRuleId` union + `AlertThresholds.cacheEvictionsMax`
+  + env parsing + the rule block and rules-array entry;
+  `ALERT_CACHE_EVICTIONS_MAX` declared in `env.validation.ts`; the
+  knob-mapping line in `RequestMetricsService`'s config.get() map (see
+  Verified — the live smoke caught a missing mapping line first pass);
+  swagger `AlertThresholdsResponse.cacheEvictionsMax` + rule-id enum +
+  observed-value description + `GET /admin/alerts` route description;
+  alert-scan script + shell doc rule lists. No route surface change
+  (ops stays 78), no migration, no DTO.
+- Web: untouched — `AlertsHistoryPanel` renders firing-rule ids as text,
+  the new rule flows through with zero delta.
+
+**Verified:**
+
+- API build green; full jest 109 suites / 1574 tests (+10 vs session
+  138's 1564: 8 unit-cache-rule matrix tests incl. strict-boundary,
+  tightened-0-alone, hits/stores-never-inflate, absent-tallies
+  not-evaluated and the full env-parse sweep; 1 alert-scan exit-1 ride
+  test; 1 NEW knob-mapping drift guard — per-key sentinel probe through
+  the real service ctor pinning ALL NINE ALERT_* config.get() lines).
+- Live smoke 24/24 on a 30-migration from-empty scratch DB, three boots:
+  ARM A ceiling 0 — pristine zeros + quiet-at-0, then a 503-unique-URL
+  `/api/search` flood lands EXACTLY stores 503 / evictions 3 / hits 0 /
+  revalidations 0, the rule fires ALONE (firingRules ==
+  ["cache_saturation"], observed 3, warning, every other rule quiet),
+  the fold line carries `{status:"alerting",firing:["cache_saturation"]}`
+  + evictions 3, alert-scan exits 1 naming the rule, zero 5xx, zero
+  persisted verdicts (writer disabled by design); ARM B default ceiling
+  500 — the SAME flood stays quiet (observed 3 within 500, scan exit 0);
+  ARM C garbage knob 'half' — boots clean, ceiling falls back to 500.
+  First ARM-A run 17/24 caught the REAL wiring gap (service map missing
+  the knob line — knob inert while units stayed green), fixed same
+  session; second run 23/24 (fold probe read the wrong root —
+  totals nest under `.metrics`), third run 24/24.
+- Sanitizer scan on added lines clean; `git diff --check` clean.
+
+**Left for next sessions:**
+
+- The hit-RATE denominator (`eligible` counter, Phase 16 #2) would let a
+  share-based saturation view replace the raw-count ceiling — the rule
+  deliberately reads the counter that EXISTS today.
+- `ALERT_CACHE_EVICTIONS_MAX` is cumulative-since-boot like every other
+  registry number (session-85 caveat): a long-lived pinned store keeps
+  the warning lit until dilution or restart; windowing belongs to the
+  snapshot-history readers, not this rule.
+
+---
 ## 2026-11-26 17:35 — Session 138 — HTTP-cache hit-rate visibility: cache tallies on the ADMIN snapshot + traffic panel strip (Perf, Phase 15 #5)
 
 **Built:**

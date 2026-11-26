@@ -782,7 +782,7 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   serves it verbatim and the periodic fold line inherits it with zero
   extra wiring.
   On top of the snapshots sits the DI-free alert engine
-  `ops/alerts.ts` (session 86): seven rules — `error_budget` (5xx rate vs
+  `ops/alerts.ts` (session 86): eight rules — `error_budget` (5xx rate vs
   the 99.5% availability SLO, gated by a minimum sample), `p95_latency`
   (histogram estimate vs ceiling), `route_key_overflow` (cardinality-cap
   folding, a warning), `snapshot_stale` (session 109: fires while the
@@ -818,13 +818,23 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   least `ALERT_EMAIL_MIN_ATTEMPTS` sends were attempted (default 5 — order
   mail is sparse, a lone bounce is noise; same small-sample veto as
   `ALERT_MIN_REQUESTS`). ERROR severity: unlike the warning class a lit
-  rule here means receipts and status notices are NOT reaching customers)
-  — evaluated from
+  rule here means receipts and status notices are NOT reaching customers) and
+  `cache_saturation` (session 139: cumulative since-boot public-read HTTP-cache
+  store evictions past `ALERT_CACHE_EVICTIONS_MAX` — also fully SNAPSHOT-DERIVED
+  on `totals.cache` (session 138), so the pull, the fold line and the scan
+  evaluate it identically. Evictions are PURE overflow: the first
+  MAX_HTTP_CACHE_ENTRIES distinct URLs fill the store with ZERO evictions, so a
+  LIT rule (default ceiling 500 = a full store capacity of spill) means a
+  pinned working set — every overflow silently re-runs the handler and the
+  zero-SQL promise degrades. Fires STRICTLY above; 0 is legal ("any eviction
+  alerts"); an absent totals.cache reports an honest not-evaluated. WARNING
+  severity like route_key_overflow: correctness never breaks, latency and SQL
+  load do) — evaluated from
   env-resolved thresholds (`ALERT_5XX_RATE_PCT_MAX` / `ALERT_P95_MS_MAX` /
   `ALERT_RATE_LIMIT_PCT_MAX` /
   `ALERT_MIN_REQUESTS` / `ALERT_SNAPSHOT_STALE_AFTER_SEC` /
   `ALERT_RESTOCK_BACKLOG_MAX` / `ALERT_EMAIL_MIN_ATTEMPTS` /
-  `ALERT_EMAIL_FAILURE_PCT_MAX`,
+  `ALERT_EMAIL_FAILURE_PCT_MAX` / `ALERT_CACHE_EVICTIONS_MAX`,
   read once at boot; garbage falls back, never crash-boots). ONE engine,
   three consumers that can never disagree: ADMIN pull route
   `GET /admin/alerts` (full report; the staleness rule reads
@@ -833,8 +843,8 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   doctrine, DI-free engine) there — the synchronous
   fold line has no DB handle and honestly reports BOTH DB-observation rules
   as not-evaluated, never as a false ok — while the snapshot-derived
-  `email_delivery_failure` rule DOES evaluate on the fold line (session
-  134)), the compact `{status, firing}`
+  `email_delivery_failure` (session 134) and `cache_saturation` (session 139)
+  rules DO evaluate on the fold line), the compact `{status, firing}`
   verdict folded into every `request_metrics` line (push), and the
   scheduler poller
   `ops/alert-scan.sh` → `src/scripts/alert-scan.ts` whose exit codes split

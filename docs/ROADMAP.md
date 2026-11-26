@@ -717,7 +717,7 @@
 
 ## Phase 16 — Cache truth, offline depth & write-side sweeps (opened 2026-11-26, Phase 15 exhausted; from the Ops / Perf / UX / Product / Test evergreen loops)
 
-- [ ] Ops: cache-saturation ALERT rule — session 138 made hits/stores/
+- [x] Ops: cache-saturation ALERT rule — session 138 made hits/stores/
   evictions/revalidations visible but nothing PAGES on them: a store pinned
   at the 500-entry cap (evictions climbing every request) silently degrades
   the zero-SQL promise. Add rule 8 `cache_saturation` to the
@@ -726,6 +726,19 @@
   the fold line + `ops/alert-scan.sh` exit codes with ZERO extra wiring,
   `GET /admin/alerts` round-trip pin, unit matrix + live smoke firing the
   rule ALONE (session-123 arms recipe).
+  (2026-11-26, session 139; rule 8 reads `totals.cache.evictions` STRICTLY
+  above `ALERT_CACHE_EVICTIONS_MAX` (default = MAX_HTTP_CACHE_ENTRIES 500 —
+  evictions are pure overflow, a store that fits NEVER evicts);
+  snapshot-derived like session 134 so pull + fold + scan inherit with zero
+  consumer changes; absent tallies honestly not-evaluated. Live smoke caught
+  the one real wiring gap (service config.get() map missing the knob line —
+  inert knob under green units) and a NEW drift guard pins all nine ALERT_*
+  mappings by sentinel probe; 8 matrix tests + scan ride test
+  (109 suites/1574, +10); live smoke 24/24 on a 30-migration from-empty DB
+  — tightened-0 arm fires ALONE on exact 503-stores/3-evictions flood
+  arithmetic with fold line + scan exit 1, default-500 arm stays quiet on
+  the SAME flood, garbage-knob arm falls back without crash; web/e2e delta
+  0, swagger ops 78 unchanged.)
 - [ ] Perf: honest cache hit-RATE — session 138 left the denominator
   uncounted (a derived rate needs an `eligible` counter: whitelisted
   anonymous GETs that ran the handler = the misses the store could have
