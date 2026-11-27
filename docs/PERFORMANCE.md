@@ -699,13 +699,25 @@ their split decisions separately.
 | Route | Baseline First Load JS+CSS, full chain (B, CI-measured, node 22.23.5) |
 |---|---|
 | `/` | 135873 |
-| `/restaurants/[id]` | 138944 |
-| `/cart` | 139406 |
-| `/checkout` | 142433 |
-| `/map` | 137111 |
-| `/orders/[id]` | 163454 |
+| `/restaurants/[id]` | 138945 |
+| `/cart` | 139409 |
+| `/checkout` | 142436 |
+| `/map` | 137112 |
+| `/orders/[id]` | 163460 |
 | `/orders/my` | 144408 |
 <!-- BUNDLE-BASELINE-END -->
+
+Session-145 CI follow-up: the gate went red on session 144's HEAD (run
+45981541633) and the SAME per-route sums reproduced byte-identically on
+session 145's own push (run 45995537348) — two byte-identical failing runs
+is a real tree shift, not the session-120 wobble (per session-118). Five
+routes landed +1..+6 B over their tables. Re-adopted ONLY the five
+over-budget rows to the failing runs' exact CI numbers (163460 / 137112 /
+142436 / 139409 / 138945); `/` (measured 135871, UNDER its 135873) and
+`/orders/my` (exactly AT 144408) keep their tables per the session-120
+caveat (untouched rows retain incidental headroom rather than chasing a
+shared-chunk drift down onto the baseline).
+
 
 Session-141 CI follow-up: the first gate run (3e01f4e, run 45932682970) read
 `/orders/[id]` 163454 (44 over the locally-measured adoption) and every

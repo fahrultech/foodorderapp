@@ -3,6 +3,21 @@
 Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
+## 2026-11-27 20:20 — Session 145 (CI follow-up) — bundle gate re-adopt: five rows to the red runs' exact CI numbers
+
+**Built:** docs/PERFORMANCE.md budget table only — `/orders/[id]` to
+163460, `/map` to 137112, `/checkout` to 142436, `/cart` to 139409,
+`/restaurants/[id]` to 138945. Session 144's push and this session's
+push (zero web changes between them) produced BYTE-IDENTICAL per-route
+sums across two gate runs (45981541633 / 45995537348) = a real tree
+shift on the current runner lineage, not the session-120 wobble. `/`
+(measured 135871 under 135873) and `/orders/my` (exactly 144408) keep
+their tables per the untouched-rows caveat.
+
+**Verified:** pending — the next CI run must go green on the re-adopted
+numbers (API/E2E/Postgres-matrix jobs were already green on 59ed938).
+
+---
 ## 2026-11-27 20:02 — Session 145 — status-write constant-outcome sweep on ALL FOUR status routes (Test, Phase 17 #1)
 
 **Built:**
