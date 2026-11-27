@@ -3,6 +3,103 @@
 Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
+## 2026-11-27 17:47 — Session 144 — query-logger + EXPLAIN audit of the ORDER reads (Perf, Phase 16 #6)
+
+**Built:**
+
+- Audit (session 79's method, applied to the order reads): scratch DB
+  ALTER'd `log_statement='all'` BEFORE boot, full 30-migration chain from
+  empty + seed + INFLATION to 8,004 orders / 15,617 items (4,004 rows for
+  the audited customer, 4,806 under the owner's restaurant), the compiled
+  dist booted on :4100, every request shape bracketed with run-unique
+  markers, statement counts parsed from the server log, plans via
+  `EXPLAIN (ANALYZE, BUFFERS)`; then the SAME DB re-driven on the new dist
+  for a live A/B with byte-diffs of every response body.
+- Verdict 1 (recorded, no change needed): `GET /orders/my` and the driver
+  inbox are CONSTANT 3 statements — identical at limit 1 vs 50, with and
+  without the status filter, page 2 vs page 50, and after DOUBLING the
+  volume (4,004 to 8,004). The DISTINCT-ids page query + ONE IN-batch row
+  fetch carry items and restaurant in a single join — no N+1 exists.
+  Page plans index-served: backward `IDX_orders_userId_createdAt` (125
+  buffers, 0.32 ms) and `IDX_orders_restaurantId_createdAt` (250 buffers
+  at page 5). No new indexes: a (userId, status, createdAt) composite
+  would overfit (the scan is bounded by the page LIMIT), the session-79
+  doctrine re-applied.
+- Verdict 2 (the logger's catch): the owner inbox emitted **14 statements/
+  request** — the `getOwnedRestaurant` gate called the PUBLIC restaurant
+  DETAIL read (full menu hydration + option groups + hours + ETA = 6) for
+  a `{id, ownerId}` question, and SIX per-status `repo.count({restaurantId,
+  status})` calls each emitted `COUNT(DISTINCT id) LEFT JOIN order_items`
+  because `Order.items` is an EAGER relation and plain repo counts ride it
+  (EXPLAIN: 287 buffers EACH incl. a full order_items seq scan).
+- Fix: new `RestaurantsService.findOrderScope(id)` — ONE projection
+  statement for {id, ownerId, minOrderCents, deliveryFeeCents}; the
+  isUuid guard keeps the null/404 semantics identical. Used by the
+  ownership gate (inbox, SSE stream access, status actions, analytics,
+  driver assignment) and the POST /orders pricing read: create 16 to 12
+  statements.
+- Fix: `findForRestaurant` — one index-only `GROUP BY status` over
+  (restaurantId, status) replaces the six eager-joined counts AND the
+  findAndCount total: 14 to **4** statements. `counts` stays zero-filled
+  for every status; `total` is the filtered status's group value or the
+  sum — the same number the old separate count computed. EXPLAIN: 8
+  buffers, 0 heap fetches, 0.87 ms (vs 287 buffers for ONE old arm).
+- Fix: `findMine` / `findForDriver` — `findAndCount` split into `find` +
+  a join-free `COUNT(1)` QueryBuilder (a QB does NOT ride the eager
+  relation — live proof: the old count SQL carried the LEFT JOINs, the new
+  one is `SELECT COUNT(1) ... WHERE "userId" = $1`; measured 8,073 to 188
+  buffers). Constant 3 statements stands; an empty page now costs 2 with
+  the honest total still answered.
+- Tests (perf contracts EXECUTABLE, not prose): the list-harness fake repos
+  now LOUDLY REJECT `findAndCount`/`count` (resurrecting the eager-join
+  count throws); the findMine test pins exactly ONE join-free QB count
+  call; the portal test re-pinned from "six count calls" to "ONE grouped
+  query, zero count calls"; +2 new tests pinning `findOrderScope` (one
+  projection read, zero menu/hours/ETA embed calls; non-uuid answers null
+  without touching the repo). 110 suites / 1602 tests (+2).
+- Docs: docs/PERFORMANCE.md gained the full audit section with the EXPLAIN
+  tables and honest caveats (the synthetic 99.9%-single-user inflation
+  legitimately seq-scans the /orders/my count; `eager: true` still rides
+  EVERY plain repo find). ARCHITECTURE.md gained the durable rule: order
+  paths count through QueryBuilders and read the restaurant via
+  findOrderScope, never the detail findOne.
+- Phase 16 is now fully green — Phase 17 opened with six items from the
+  Test / Perf / Product / UX loops (status-write sweep, eager-relation
+  inventory, owner daily digest email, history date-range filter, buy
+  again, remaining list-surface audits).
+
+**Verified:**
+
+- API `npm run build` green; full jest 110 suites / 1602 tests (+2 vs
+  session 143's 110/1600).
+- Live A/B on the SAME inflated scratch DB, old dist vs new dist, both
+  boots on the same migration chain: **every compared response body is
+  byte-identical** (c01–c05 delivered JSON cmp-equal after an updatedAt
+  strip; c06 create identical modulo id/code/timestamps; totals 8004 /
+  2270 / 4806 / 401 / 401 matched on both sides). Statement deltas as
+  claimed: /orders/my 3 stays 3 (count SQL join-free on the wire), owner
+  inbox 14 to 4, driver 3 to 3, POST /orders 16 to 12.
+- e01 empty-page arm on the new dist: exactly 2 statements, total honest 0.
+- EXPLAIN (ANALYZE, BUFFERS) evidence recorded: old per-status count 287
+  buffers / 3.6 ms vs new grouped 8 buffers / 0.87 ms index-only; page
+  shapes backward index scans; driver count index-only 4 buffers.
+- Web `npm run build` green (bundle budget gate included); FULL e2e 140/140
+  GREEN x2 consecutive on fresh seeds — the dashboard inbox tabs, history
+  filters, driver portal and live feed all ride the changed routes,
+  zero suite changes needed (contract byte-identical).
+- Sanitizer scan on every added line: no U+2026, no asterisk-mask
+  sequences, no backslash-u escapes; `git diff --check` clean; scratch DB
+  dropped, dev DB re-seeded, :4000 left free for Playwright.
+
+**Left for next sessions:**
+
+- Phase 17 #2: eager-relation inventory for the remaining plain repo sites
+  (receipt `findOneForViewer`, admin lists, restock paths) — the counts are
+  already clean, the finds embed items by contract today.
+- If the /orders/my count shows up in production latency telemetry,
+  revisit index-only viability at a realistic multi-user distribution.
+
+---
 ## 2026-11-27 15:02 — Session 143 — write-side property sweep on POST /orders (Test, Phase 16 #5)
 
 **Built:**

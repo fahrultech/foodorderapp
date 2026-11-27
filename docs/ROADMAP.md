@@ -830,11 +830,69 @@
   over-stock 409 keeps stock, exact-stock drains to 0, promo ledger +1,
   restaurant-404 envelope byte-identical, malformed JSON→400, oversize→
   413, non-uuid dish→400, zero level-50 log lines.)
-- [ ] Perf: query-logger + EXPLAIN audit of the ORDER reads — session-79's
+- [x] Perf: query-logger + EXPLAIN audit of the ORDER reads — session-79's
   method never ran on `GET /orders/my` (status filter + pagination +
   items-load) or the owner inbox list: prove constant statement shape,
   index-served status/createdAt paths, no N+1 on order items; findings in
   docs/PERFORMANCE.md + contract specs, fix what the logger catches.
+  (2026-11-27, session 144; audit verdict: `/orders/my` + driver inbox are
+  CONSTANT 3 statements (volume-doubling proves it) with backward
+  `IDX_orders_userId_createdAt`/`IDX_orders_restaurantId_createdAt` page
+  scans — no N+1, session-32 indexes suffice, composite (userId, status,
+  createdAt) deliberately NOT added. The owner inbox answered 14/request: the gate ran
+  the full restaurant DETAIL read (6) because `getOwnedRestaurant` called
+  the public findOne, and SIX per-status repo counts each emitted
+  `COUNT(DISTINCT) LEFT JOIN order_items` (eager `Order.items` rides plain
+  counts — 287 buffers + a full order_items seq scan EACH). Fixes, all
+  response bytes proven IDENTICAL old-dist vs new-dist on the same
+  inflated DB: new `RestaurantsService.findOrderScope` one-projection read
+  for the gate + create pricing (create 16→12); `findForRestaurant` 14→4
+  via one index-only `GROUP BY status` (8 buffers, 0 heap fetches) serving
+  BOTH zero-filled counts AND total; `findMine`/`findForDriver` split
+  findAndCount into find + join-free `COUNT(1)` QB (count 8,073→188
+  buffers measured). Perf contracts executable: fake repos LOUDLY reject
+  findAndCount/count on the audited methods; findOrderScope pinned to one
+  projection read, zero embeds. 110 suites/1602 tests (+2), live A/B smoke
+  byte-identical envelopes + e01 empty-page shape 2, findings + EXPLAIN
+  tables in docs/PERFORMANCE.md, e2e delta 0 expected (API-only, contract
+  byte-pinned).)
+
+## Phase 17 — Status-write truth, eager audit & owner digests (opened 2026-11-27, Phase 16 exhausted; from the Test / Perf / Product / UX evergreen loops)
+
+- [ ] Test: write-side constant-outcome sweep on the STATUS transitions —
+  session 143's template (`order-create-sweep.http.spec.ts`) applied to
+  the four PATCH status routes (owner portal, admin, customer cancel,
+  driver): canonical outcome set {200, 400, 402, 404, 409} with the
+  payment-confirm gate ON, zero-write deltas + `order_status_audits`
+  invariants on every denial, illegal-flow edges never half-writing
+  timestamps.
+- [ ] Perf: eager-relation inventory — session 144 proved `Order.items`
+  `eager: true` rides a `LEFT JOIN order_items` into EVERY plain repo
+  find/count (counts now route through QueryBuilders). Inventory the
+  remaining sites (receipt `findOneForViewer`, admin lists, restock
+  paths), decide per site: keep (response embeds items anyway) or flip to
+  explicit relations, byte-pinned A/B for every swap; record the verdict
+  in docs/PERFORMANCE.md.
+- [ ] Product: owner daily digest email — yesterday's orders, revenue
+  (cents), and top dishes per owned restaurant through the existing
+  `MailService` + an `ops/` cron runner (stale-sweep pattern);
+  `SMTP_JSON_CAPTURE=1` live smoke (sessions 122/134 rig) asserting
+  EXACT one-mail-per-owner-per-day, zero-mail-for-no-orders, and the
+  fail-arm tally.
+- [ ] UX: order-history date-range filter — `from`/`to` query params on
+  `GET /orders/my` (query-surface-audit REGISTRY entry mandatory per the
+  session-87 rule; closed-range validation, clamped bounds) + web
+  quick-pick chips EN/ID + e2e; history stays index-served (same
+  (userId, createdAt) scan the audit measured).
+- [ ] Product: "buy again" — history + receipt action that revalidates the
+  saved cart lines server-side against the CURRENT menu (gone dishes,
+  price deltas, option choices still legal, stock) and folds into the
+  web cart; API helper + toast copy EN/ID + e2e.
+- [ ] Test: query-logger audit of the REMAINING list surfaces — admin
+  orders list, favorites, reviews feed, owner menu list (session-79/144
+  method: bracketed windows on an inflated scratch DB, constant-shape
+  proofs, EXPLAIN for index paths, contract specs for whatever the
+  logger catches).
 
 ## Completed
 - 2026-10-17 — Phase 0: monorepo scaffold, NestJS API (auth, restaurants, menu, orders, status machine, health), Next.js storefront (browse, detail, cart, checkout, order page), docker compose + Dockerfiles, seed data, jest unit tests, CI-ready scripts.

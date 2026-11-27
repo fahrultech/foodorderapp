@@ -947,6 +947,74 @@ session-79/104 query-logger ALTER-before-boot windowing — a manual
 follow-up) and the TTL=0 control arm (session 121's one-off A/B — the
 scheduled guard measures the stack PRODUCTION runs).
 
+## Order-read path audit — November 27, 2026 (session 144)
+
+Phase 16 roadmap item "query-logger + EXPLAIN audit of the ORDER reads".
+Method (session-79 rig): scratch DB with `log_statement='all'` ALTER'd
+BEFORE boot, full 30-migration chain from empty + seed, then INFLATED to
+**8,004 orders / 15,617 order_items** (4,004 rows for the audited customer,
+4,806 under the owner's restaurant); the compiled dist booted on :4100,
+every request shape bracketed with unique psql markers, statement counts
+parsed from the server log, plans via `EXPLAIN (ANALYZE, BUFFERS)`. A/B:
+the SAME scratch DB was re-driven old-dist vs new-dist and every response
+body compared byte-for-byte.
+
+Verdicts:
+
+- **`GET /orders/my` and the driver inbox have NO N+1: constant 3
+  statements** — distinct-ids page query, ONE IN-batch row fetch (items +
+  restaurant ride that single join), total. Identical at `limit=1` vs
+  `limit=50`, with/without `status`, page 2 vs page 50, and after DOUBLING
+  the volume (4,004 to 8,004 rows). Page plans are index-served: backward
+  `IDX_orders_userId_createdAt` scan, 125 buffers / 0.32 ms; the inbox page
+  rides `IDX_orders_restaurantId_createdAt` (250 buffers / 0.54 ms incl. a
+  page-5 OFFSET). Session 32's index set already covers these paths; no
+  new index added (composite `(userId, status, createdAt)` would overfit —
+  the status-filtered scan stays bounded by the page LIMIT).
+- **The owner inbox was the outlier: 14 statements per request.** Breakdown:
+  the `getOwnedRestaurant` gate called the PUBLIC restaurant DETAIL read
+  (full menu-item hydration + option groups + hours + ETA = 6 statements)
+  where it only ever reads `{id, ownerId}`; `findAndCount` (3); and SIX
+  per-status `repo.count({restaurantId, status})` calls — and because
+  `Order.items` is an **EAGER relation, a plain repo count emits
+  `COUNT(DISTINCT o.id) LEFT JOIN order_items`** — EXPLAIN: 287 buffers
+  EACH, including a full seq scan of `order_items` (193 of the 287), so
+  ~1,722 buffers + 6 round-trips just to fill the tab badges.
+- **`POST /orders` paid the same DETAIL read** (needs only
+  `minOrderCents`/`deliveryFeeCents`): 16 statements measured pre-fix.
+
+Fixes (all response bodies proven byte-identical old vs new dist):
+
+- New `RestaurantsService.findOrderScope(id)` — ONE projection statement
+  (`select {id, ownerId, minOrderCents, deliveryFeeCents}`, no relations,
+  no embeds). The ownership gate and the create pricing read use it; junk
+  ids still answer null so every 404/403 semantic is untouched.
+- `findForRestaurant`: the six eager-joined counts collapsed into ONE
+  `GROUP BY status` (EXPLAIN: **index-only scan on
+  `IDX_orders_restaurantId_status`, 8 buffers, 0 heap fetches, 0.87 ms —
+  ~215x fewer buffers than ONE old arm**) whose per-status values serve
+  BOTH `counts` (zero-filled for absent statuses) AND `total` (the
+  filtered status's group, or the sum — exactly what the old separate
+  count computed). 14 to **4** statements.
+- `findMine` / `findForDriver`: `findAndCount` split into `find` + a
+  join-free `COUNT(1)` QueryBuilder (QueryBuilder does NOT ride the eager
+  relation — the old count scanned 8,073 buffers with the eager join,
+  the new plain count 188). Same constant 3 statements, an empty page now
+  costs 2.
+- Create path 16 to **12** statements via the projection read.
+
+Perf contracts now executable (not prose): the orders/driver spec fake
+repos LOUDLY reject `findAndCount`/`count` on the audited methods, and
+`findOrderScope` is pinned to one projection read with zero embed calls.
+
+Caveats recorded honestly: the /orders/my count at 8k rows still seq-scans
+(99.9% of the synthetic rows share the audited userId, so the planner is
+right — at a realistic multi-user distribution the
+`IDX_orders_userId_createdAt` prefix dominates); `Order.items` staying
+`eager:true` means EVERY plain orders-repo find still joins items — the
+lists need the items in the response anyway, but any future count-only
+site must go through a QueryBuilder. Backlog item filed (Phase 17).
+
 ## Query-plan findings and tuning decisions (November 4 baseline, historical)
 
 `EXPLAIN (ANALYZE, BUFFERS)` on the same seed showed:

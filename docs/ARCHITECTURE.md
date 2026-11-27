@@ -165,6 +165,20 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   substring semantics, pg_trgm-indexable); the `city=` filter is a single
   WHERE with an EXISTS semi-join — a `leftJoin` here would flip TypeORM into
   its DISTINCT-ids strategy and re-add a 4th statement.
+- **ORDER reads follow the same contract, and count through QueryBuilders**
+  (session 144, query-logger + EXPLAIN-proven): `Order.items` is
+  `eager: true`, so EVERY plain Repository find/count on orders rides a
+  `LEFT JOIN order_items` into its SQL (a repo `count({where})` emits
+  `COUNT(DISTINCT id) LEFT JOIN order_items` — 287 buffers incl. a full
+  order_items seq scan at 8k rows). Totals and grouped counts therefore use
+  `createQueryBuilder` (join-free; the audited inbox tabs are ONE index-only
+  `GROUP BY status` answering both `counts` and `total`). The restaurant
+  ownership gate and create-path pricing read use
+  `RestaurantsService.findOrderScope` — a one-statement column projection —
+  NEVER the public `findOne` detail read (menu + option groups + hours +
+  ETA hydration). Fake repos in the orders specs LOUDLY reject
+  `findAndCount`/`count` on the audited methods; adding a new order read that
+  needs them means extending the contract deliberately, not silently.
 - **Public browse routes publish server-derived SEO metadata** — each
   `/restaurants/:id` response uses the canonical restaurant row for its title,
   description, canonical URL, Open Graph card, and Twitter card. Missing
