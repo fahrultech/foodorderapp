@@ -17,9 +17,16 @@ import {
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class CreateOrderItemDto {
-  @ApiProperty({ description: 'Dish id from GET /restaurants/{id} or the menu route' })
+  /**
+   * A GONE dish answers 404 (MenuService.findByIds count guard); a
+   * NON-uuid one must never reach the DB at all: `In(['nope'])` against
+   * the uuid PK is a pg 22P02 — the Phase 16 write sweep caught exactly
+   * that 500 and this pipe rung is its fix (same doctrine as
+   * deliveryAddressId/optionChoiceIds).
+   */
+  @ApiProperty({ format: 'uuid', description: 'Dish id from GET /restaurants/{id} or the menu route' })
   @IsString()
-  @IsNotEmpty()
+  @IsUUID('4', { message: 'menuItemId must be a valid dish id' })
   menuItemId: string;
 
   @ApiProperty({ type: 'integer', minimum: 1, maximum: 50 })

@@ -91,6 +91,28 @@ export class ErrorFormatFilter implements ExceptionFilter {
 
   private toEnvelope(exception: unknown): Envelope {
     if (!(exception instanceof HttpException)) {
+      // Transport-layer rejections arrive as PLAIN Errors carrying their own
+      // numeric 4xx status (raw-body family: PayloadTooLargeError 413 on an
+      // oversize body, UnsupportedMediaTypeError 415). They are client
+      // faults, not server faults — render the canonical envelope at the
+      // transport status and log a WARN. (Found by the Phase 16 write
+      // sweep: before this branch these sanitized into a 500 + level-50
+      // line — the session-84 non-5xx doctrine at the transport seam.
+      // Parse errors themselves never reach here: Nest 11's express adapter
+      // already re-throws them as BadRequestException — pinned by
+      // order-create-sweep.http.spec.ts.)
+      const transport = exception as { status?: unknown; statusCode?: unknown };
+      const transportStatus = [transport?.status, transport?.statusCode]
+        .find((s): s is number => typeof s === 'number' && s >= 400 && s < 500);
+      if (transportStatus) {
+        this.logger.warn(`Transport rejected the request (${transportStatus})`);
+        return {
+          status: transportStatus,
+          code: codeForStatus(transportStatus),
+          message: TEXT_BY_STATUS[transportStatus] ?? 'Request failed',
+          details: null,
+        };
+      }
       // Unexpected failure: log the truth, answer a sanitized 500.
       const err = exception as Error;
       this.logger.error(

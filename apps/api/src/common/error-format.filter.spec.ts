@@ -120,6 +120,31 @@ describe('ErrorFormatFilter — envelope shape', () => {
     expect(JSON.stringify(body)).not.toMatch(/pg|constraint|users_email/);
   });
 
+  it('transport errors carrying a 4xx status keep it + the canonical code (Phase 16 sweep)', () => {
+    // raw-body family: plain Errors with their own numeric status. The
+    // PayloadTooLargeError shape express's json parser throws at 100kb.
+    const tooLarge = Object.assign(new Error('request entity too large'), {
+      status: 413, statusCode: 413, type: 'entity.too.large',
+    });
+    const { status, body } = catchEnvelope(tooLarge);
+    expect(status).toBe(413);
+    expect(body).toEqual({
+      error: { code: 'PAYLOAD_TOO_LARGE', message: 'Payload Too Large', details: null },
+    });
+    // UnsupportedMediaTypeError (415) — mapped generically, no message leak.
+    const unsupported = Object.assign(new Error('unlikely media type text/csv; q=1'), {
+      status: 415,
+    });
+    const up = catchEnvelope(unsupported);
+    expect(up.status).toBe(415);
+    expect(up.body.error.code).toBe('HTTP_415');
+    expect(JSON.stringify(up.body)).not.toMatch(/csv/);
+    // 5xx-carrying non-HttpExceptions are NOT trusted at face value: they
+    // stay sanitized 500 (the transport branch is client-fault only).
+    const sneaky = Object.assign(new Error('internal thing'), { status: 503 });
+    expect(catchEnvelope(sneaky).status).toBe(500);
+  });
+
   it('string-body custom statuses keep their message and get HTTP_<status>', () => {
     const { status, body } = catchEnvelope(new HttpException('I like tea', 418));
     expect(status).toBe(418);
