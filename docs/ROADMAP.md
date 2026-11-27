@@ -859,13 +859,20 @@
 
 ## Phase 17 — Status-write truth, eager audit & owner digests (opened 2026-11-27, Phase 16 exhausted; from the Test / Perf / Product / UX evergreen loops)
 
-- [ ] Test: write-side constant-outcome sweep on the STATUS transitions —
+- [x] Test: write-side constant-outcome sweep on the STATUS transitions —
   session 143's template (`order-create-sweep.http.spec.ts`) applied to
   the four PATCH status routes (owner portal, admin, customer cancel,
   driver): canonical outcome set {200, 400, 402, 404, 409} with the
   payment-confirm gate ON, zero-write deltas + `order_status_audits`
   invariants on every denial, illegal-flow edges never half-writing
-  timestamps.
+  timestamps. (2026-11-27, session 145; `status-write-sweep.http.spec.ts`
+  35 tests — per-route canonical sets pinned {200/201,400,401,402,403,404}
+  family-wide, 409 proven ABSENT on every status route; tx-faithful fake
+  runs the REAL restock CAS SQL; rung precedence (guard > parser > pipe >
+  role > restaurant gate > order scope > flow > payment gate) proven with
+  call-count evidence; audit-chain REPLAY end-invariant on a seeded 320-
+  case sweep; sweep sensitivity proven by a reverted save-before-gate
+  injection; 111 suites/1637 tests.)
 - [ ] Perf: eager-relation inventory — session 144 proved `Order.items`
   `eager: true` rides a `LEFT JOIN order_items` into EVERY plain repo
   find/count (counts now route through QueryBuilders). Inventory the

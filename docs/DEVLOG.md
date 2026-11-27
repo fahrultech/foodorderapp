@@ -3,6 +3,101 @@
 Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
+## 2026-11-27 20:02 — Session 145 — status-write constant-outcome sweep on ALL FOUR status routes (Test, Phase 17 #1)
+
+**Built:**
+
+- `status-write-sweep.http.spec.ts` (35 tests): session 143's write-side
+  doctrine applied to the four status transitions — owner
+  `PATCH /restaurants/:id/orders/:orderId/status`, admin
+  `PATCH /orders/:id/status`, customer `POST /orders/:id/cancel`, driver
+  `PATCH /driver/orders/:id/status`. REAL controllers + REAL OrdersService
+  (status machine, confirm gate, audit writer) + production ValidationPipe +
+  ErrorFormatFilter over live HTTP; the write layer is faked faithfully:
+  repo.findOne deep-copies, only `save` and the restock transaction's
+  raw-SQL emitters move state, and the restock fake speaks the REAL SQL
+  with the real WHERE (`stockRestockedAt IS NULL AND status = 'cancelled'`
+  marker CAS + `stock + units WHERE stock IS NOT NULL` per-dish adds,
+  `[rows, rowCount]` tuples) — a double-cancel cannot move a counter twice.
+- Canonical outcomes pinned PER ROUTE (the roadmap's union-set
+  {200,400,402,404,409} swept to be over-wide: 409 exists on NO status
+  route; cancel answers 201 Nest-default; 401/403 are real rungs; the
+  driver path has no 402 rung at all):
+  owner/admin {200,400,401,402,403,404}, cancel {201,400,401,404},
+  driver {200,400,401,403,404}. Denial codes
+  {BAD_REQUEST,UNAUTHORIZED,FORBIDDEN,NOT_FOUND,PAYMENT_REQUIRED}, every
+  denial a single `{error:{code,details,message}}` envelope AND a
+  byte-identical state snapshot (orders + audits + stock + publish count).
+- Acceptance ledger pins: exactly ONE audit row per acceptance with the
+  route-correct source (owner/admin-on-backdoor/driver/customer — incl.
+  the ADMIN-on-owner-route path honestly recording source=admin) + full
+  actor snapshot (sub/role/email from the JWT); exactly ONE timestamp
+  flips (the target's field), previously-set timestamps byte-identical
+  (write-once), driverId NEVER touched by any status route; one
+  `order.updated` publish per acceptance.
+- Rung precedence proven with executable call-count evidence: guard > pipe
+  (no token + malformed uuid + junk status = 401), role guard > enum pipe
+  (customer + junk status = 403, service never called), pipe > service
+  (junk enum beats even a 404 restaurant — zero DB reads), flow > gate
+  (illegal delivering->confirmed 400s WITHOUT probing payments), and the
+  gate itself is only ever consulted for target=confirmed.
+- Wire truths the sweep discovered (all correct product behavior, now
+  pinned): the express JSON parser runs as MIDDLEWARE before guards — a
+  malformed body answers 400 even with no token; the admin route has NO
+  enum DTO (junk/uppercase/array/missing statuses are SERVICE-level 400s
+  with the `Cannot move order from` message — diverging from the owner/
+  driver routes' pipe-level enum 400 whose top message is the generic
+  `Validation failed` with constraints in `details`); cancel has no DTO
+  either — a smuggled body `{"status":"completed","userId":...}` is inert
+  (target is service-hardcoded CANCELLED, identity comes from the JWT);
+  guest/foreign/unknown cancel ids answer the byte-IDENTICAL 404.
+- Gate arms: unpaid/failed/refunded/pending-payment confirms all 402
+  (refunds never satisfy — session 44 doctrine), paid confirms 200; the
+  explicit `0` opt-out confirms 200 with ZERO payments probes; a garbage
+  spelling (`flase`) keeps the gate ON (fail-closed mirrored here too).
+- Full-lifecycle chain walk (accept prepare deliver complete) + owner/
+  admin/cancel restock-on-cancel ledger arithmetic; terminal and
+  illegal-edge arms assert NOTHING half-wrote.
+- Seeded 320-case mutation sweep (seed 0x57a7, deterministic): route x
+  order x target x token x body x query-shape fuzz across all four routes
+  — every outcome canonical, every denial zero-write, and an END-STATE
+  AUDIT-CHAIN REPLAY: for every order the appended audits must replay to
+  the row's final status via legal edges, the timestamp set must equal
+  exactly the reached set (seeded upstream counts as reached), write-once
+  values unchanged, restock markers legal, and the global stock counter ==
+  3 + sum(returned units of restocked orders); audit count == accept count
+  == publish count. Coverage: every outcome class observed; 409/429/5xx
+  zero by membership.
+
+**Verified:**
+
+- API `npm run build` green; full jest **111 suites / 1637 tests** (+1
+  suite / +35 tests vs session 144's 110/1602).
+- SWEEP SENSITIVITY PROVEN (not assumed): a deliberate regression —
+  moving `orders.save` BEFORE `assertConfirmGate` in the owner path so a
+  402 denial leaves the row confirmed — was caught by THREE tests with
+  loud `DENIAL WROTE SOMETHING` messages (both explicit gate arms AND
+  seeded case n=112); reverted via git checkout, rebuild + rerun green.
+- First run had 2 failures, both harness lies corrected against wire
+  truth (NOT product bugs): the validation top message is the generic
+  `Validation failed` with constraints in `details` (pinned exactly);
+  replay now seeds `reached` from the fixtures' own upstream timestamps.
+- No product code changed by this session (git status after revert: only
+  the new spec file) — hence no scratch-DB live rig: the status paths' SQL
+  was already live-proven (sessions 72/121/144) and this spec runs the
+  real service over real HTTP end to end in-process.
+
+**Left for next sessions:**
+
+- Phase 17 #2 (eager-relation inventory receipt/admin/restock sites) is
+  next; this sweep gives it a safety net: any relation-loading change must
+  keep these 35 outcomes byte-stable.
+- The admin route's missing enum DTO is a cosmetic divergence (canonical
+  class, different message origin) — a candidate to harmonize WITH the
+  owner route if someone ever adds a body/DTO there; deliberately NOT
+  changed here (test-only increment, roadmap asked for the sweep).
+
+---
 ## 2026-11-27 17:47 — Session 144 — query-logger + EXPLAIN audit of the ORDER reads (Perf, Phase 16 #6)
 
 **Built:**
