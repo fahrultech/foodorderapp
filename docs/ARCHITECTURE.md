@@ -209,7 +209,10 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   maskable icons, while `PwaRegistration` registers `/sw.js` for every visitor
   (notification opt-in still requires its explicit user gesture). The existing
   push worker also owns versioned storefront caching: `/`, `/cart`, `/offline`,
-  the manifest/icons, and visited Next static assets. Network-first navigation
+  the manifest/icons, and visited Next static assets. Since session 141 the
+  install handler also parses each cached shell document and pre-caches every
+  `/_next/static` asset it references, so the shell HYDRATES (not just paints)
+  with zero network. Network-first navigation
   keeps those app-shell pages fresh when online; cached copies serve them when
   offline, while other failed navigations receive the neutral offline page and
   API requests are never cached. Cart rows remain device-local in the existing
@@ -340,6 +343,19 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   NOT widen: denials never learn the island branch. Successful account
   deletion clears the device copies (GDPR parity with the server-side
   anonymization).
+- **FULLY-offline receipt restore (session 141)** deepens that contract to the
+  case where the browser cannot reach the WEB SERVER either: the service worker
+  serves the cached `/offline` shell for the failed navigation (address bar
+  keeps the `/orders/<id>` URL) and `OfflineRestoreIsland` — hydrating from the
+  install-pre-cached chunks — reads the REAL location and, when `lib/order-cache`
+  holds a valid copy of THAT id, surfaces the same banner + `ReceiptBody` view
+  through `CachedReceiptFallback` (new optional `notFound`/`onRetry` props; the
+  server-branch defaults are untouched). Restore misses (unviewed/unknown/
+  garbage ids, non-receipt URLs) render byte-identical generic offline card;
+  retry is a document reload (the router state is the `/offline` tree, so
+  `router.refresh()` would retry the wrong route). One honesty caveat: the
+  cached shell HTML carries the next-intl catalog serialized at CACHE time, so
+  a re-visit of `/offline` online refreshes the shell's locale slot.
 - **Driver assignment is a separate, exact-role API boundary** — users may carry
   the `driver` role, while orders keep a nullable indexed `driverId` FK to users
   (`ON DELETE SET NULL`). Owners (or admins through the established owner-route

@@ -764,12 +764,23 @@
   strip-absent test + timing gate OK; bundle: local A/B measured −2 B but
   the CI gate read uniform +4 (session-132 class) — five rows re-adopted
   to the run's exact numbers, /orders pair absorbed it in headroom.)
-- [ ] UX: FULLY-offline receipt restore — session 137 covers the API being
+- [x] UX: FULLY-offline receipt restore — session 137 covers the API being
   down while the web server answers; the deeper case (browser cannot reach
   the web server at all) today loses the receipt even when the device
   holds a copy: teach the offline app-shell path to surface the
   `lib/order-cache` banner + saved copy for `/orders/<id>` URLs. Playwright
   `context.setOffline(true)` proof, EN/ID, no new server round-trips.
+  (2026-11-27, session 141; `OfflineRestoreIsland` on the `/offline` shell
+  reads the REAL location (SW serves the shell with the receipt URL in the
+  address bar) and restores through the SAME `CachedReceiptFallback` (two new
+  OPTIONAL props — server-branch defaults byte-identical) with document-reload
+  retry; `sw.js` CACHE v2 + install-time pre-cache of every `/_next/static`
+  chunk the shell documents reference (the shell HYDRATES offline);
+  restore-miss keeps the generic card (new `offline-shell-card` testid),
+  catalog-at-cache-time locale caveat pinned by an online slot re-warm in the
+  ID leg; zero message keys, API untouched; e2e 140/140 green x2 fresh-seed
+  incl. the new `zz-offline-shell-receipt` spec; bundle `/orders/[id]` row
+  adopted to local 163410 (receipt graph now shared by two route entries).)
 - [ ] Product: magic-link capability in the PUSH payload url — session 133
   put the `?rt=` token in receipt EMAILS; pushes still land on the bare
   receipt URL and rely on the session surviving the app switch. Attach the

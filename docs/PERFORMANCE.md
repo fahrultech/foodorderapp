@@ -703,9 +703,21 @@ their split decisions separately.
 | `/cart` | 139406 |
 | `/checkout` | 142433 |
 | `/map` | 137111 |
-| `/orders/[id]` | 162874 |
+| `/orders/[id]` | 163410 |
 | `/orders/my` | 144408 |
 <!-- BUNDLE-BASELINE-END -->
+
+Session-141 note: Phase 16 #3 (fully-offline receipt restore) adds
+`OfflineRestoreIsland` + `OfflineCard` to the `/offline` page graph. No
+messages edit (all keys reused) — no uniform class. The receipt-graph modules
+(CachedReceiptFallback + its static ReceiptBody import chain) are now shared
+by TWO route entries (`/orders/[id]` and `/offline`), which regroups chunk
+boundaries: the local in-path gate reads `/orders/[id]` 163410 (+595 vs the
+session-140 local HEAD sum 162815 — real eager-chain growth of the receipt
+graph, not noise), the other six routes moved -3..+2 (noise). `/offline` is
+NOT a budget route, so its own sum is invisible here by design; the row was
+adopted to the local measure as the best pre-CI number — if the CI gate
+reads a delta, re-adopt to ITS measurements (session-137/140 doctrine).
 
 Session-140 note: Phase 16 #2 adds the fifth cache counter (`eligible`,
 the hit-rate denominator) to the SAME additive shape. Web delta is the

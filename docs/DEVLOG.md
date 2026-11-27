@@ -3,6 +3,65 @@
 Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
+## 2026-11-27 11:10 — Session 141 — FULLY-offline receipt restore: the SW shell hydrates and surfaces the device copy (UX, Phase 16 #3)
+
+**Built:**
+
+- Web: the deeper offline case (session 137 covered API-down while the web
+  server answers; this is the browser unable to reach the WEB SERVER at all).
+  The service worker already served the cached `/offline` shell for failed
+  non-shell navigations — but as static HTML only. Three pieces make the
+  receipt restore work inside it:
+  - `components/OfflineRestoreIsland.tsx` (new client island): reads the REAL
+    `window.location.pathname` (the address bar keeps `/orders/<id>` even
+    though the document is the shell), matches `/^orders/<id>$/`, pre-checks
+    `loadCachedOrder` (never renders the loading placeholder when there is no
+    copy), and hands the id to `CachedReceiptFallback` — ONE source for the
+    banner + receipt view, no duplicated markup.
+  - `CachedReceiptFallback` gained two OPTIONAL props (`notFound` node — the
+    shell passes the generic `OfflineCard` instead of PortalOffline; `onRetry`
+    — a document reload, because router state is the `/offline` tree and
+    `refresh()` would retry the wrong route). Server-branch defaults byte-
+    identical; `components/OfflineCard.tsx` is today's card extracted verbatim
+    into a client component (hydration-matched first paint, `data-testid=
+    offline-shell-card` added).
+  - `public/sw.js`: CACHE_NAME v1 -> v2 (deploys force a fresh precache) and
+    the install handler now parses each cached shell document and pre-caches
+    every referenced `/_next/static` chunk, so the shell HYDRATES with zero
+    network even if the user never visited `/offline` online.
+- No messages keys added (Order.cached* + Offline.* reused — zero uniform-
+  class risk); no API, DTO, route or migration change (ops surface 78).
+- e2e: new `zz-offline-shell-receipt.spec.ts` — live view persists, SW
+  controlling, shell slot warmed, then `context.setOffline(true)`: bare
+  receipt URL restores banner + rows (payment-panel/live-feed islands absent,
+  card gone), unviewed id and non-receipt URLs keep the generic card, ID
+  locale leg re-warms the shell slot online first (the next-intl catalog
+  rides the CACHED HTML — cache-time locale, documented in ARCHITECTURE),
+  back-online returns to the live server branch.
+
+**Verified:**
+
+- Web build green. API untouched — session 140's 109 suites / 1575 tests and
+  bundle work stand; no live DB smoke applicable (zero server-side code or
+  wire-shape changes).
+- New spec green first run (2.8s), then FULL Playwright 140/140 green x2 on
+  fresh re-seed (139 -> 140); fixture-timing gate OK.
+- Bundle: local in-path gate read `/orders/[id]` 163410 (+595 vs session 140's
+  local HEAD sum 162815 — the receipt graph is now shared by TWO route entries
+  so eager-chain boundaries regroup; the other six routes moved -3..+2, noise).
+  `/orders/[id]` row adopted to the local measure in docs/PERFORMANCE.md as
+  the best pre-CI number; CI reads the truth — re-adopt from its annotations
+  if it disagrees (session-137/140 doctrine).
+- Sanitizer scan on added lines clean; `git diff --check` clean.
+
+**Left for next sessions:**
+
+- Confirm the CI budget gate accepts the `/orders/[id]` 163410 row (a small
+  uniform delta re-adoption is cheap and documented).
+- Phase 16 remainder: magic-link capability in PUSH payload urls; write-side
+  property sweep over `POST /orders`; query-logger + EXPLAIN audit of the
+  ORDER reads.
+
 ## 2026-11-26 20:55 — Session 140 — honest cache hit-rate: the fifth `eligible` counter + derived strip line (Perf, Phase 16 #2)
 
 **Built:**
