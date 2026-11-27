@@ -780,7 +780,7 @@
   catalog-at-cache-time locale caveat pinned by an online slot re-warm in the
   ID leg; zero message keys, API untouched; e2e 140/140 green x2 fresh-seed
   incl. the new `zz-offline-shell-receipt` spec; bundle `/orders/[id]` row
-  adopted to local 163410 (receipt graph now shared by two route entries).)
+  adopted to local 163410 then re-adopted to the CI gate's exact 163454.)
 - [ ] Product: magic-link capability in the PUSH payload url — session 133
   put the `?rt=` token in receipt EMAILS; pushes still land on the bare
   receipt URL and rely on the session surviving the app switch. Attach the

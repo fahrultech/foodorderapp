@@ -703,9 +703,18 @@ their split decisions separately.
 | `/cart` | 139406 |
 | `/checkout` | 142433 |
 | `/map` | 137111 |
-| `/orders/[id]` | 163410 |
+| `/orders/[id]` | 163454 |
 | `/orders/my` | 144408 |
 <!-- BUNDLE-BASELINE-END -->
+
+Session-141 CI follow-up: the first gate run (3e01f4e, run 45932682970) read
+`/orders/[id]` 163454 (44 over the locally-measured adoption) and every
+enumerated UNTOUCHED row 3-8 UNDER its table number (the uniform local-to-CI
+shift on this build measured +44, session-118 class). Re-adopted ONLY the
+over-budget row to the run's exact CI number; the under-budget rows keep
+their incidental headroom (session-120 caveat). `/orders/my` was absent from
+the (truncated) annotation feed and absorbed inside its headroom — the gate
+listed exactly one failure.
 
 Session-141 note: Phase 16 #3 (fully-offline receipt restore) adds
 `OfflineRestoreIsland` + `OfflineCard` to the `/offline` page graph. No

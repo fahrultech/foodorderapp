@@ -3,6 +3,22 @@
 Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
+## 2026-11-27 11:20 — Session 141 (CI follow-up) — bundle gate re-adopt: /orders/[id] to the run's exact 163454
+
+**Built / Verified:**
+
+- CI run 45932682970 on the first push: API job, BOTH Postgres matrix arms
+  and the FULL E2E job (140 tests incl. the new offline-shell spec) GREEN;
+  the single RED was the First Load JS budget gate on exactly one route —
+  `/orders/[id]` measured 163454 vs the locally-adopted 163410, with every
+  enumerated untouched row reading 3-8 B UNDER its table number (uniform
+  local-to-CI +44 shift this build; `/orders/my` absent from the truncated
+  annotation feed, absorbed in headroom — the gate listed one failure).
+- Session-120/140 doctrine applied: re-adopt ONLY the genuinely-over row to
+  the run's exact CI number (PERFORMANCE table + follow-up note); untouched
+  rows keep their incidental headroom. Docs-only commit.
+
+---
 ## 2026-11-27 11:10 — Session 141 — FULLY-offline receipt restore: the SW shell hydrates and surfaces the device copy (UX, Phase 16 #3)
 
 **Built:**
