@@ -781,12 +781,26 @@
   ID leg; zero message keys, API untouched; e2e 140/140 green x2 fresh-seed
   incl. the new `zz-offline-shell-receipt` spec; bundle `/orders/[id]` row
   adopted to local 163410 then re-adopted to the CI gate's exact 163454.)
-- [ ] Product: magic-link capability in the PUSH payload url — session 133
+- [x] Product: magic-link capability in the PUSH payload url — session 133
   put the `?rt=` token in receipt EMAILS; pushes still land on the bare
   receipt URL and rely on the session surviving the app switch. Attach the
   same minted token to the order-status push payloads (guests have no push
   subscriptions — signed-in only), pin expiry/tier behavior against the
   session-136 money ladder, live smoke on the captured token.
+  (2026-11-27, session 142; ONE mint per notification event now feeds both
+  channels — push url `/orders/:id?rt=<token>` byte-identical to the email
+  link's, fail-open no-secret arm keeps the bare legacy payload, guests +
+  `orderPushEnabled=false` never see a token leave the process; new
+  `PUSH_JSON_CAPTURE` rig (SMTP twin, zero network, `PUSH_CAPTURED {json}`
+  lines, config route stays honest); +6 tests 109/1581 — same-mint,
+  order-binding, TTL-1 alive/dead via injected now, 3 rig cases; live
+  smoke 35/35 on a 30-migration from-empty DB driving the REAL captured
+  push tokens through the live ladder: bearer-less unlock 200, tampered/
+  foreign/expired-live-mint all the byte-identical canonical 404,
+  `POST /payments?rt=` on the OWNED order stays 404 (session-136 money
+  tier untouched), zero-write deltas, zero level-50 log lines; web delta
+  0 by construction — the page already rides `?rt=` and the SW keeps
+  query strings.)
 - [ ] Test: write-side property sweep — session 135's constant-outcome
   doctrine applied to `POST /orders`: seeded-mutation sweep over real
   bodies (option-choice sets, promo codes, qty/stock edges, address shape)

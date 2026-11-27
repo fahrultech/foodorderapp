@@ -532,7 +532,10 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   same process-local `OrderEventsService` bus after order creation/status
   writes, reloads the canonical order, and fans out independently to email
   (`MailService`, enabled by `SMTP_HOST`) and browser push (`PushService`,
-  enabled by the complete VAPID subject/public/private triplet). Push delivery
+  enabled by the complete VAPID subject/public/private triplet; the
+  Phase-16 `PUSH_JSON_CAPTURE` rig — true/1/yes, takes precedence — logs
+  each would-be send as one `PUSH_CAPTURED {json}` line with zero network,
+  the push twin of `SMTP_JSON_CAPTURE`). Push delivery
   addresses live in `push_subscriptions`: one user may own multiple browser
   endpoints, endpoint re-registration transfers a shared browser to the
   current JWT subject, unsubscribe is user-scoped/idempotent, and provider
@@ -582,8 +585,14 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   `WEB_PUBLIC_URL` base (trailing slashes trimmed; unset -> dev default
   localhost:3000). The link builder is FAIL-OPEN by design: no visible
   secret or a throwing mint renders no link line (byte-identical legacy
-  copy) — a notification can never die on its own link. Push keeps the
-  bare relative receipt url (its recipient unlocks via the bearer rung).
+  copy) — a notification can never die on its own link. Since Phase 16 the
+  push payload carries the SAME per-event minted token on its relative
+  receipt url (`/orders/:id?rt=<token>`; no secret -> bare url) so an app switch
+  that dropped the web session still restores the read — one mint per
+  notification event shared byte-identically by the email line and the
+  push. The token is order-bound and time-bounded, so the payload stays
+  privacy-minimal, and the session-136 money ladder is unchanged: rt never
+  pays an OWNED order (canonical 404).
   Delivery is
   best-effort and inherits the process-local bus boundary; a durable outbox or
   broker is future multi-instance work. The web side is now complete:

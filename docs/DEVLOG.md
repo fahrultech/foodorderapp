@@ -3,6 +3,66 @@
 Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
+## 2026-11-27 13:31 — Session 142 — magic-link capability on the PUSH payload url (Product, Phase 16 #4)
+
+**Built:**
+
+- API: `OrderNotificationsService` now mints the receipt-access token ONCE
+  per notification event and shares it byte-identically between the email
+  "View your order" line and the push payload url —
+  `/orders/:id?rt=<token>` (session 133's deliberate bare-url pin reversed
+  by this roadmap item: the app switch can drop the web session, so the
+  push recipient rides the SAME rung the email link got). Fail-open arms
+  preserved: no visible JWT_SECRET or a throwing mint collapses to a null
+  token -> email renders no link line AND the push keeps the bare legacy
+  url (byte-identical pre-feature payload). Guests are untouched — pushes
+  are bearer-only, and `orderPushEnabled=false` suppresses the send before
+  the token ever leaves the process.
+- API: `PushService` gained the `PUSH_JSON_CAPTURE` rig (true/1/yes, case-
+  folded, takes precedence over VAPID — the push twin of
+  `SMTP_JSON_CAPTURE`): every would-be send logs one `PUSH_CAPTURED
+  {json}` line, zero network; the boot warn embeds the marker WORDS but
+  never `PUSH_CAPTURED {` with the brace (matcher contract respected).
+  `GET /notifications/push/config` stays honest under capture (no fake
+  enable).
+- No schema, no new route/query param (query-surface registry untouched),
+  no DTO change, no message keys, no web change — `/orders/[id]` already
+  consumes `?rt=` (session 133) and the service worker keeps query
+  strings in its focus-or-open target (session 141 verified).
+- Tests: `order-notifications.service.spec.ts` — replaced the bare-url
+  pin with the Phase 16 #4 suite (same-mint email==push, order-binding,
+  status-event token, RECEIPT_TOKEN_TTL_SEC=1 alive-now/dead-at-expiry via
+  injected `now`, no-secret bare-url twin, push-toggle-off suppression);
+  `push.service.spec.ts` — +3 rig cases (per-subscription lines with
+  VAPID set, zero-subs silent, garbage flag inert). Fresh-Subject gotcha
+  pinned in a comment: earlier builds' services stay subscribed to their
+  Subjects, so a test that skips `build()` must mint its own bus+mocks.
+- Docs: ARCHITECTURE notifications bullet rewritten (push carries the
+  per-event token; money ladder unchanged) + PUSH_JSON_CAPTURE recorded
+  next to the SMTP rig.
+
+**Verified:**
+
+- API `npm run build` green; full jest 109 suites / 1581 tests
+  (+6 vs session 140's 1575 — suites unchanged).
+- Live smoke 35/35 on a 30-migration from-empty scratch DB booted with
+  SMTP_JSON_CAPTURE=1 + PUSH_JSON_CAPTURE=1: real signed-in order ->
+  exactly one PUSH_CAPTURED whose url carries the token, byte-identical
+  to the confirmation email's `rt`; owner confirm -> second push+email
+  pair sharing their own mint; the CAPTURED token unlocks
+  `GET /orders/:id` bearer-less (200, confirmed status); tampered token,
+  foreign order, and a live-minted expired token all answer the
+  byte-identical canonical 404 (no-oracle body equality against an
+  unknown id); `POST /payments?rt=<push token>` on the OWNED order stays
+  404 — the session-136 guest-only money tier is untouched by this
+  capability; ADMIN bearer rung unchanged; zero-write deltas (orders +2
+  == the two created, payments row count 0) and zero pino level-50 lines.
+- Web untouched: bundle budget + e2e deltas 0 by construction.
+
+**Left for next:** none for this item; Phase 16 #5 (write-side property
+sweep) and #6 (order-reads query-logger audit) remain the queue head.
+
+---
 ## 2026-11-27 11:20 — Session 141 (CI follow-up) — bundle gate re-adopt: /orders/[id] to the run's exact 163454
 
 **Built / Verified:**
