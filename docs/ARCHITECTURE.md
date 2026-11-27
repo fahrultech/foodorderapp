@@ -677,7 +677,12 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   `HTTP_<n>`); `AppException` carries explicit domain codes + structured
   `details`. Validation constraint lists move to `details` under a generic
   `"Validation failed"` headline; non-HttpExceptions are logged with stack
-  and answered as a sanitized 500 so driver internals never reach clients.
+  and answered as a sanitized 500 so driver internals never reach clients —
+  EXCEPT transport rejections carrying their own 4xx status (the raw-body
+  family: `PayloadTooLargeError` 413, `UnsupportedMediaTypeError` 415):
+  those keep the transport status + stable code with a WARN, because a
+  client fault must never surface as 5xx (Phase 16 write sweep; a 5xx-
+  carrying lookalike is NOT trusted at face value and still sanitizes).
   The web `lib/api.ts` throws a typed `ApiError` (`status`, `code`,
   `details`) parsed from this envelope. See README *Error envelope*.
 - **Public query-surface contract** (sessions 84 + 87) — every `@Query`

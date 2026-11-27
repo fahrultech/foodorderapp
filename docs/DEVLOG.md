@@ -3,6 +3,103 @@
 Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
+## 2026-11-27 15:02 — Session 143 — write-side property sweep on POST /orders (Test, Phase 16 #5)
+
+**Built:**
+
+- Tests: `order-create-sweep.http.spec.ts` (18 tests) — session 135's
+  constant-outcome doctrine applied to the ORDER WRITE: real
+  OrdersController + real OrdersService + the production ValidationPipe
+  option set + real ErrorFormatFilter over live HTTP, on a
+  transaction-FAITHFUL fake write layer (order save + promo ledger row
+  buffered until the unit of work resolves; stock UPDATEs through an undo
+  journal; the `[rows, rowCount]` tuple and the `WHERE stock IS NOT NULL
+  AND stock >= qty` zero-row-miss kept exactly; the DB column default
+  `status=pending` emulated on insert). "Every denial wrote NOTHING" is
+  therefore an EXECUTABLE per-request gate, not a prose claim. The option
+  ladder runs the REAL MenuOptionService on a groups-repo fake.
+  Families: option-choice sets (missing-required / over-max / duplicate /
+  foreign / unknown / non-uuid / ArrayMaxSize / wrong-dish), promo codes
+  (pattern-400 vs rejected-400 vs valid-201-plus-ledger; min-order always
+  checked FIRST), qty/stock edges (0/51/float/junk at the pipe; the
+  Number-coercion truths '1' and true landing as qty-1 201s; over-stock
+  409 with details; duplicate lines aggregating into ONE UPDATE; the
+  read-vs-write zero-row flip failing CLOSED), address shapes (partial
+  trio 400, guest saved-address 400, foreign 404, own 201 with
+  server-copied snapshot beating the client echo), the raw-transport set
+  (empty/array/string/null bodies, trailing comma, duplicate JSON keys
+  last-wins, `__proto__` stripped, non-JSON content-type, 150 KB body),
+  and a 240-case deterministic seeded sweep (seed 0x09D5, prints case
+  context on failure) whose end-state invariants are RECOMPUTED from the
+  committed rows: orders rows == 201 count, stock decrement == committed
+  units, ledger rows == promo-bearing orders, exact observed-code set.
+- Fix (finding 2): `create-order.dto.ts` — `menuItemId` grows
+  `@IsUUID('4')` (was IsString+IsNotEmpty). Live measurement: a junk dish
+  id reached `In(['nope'])` on the uuid PRIMARY KEY through the REAL
+  MenuService.findByIds → pg 22P02 → sanitized 500 + a level-50 log line.
+  Now a canonical 400 at the pipe (`items.0.menuItemId must be a valid
+  dish id` pinned in details), zero writes, BEFORE the DB sees the junk.
+  Same doctrine as deliveryAddressId / optionChoiceIds.
+- Fix (finding 3): `error-format.filter.ts` — non-HttpExceptions that
+  CARRY their own 4xx status (raw-body family: `PayloadTooLargeError`
+  413, `UnsupportedMediaTypeError` 415) now render the canonical envelope
+  at the transport status + stable code with a WARN, instead of
+  sanitizing to a misleading 500 (measured live: oversize body was a 500
+  + 2 level-50 lines pre-fix). A 5xx-CARRYING lookalike is NOT trusted at
+  face value — still the sanitized 500. JSON parse errors never reached
+  this branch: Nest 11's express adapter already re-throws them as
+  BadRequestException (400 + envelope pinned as wire truth, unit and
+  live). `+1` unit test in `error-format.filter.spec.ts`.
+- Doctrine note (honesty vs the roadmap phrasing): the canonical status
+  set for POST /orders is {201, 400, 404, 409, 413} — the item's
+  401/403 do not occur on this route by design (guest checkout allowed;
+  OptionalJwtAuthGuard degrades junk bearers to guest; no role gate),
+  and 404 IS canonical (unknown restaurant / gone dish / foreign
+  address-id). Pinned as such in both layers.
+- Finding 1 (recorded, no product change): a GONE dish answers the
+  canonical **404** `One or more menu items no longer exist` from
+  MenuService.findByIds' count guard BEFORE the pricing loop — the
+  harness's first silent-filter mock conflated it with the 400
+  not-available arm. The unit fake was made faithful (throws on
+  count-mismatch vs the UNIQUE ids, exactly like production); the 404
+  outcome is now pinned at BOTH layers, unit and live smoke.
+- No schema, no route/query-param surface change (registry untouched),
+  no message keys, no web change.
+
+**Verified:**
+
+- API `npm run build` green; full jest 110 suites / 1600 tests
+  (+1 suite / +19 tests vs session 142's 109/1581: 18 sweep + 1 filter).
+- Live smoke 84/84 (exit 0) on a 30-migration from-empty scratch DB with
+  the REAL compiled dist: seeded baseline captured BEFORE flow
+  (orders 10, order_items 17, promo_usages 1); 3 successful orders
+  (guest, WELCOME10 bearer with total == subtotal - discount + fee,
+  exact-stock with 3 lines whose duplicate pair aggregates into ONE
+  stock UPDATE) move the deltas
+  EXACTLY (+3 orders, +5 items, +1 ledger; duplicate cart lines stay
+  separate item rows — harness expectation corrected); 17 denial arms
+  each assert status + exact `.error.code` + zero-write on all three
+  tables; over-stock 409 details {requested:3, stockAtRead:2} keeps the
+  row at 2; exact drain to 0; no negative stock anywhere; both
+  restaurant-404 bodies byte-identical; malformed JSON 400 + envelope;
+  150 KB body 413 PAYLOAD_TOO_LARGE + envelope on the LIVE wire (the
+  filter fix — the PRE-FIX run measured 500 + level-50 lines, kept as
+  the honest before/after); non-uuid dish 400 with the pinned message
+  (live proof of finding 2); zero `"level":50` log lines in the clean
+  run. Scratch log asserted via the standing grep-count idiom.
+- Web untouched: bundle budget + e2e deltas 0 by construction (no
+  apps/web files; the DTO rung only rejects shapes the storefront never
+  sends — every web order line rides a real dish uuid).
+
+**Left for next session:**
+
+- Phase 16 #6: query-logger + EXPLAIN audit of the ORDER reads
+  (`GET /orders/my`, owner inbox list) — the last open Phase 16 item.
+- Possible follow-up: `restaurantId` stays IsString (junk-string 404 is
+  canonical and proven); if a future phase unifies body-uuid validation,
+  this sweep is the regression net.
+
+---
 ## 2026-11-27 13:31 — Session 142 — magic-link capability on the PUSH payload url (Product, Phase 16 #4)
 
 **Built:**

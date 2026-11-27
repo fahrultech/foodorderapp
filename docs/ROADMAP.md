@@ -801,12 +801,35 @@
   tier untouched), zero-write deltas, zero level-50 log lines; web delta
   0 by construction — the page already rides `?rt=` and the SW keeps
   query strings.)
-- [ ] Test: write-side property sweep — session 135's constant-outcome
+- [x] Test: write-side property sweep — session 135's constant-outcome
   doctrine applied to `POST /orders`: seeded-mutation sweep over real
   bodies (option-choice sets, promo codes, qty/stock edges, address shape)
   through the real pipe + filter asserting ONLY canonical outcomes
   (201/400/401/403/409 + the exact error-code set), zero 5xx, and
   write-nothing on every denial (row-count deltas vs the seeded baseline).
+  (2026-11-27, session 143; `order-create-sweep.http.spec.ts` — real
+  controller/service/pipe/filter over live HTTP with a transaction-faithful
+  fake (buffered save + stock journal rolled back on throw) so "denial
+  wrote nothing" is executable. Canonical set is {201,400,404,409,413}, not
+  401/403: the route is guest-allowed with OptionalJwtAuthGuard (junk
+  bearer → guest 201) and has no role gate — noted honestly. 18 tests
+  including a 240-case deterministic mutation sweep (seed 0x09D5) over
+  option sets, promo codes, qty/stock edges, address shapes, raw transport
+  bodies (empty/null/non-JSON/prototype/duplicate-key/malformed/oversize),
+  driving a real MenuOptionService. TWO live-500-class bugs caught by the real DB
+  that the unit mocks passed: (1) a GONE dish answers the canonical 404
+  `MenuService.findByIds` count-guard BEFORE the pricing loop (the harness
+  initially conflated it with the 400 not-available — corrected faithful);
+  (2) a NON-uuid `menuItemId` reached `In([...])` on the uuid PK → pg
+  22P02 500 — fixed by an `@IsUUID` pipe rung (400, message pinned). Also
+  `ErrorFormatFilter` now maps transport 4xx (raw-body PayloadTooLarge 413)
+  to the canonical envelope at the transport status instead of sanitizing
+  to a misleading 500. +19 tests 109→110 suites/1581→1600; live smoke
+  84/84 on a 30-migration from-empty DB: 3 201s vs 17 denials each
+  byte-asserted zero-write on orders/order_items/promo_usages deltas,
+  over-stock 409 keeps stock, exact-stock drains to 0, promo ledger +1,
+  restaurant-404 envelope byte-identical, malformed JSON→400, oversize→
+  413, non-uuid dish→400, zero level-50 log lines.)
 - [ ] Perf: query-logger + EXPLAIN audit of the ORDER reads — session-79's
   method never ran on `GET /orders/my` (status filter + pagination +
   items-load) or the owner inbox list: prove constant statement shape,
