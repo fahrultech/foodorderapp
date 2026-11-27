@@ -14,8 +14,11 @@ shift on the current runner lineage, not the session-120 wobble. `/`
 (measured 135871 under 135873) and `/orders/my` (exactly 144408) keep
 their tables per the untouched-rows caveat.
 
-**Verified:** pending — the next CI run must go green on the re-adopted
-numbers (API/E2E/Postgres-matrix jobs were already green on 59ed938).
+**Verified:** CONFIRMED GREEN — run 45996503495 on 6c7e69c: all five CI
+jobs success (Web production build incl. the budget gate, API build +
+unit, E2E Playwright suite, Postgres 15 + 16 migrate/seed/drift). The
+previously-red jobs on the two prior runs stay green with zero web-tree
+changes between them, exactly as the re-adopt predicts.
 
 ---
 ## 2026-11-27 20:02 — Session 145 — status-write constant-outcome sweep on ALL FOUR status routes (Test, Phase 17 #1)
