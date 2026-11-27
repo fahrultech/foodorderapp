@@ -1,5 +1,5 @@
 /* FoodOrder PWA + browser-push worker. API payload truth stays server-owned. */
-const CACHE_NAME = 'foodorder-storefront-v1';
+const CACHE_NAME = 'foodorder-storefront-v2';
 const APP_SHELL = [
   '/',
   '/cart',
@@ -13,9 +13,25 @@ const OFFLINE_NAVIGATION_PATHS = new Set(['/', '/cart', '/offline']);
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) =>
-      Promise.allSettled(APP_SHELL.map((url) => cache.add(url))),
-    ),
+    (async () => {
+      const cache = await caches.open(CACHE_NAME);
+      await Promise.allSettled(APP_SHELL.map((url) => cache.add(url)));
+      // Session 141: the offline shell must HYDRATE, not just paint HTML.
+      // Extract every /_next/static asset each cached document references
+      // (framework chunks + page chunks, hashed names) and pre-cache them,
+      // so the offline receipt-restore island's JS runs with zero network
+      // even if the user never visited /offline online while in control.
+      const assets = new Set();
+      for (const url of APP_SHELL.filter((u) => !/\.[a-z0-9]+$/i.test(u))) {
+        const doc = await cache.match(url);
+        if (!doc) continue;
+        const html = await doc.text();
+        for (const ref of html.matchAll(/(?:src|href)="(\/_next\/static\/[^"]+)"/g)) {
+          assets.add(ref[1]);
+        }
+      }
+      await Promise.allSettled([...assets].map((url) => cache.add(url)));
+    })(),
   );
   self.skipWaiting();
 });

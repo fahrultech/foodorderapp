@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import type { ReactNode } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
 import { useRouter } from 'next/navigation';
 import { loadCachedOrder, type CachedReceipt } from '@/lib/order-cache';
@@ -40,10 +41,30 @@ function formatSavedAt(iso: string, locale: string): string {
   }
 }
 
-export default function CachedReceiptFallback({ orderId }: { orderId: string }) {
+export default function CachedReceiptFallback({
+  orderId,
+  notFound,
+  onRetry,
+}: {
+  orderId: string;
+  /**
+   * Card to show when the device holds no valid copy (default: PortalOffline).
+   * The fully-offline shell (session 141) passes the generic OfflineCard so a
+   * restore miss stays byte-identical to today's offline page.
+   */
+  notFound?: ReactNode;
+  /**
+   * Retry implementation (default: router.refresh of the server branch —
+   * correct when the WEB server answers and only the API is down). The
+   * offline shell passes a document reload: a fresh navigation is the only
+   * honest retry when there is no live route state to refresh.
+   */
+  onRetry?: () => void;
+}) {
   const t = useTranslations('Order');
   const locale = useLocale();
   const router = useRouter();
+  const retry = onRetry ?? (() => router.refresh());
   // SSR paints the honest "API unreachable, checking the device" card (NOT
   // the not-found title — the server branch already split down from denial);
   // the cache read is mount-only, so hydration cannot mismatch.
@@ -69,7 +90,7 @@ export default function CachedReceiptFallback({ orderId }: { orderId: string }) 
   }
 
   if (receipt === null) {
-    return <PortalOffline onRetry={() => router.refresh()} />;
+    return <>{notFound ?? <PortalOffline onRetry={retry} />}</>;
   }
 
   return (
@@ -85,7 +106,7 @@ export default function CachedReceiptFallback({ orderId }: { orderId: string }) 
         </p>
         <button
           type="button"
-          onClick={() => router.refresh()}
+          onClick={retry}
           className="mt-3 rounded-xl bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700"
         >
           {t('cachedRetry')}

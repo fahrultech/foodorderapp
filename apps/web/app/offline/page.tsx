@@ -1,23 +1,15 @@
-import Link from 'next/link';
-import { getTranslations } from 'next-intl/server';
+import OfflineCard from '@/components/OfflineCard';
+import OfflineRestoreIsland from '@/components/OfflineRestoreIsland';
 
-export default async function OfflinePage() {
-  const t = await getTranslations('Offline');
-  return (
-    <div className="mx-auto max-w-lg rounded-2xl border border-stone-200 bg-white p-10 text-center">
-      <p className="text-3xl" aria-hidden="true">
-        📡
-      </p>
-      <h1 className="mt-3 text-2xl font-extrabold">{t('pageTitle')}</h1>
-      <p className="mt-2 text-sm leading-relaxed text-stone-600">
-        {t('pageBody')}
-      </p>
-      <Link
-        href="/cart"
-        className="mt-6 inline-block rounded-xl bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-700"
-      >
-        {t('pageCta')}
-      </Link>
-    </div>
-  );
+/**
+ * The offline app shell (Phase 16 #3). When the service worker cannot reach
+ * the web server at all, it serves this page for failed navigations — today
+ * as a generic card (pre-cached), and for /orders/<id> URLs whose receipt the
+ * device actually holds (lib/order-cache), the island restores the saved
+ * copy behind the same honest banner the API-down branch shows (session 137).
+ * The fallback card is passed in, so a non-receipt URL — or an order the
+ * browser never viewed — renders exactly what this route always did.
+ */
+export default function OfflinePage() {
+  return <OfflineRestoreIsland fallback={<OfflineCard />} />;
 }
