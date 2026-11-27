@@ -669,3 +669,56 @@ describe('RestaurantsService.findAll — query shapes (perf contract)', () => {
     expect((hours.find.mock.calls[0] as any)[0].where.restaurantId).toBeDefined();
   });
 });
+
+
+/**
+ * Session 144 — PERF CONTRACT (docs/ROADMAP.md Phase 16 "query-logger +
+ * EXPLAIN audit of the ORDER reads"). The query logger caught the order
+ * paths (getOwnedRestaurant gate + POST /orders pricing) running the FULL
+ * public DETAIL read — 6 statements, every menu item + option groups +
+ * hours + ETA hydrated — where they only ever read {id, ownerId} or
+ * {id, minOrderCents, deliveryFeeCents}. findOrderScope is the one-statement
+ * projection; these pins stop a refactor from routing the order paths back
+ * through the detail read (or growing this one).
+ */
+describe('RestaurantsService.findOrderScope — order-path projection (perf contract)', () => {
+  const ID = '11111111-1111-4111-8111-111111111111';
+
+  it('ONE repo read with the column projection, NO relations and no embeds', async () => {
+    const findOne = jest.fn(async () => ({
+      id: ID,
+      ownerId: 'o1',
+      minOrderCents: 1000,
+      deliveryFeeCents: 300,
+    }));
+    const menu = { attachOptionGroups: jest.fn() };
+    const hours = { find: jest.fn() };
+    const service = new RestaurantsService(
+      { findOne } as any,
+      {} as any,
+      menu as any,
+      hours as any,
+    );
+    const out = await service.findOrderScope(ID);
+    expect(out).toEqual({ id: ID, ownerId: 'o1', minOrderCents: 1000, deliveryFeeCents: 300 });
+    const args = (findOne as jest.Mock).mock.calls[0][0];
+    expect(args.relations).toBeUndefined();
+    expect(args.select).toEqual({
+      id: true,
+      ownerId: true,
+      minOrderCents: true,
+      deliveryFeeCents: true,
+    });
+    expect(findOne).toHaveBeenCalledTimes(1);
+    // none of the detail embeds may run
+    expect((menu.attachOptionGroups as jest.Mock).mock.calls.length).toBe(0);
+    expect((hours.find as jest.Mock).mock.calls.length).toBe(0);
+  });
+
+  it('answers null for a non-uuid id WITHOUT touching the repo (404 semantics ride)', async () => {
+    const findOne = jest.fn();
+    const service = new RestaurantsService({ findOne } as any, {} as any);
+    await expect(service.findOrderScope('garbage')).resolves.toBeNull();
+    expect(findOne).not.toHaveBeenCalled();
+  });
+});

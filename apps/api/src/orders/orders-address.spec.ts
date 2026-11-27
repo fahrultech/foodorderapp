@@ -65,7 +65,7 @@ function buildCreate(addressRow: DeliveryAddress | null) {
     ]),
   } as unknown as MenuService;
   const restaurants = {
-    findOne: jest.fn(async () => ({
+    findOrderScope: jest.fn(async () => ({
       id: REST_ID,
       minOrderCents: 1000,
       deliveryFeeCents: 300,

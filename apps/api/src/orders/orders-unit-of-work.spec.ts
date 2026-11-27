@@ -83,7 +83,7 @@ function buildTx(opts: {
     findByIds: jest.fn(async () => opts.items),
   } as unknown as MenuService;
   const restaurants = {
-    findOne: jest.fn(async () => ({
+    findOrderScope: jest.fn(async () => ({
       id: REST_ID,
       minOrderCents: 0,
       deliveryFeeCents: 300,
@@ -285,7 +285,7 @@ describe('OrdersService.create — order-centric metrics attribution (session 12
 
   it('an unknown restaurant 404s BEFORE any stamp — junk can never mint a bucket', async () => {
     const { service, restaurants } = buildTx({ items: [item('m1')] });
-    (restaurants as unknown as { findOne: jest.Mock }).findOne.mockResolvedValue(null);
+    (restaurants as unknown as { findOrderScope: jest.Mock }).findOrderScope.mockResolvedValue(null);
     const ctx: RequestContext = { reqId: 'uow-attr-404' };
     await expect(
       runWithRequestContext(ctx, () =>

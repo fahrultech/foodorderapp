@@ -56,18 +56,43 @@ function build(rows: Order[] = [order()], userRole: UserRole | null = UserRole.D
         (where.driverId === undefined || row.driverId === where.driverId),
     ) ?? null,
   );
-  const findAndCount = jest.fn(async ({ where, skip, take }: any) => {
+  const save = jest.fn(async (value: Order) => value);
+  // Session 144 (order-read audit): findForDriver pages via `find` and
+  // counts via a join-free QB COUNT(1) — same fake semantics as the
+  // orders.service.spec list harness.
+  const find = jest.fn(async ({ where, skip, take }: any) => {
     const matched = rows.filter(
       (row) =>
         row.driverId === where.driverId &&
         (!where.status || row.status === where.status),
     );
-    return [matched.slice(skip ?? 0, (skip ?? 0) + (take ?? matched.length)), matched.length];
+    return matched.slice(skip ?? 0, (skip ?? 0) + (take ?? matched.length));
   });
-  const save = jest.fn(async (value: Order) => value);
-  const repo = { findOne, findAndCount, save } as unknown as Repository<Order>;
+  const createQueryBuilder = jest.fn(() => {
+    const params: Record<string, any> = {};
+    const qb: any = {
+      select: jest.fn(() => qb),
+      where: jest.fn((_sql: string, p: any) => (Object.assign(params, p), qb)),
+      getRawOne: jest.fn(async () => ({
+        cnt: String(
+          rows.filter(
+            (row) =>
+              (params.driverId === undefined || row.driverId === params.driverId) &&
+              (params.status === undefined || row.status === params.status),
+          ).length,
+        ),
+      })),
+    };
+    return qb;
+  });
+  // Session 144 perf contract: findAndCount would re-join the eager items
+  // relation into the count — banned loudly in the fake.
+  const banned = jest.fn(() => {
+    throw new Error('findAndCount is banned on the audited order reads (session 144)');
+  });
+  const repo = { findOne, find, createQueryBuilder, save, findAndCount: banned } as unknown as Repository<Order>;
   const restaurants = {
-    findOne: jest.fn(async () => ({ id: REST_ID, ownerId: OWNER_ID })),
+    findOrderScope: jest.fn(async () => ({ id: REST_ID, ownerId: OWNER_ID })),
   } as unknown as RestaurantsService;
   const events = { publish: jest.fn() } as unknown as OrderEventsService & { publish: jest.Mock };
   const users = {
@@ -86,7 +111,7 @@ function build(rows: Order[] = [order()], userRole: UserRole | null = UserRole.D
     undefined,
     users,
   );
-  return { service, findOne, findAndCount, save, events, users };
+  return { service, findOne, find, createQueryBuilder, save, events, users };
 }
 
 describe('OrdersService.assignDriverForRestaurant', () => {
@@ -169,14 +194,16 @@ describe('OrdersService.findForDriver', () => {
       limit: 5,
     });
     expect(result).toMatchObject({ total: 1, page: 2, limit: 5 });
-    expect(h.findAndCount).toHaveBeenCalledWith(
+    expect(h.find).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { driverId: DRIVER_ID, status: OrderStatus.PREPARING },
-        relations: { restaurant: true, items: true },
+        // restaurant explicit; items ride the eager relation (session 144)
+        relations: { restaurant: true },
         skip: 5,
         take: 5,
       }),
     );
+    expect(h.createQueryBuilder).toHaveBeenCalledTimes(1);
   });
 });
 

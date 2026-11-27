@@ -181,7 +181,7 @@ function buildHarness() {
   } as any;
 
   const restaurants = {
-    findOne: jest.fn(async (id: string) =>
+    findOrderScope: jest.fn(async (id: string) =>
       id === REST_A ? { id: REST_A, minOrderCents: 1000, deliveryFeeCents: 300 } : null,
     ),
   } as any;

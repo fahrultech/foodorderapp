@@ -206,7 +206,7 @@ function buildWired(order: Order, extra: { find?: jest.Mock } = {}) {
     publish: jest.Mock;
   };
   const restaurants = {
-    findOne: jest.fn(async () => ({ id: REST_ID, ownerId: OWNER_ID } as any)),
+    findOrderScope: jest.fn(async () => ({ id: REST_ID, ownerId: OWNER_ID } as any)),
   } as unknown as RestaurantsService;
   const service = new OrdersService(
     repo,

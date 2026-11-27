@@ -230,6 +230,27 @@ export class RestaurantsService {
   }
 
   /**
+   * Session 144 (order-read audit) — ONE-statement projection for the ORDER
+   * paths. `getOwnedRestaurant` needs only {id, ownerId} and `create` needs
+   * only {id, minOrderCents, deliveryFeeCents}, yet both called the public
+   * DETAIL read above: a 6-statement pass that hydrated every menu item, its
+   * option groups, opening hours and the ETA aggregate — on EVERY portal
+   * inbox request, SSE stream access, status action, analytics request,
+   * driver assignment and order create (query-logger evidence: owner inbox
+   * was 14 statements/request, 6 of them this gate). Garbage/unknown ids
+   * return null, so callers keep their exact 404/403 semantics.
+   */
+  async findOrderScope(id: string): Promise<
+    Pick<Restaurant, 'id' | 'ownerId' | 'minOrderCents' | 'deliveryFeeCents'> | null
+  > {
+    if (!isUuid(id)) return null;
+    return this.repo.findOne({
+      where: { id },
+      select: { id: true, ownerId: true, minOrderCents: true, deliveryFeeCents: true },
+    });
+  }
+
+  /**
    * Distinct non-empty cuisine names for the storefront filter chips
    * (session 79). This used to load EVERY restaurant row as a FULL entity
    * (21 columns, ORDER BY name) and de-duplicate in Node — a per-request

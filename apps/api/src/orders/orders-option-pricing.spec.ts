@@ -57,7 +57,7 @@ function buildCreate(input: {
     ]),
   } as unknown as MenuService;
   const restaurants = {
-    findOne: jest.fn(async () => ({
+    findOrderScope: jest.fn(async () => ({
       id: REST_ID,
       ownerId: 'own',
       minOrderCents: 1000,
@@ -172,7 +172,7 @@ describe('OrdersService.create — menu-option pricing (Phase 5)', () => {
       ]),
     } as unknown as MenuService;
     const restaurants = {
-      findOne: jest.fn(async () => ({ id: REST_ID, ownerId: 'own', minOrderCents: 1000, deliveryFeeCents: 300 })),
+      findOrderScope: jest.fn(async () => ({ id: REST_ID, ownerId: 'own', minOrderCents: 1000, deliveryFeeCents: 300 })),
     } as unknown as RestaurantsService;
     const service = new OrdersService(
       repo, menu, restaurants,

@@ -76,7 +76,7 @@ function buildHarness(opts: { failFirst?: number } = {}): Harness {
     ]),
   } as unknown as MenuService;
   const restaurants = {
-    findOne: jest.fn(async () => ({
+    findOrderScope: jest.fn(async () => ({
       id: REST_ID,
       ownerId: OWNER_ID,
       minOrderCents: 1000,

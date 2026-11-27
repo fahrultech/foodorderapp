@@ -276,7 +276,10 @@ export class OrdersService {
 
   async create(dto: CreateOrderDto, userId?: string) {
     const contact = await this.resolveContact(dto, userId);
-    const restaurant = await this.restaurants.findOne(dto.restaurantId);
+    // Session 144: pricing needs {id, minOrderCents, deliveryFeeCents} only —
+    // the full DETAIL read (6 statements, menu hydration) was pure overhead
+    // on the hottest write path. Same null/404 semantics for junk ids.
+    const restaurant = await this.restaurants.findOrderScope(dto.restaurantId);
     if (!restaurant) throw new NotFoundException('Restaurant not found');
     // EXPLICIT order-centric attribution (session 125, Phase 8): POST /orders
     // carries the restaurant in the BODY and its matched template has no
@@ -631,6 +634,13 @@ export class OrdersService {
   /**
    * Paginated, status-filterable order history for the authenticated customer.
    * Returns the same { items, total, page, limit } envelope restaurants.findAll uses.
+   * Session 144 (order-read audit): the query-logger proved this path emits a
+   * CONSTANT 3 statements (distinct-ids page + one IN-batch row fetch — items
+   * ride in one pass, no N+1 — plus the total). `findAndCount` was split into
+   * `find` + join-free `COUNT(1)` because `Order.items` is an EAGER relation:
+   * findAndCount's count mirrored the eager `LEFT JOIN order_items`, turning
+   * an indexed count into a 15k-row join scan. Same statement count, the
+   * count is now orders-only.
    */
   async findMine(userId: string, q: ListMyOrdersDto = {}) {
     // Session 87 sweep: bounded clamping, NOT Number() math — a huge page
@@ -641,15 +651,16 @@ export class OrdersService {
     const where: FindOptionsWhere<Order> = { userId };
     if (q.status) where.status = q.status;
 
-    const [items, total] = await this.orders.findAndCount({
+    // The per-order line items the history page renders ride on the EAGER
+    // `items` relation — loaded in the SAME IN-batch statement, not one per card.
+    const items = await this.orders.find({
       where,
-      // items included so the web order-history page can render a per-order
-      // line summary without an extra request per card.
-      relations: { restaurant: true, items: true },
+      relations: { restaurant: true },
       order: { createdAt: 'DESC' },
       skip: (page - 1) * limit,
       take: limit,
     });
+    const total = await this.countOrders(where);
     return { items, total, page, limit };
   }
 
@@ -662,14 +673,52 @@ export class OrdersService {
     const where: FindOptionsWhere<Order> = { driverId };
     if (q.status) where.status = q.status;
 
-    const [items, total] = await this.orders.findAndCount({
+    const items = await this.orders.find({
       where,
-      relations: { restaurant: true, items: true },
+      relations: { restaurant: true },
       order: { createdAt: 'DESC' },
       skip: (page - 1) * limit,
       take: limit,
     });
+    const total = await this.countOrders(where);
     return { items, total, page, limit };
+  }
+
+  /**
+   * Join-free total for the inbox/history lists (session 144). Plain repo
+   * counts ride the eager `items` relation (LEFT JOIN order_items); a QueryBuilder
+   * does NOT — proven live by the query logger, pinned by the perf contract spec.
+   * Every caller passes at least an owner column; a predicate-less count would
+   * silently count the whole table, so that shape answers 0 (fail closed).
+   */
+  private async countOrders(where: FindOptionsWhere<Order>): Promise<number> {
+    const conds: string[] = [];
+    const params: Record<string, unknown> = {};
+    // FindOptionsWhere here is always { owner-col?, status? } from the list
+    // methods above — flat column predicates, no relation conditions.
+    if (where.userId !== undefined) {
+      conds.push('o.userId = :userId');
+      params.userId = where.userId;
+    }
+    if (where.driverId !== undefined) {
+      conds.push('o.driverId = :driverId');
+      params.driverId = where.driverId;
+    }
+    if (where.restaurantId !== undefined) {
+      conds.push('o.restaurantId = :restaurantId');
+      params.restaurantId = where.restaurantId;
+    }
+    if (where.status !== undefined) {
+      conds.push('o.status = :status');
+      params.status = where.status;
+    }
+    if (conds.length === 0) return 0;
+    const raw = await this.orders
+      .createQueryBuilder('o')
+      .select('COUNT(1)', 'cnt')
+      .where(conds.join(' AND '), params)
+      .getRawOne<{ cnt: string }>();
+    return Number(raw?.cnt) || 0;
   }
 
   /**
@@ -678,8 +727,19 @@ export class OrdersService {
    * (admins bypass). An unknown/garbage id is 404; someone else's restaurant
    * is 403 — restaurant pages are public so existence is not secret, the
    * ORDER data is. Same paginated envelope as findMine, plus per-status
-   * `counts` for the inbox tabs (simple count queries per status — cheap at
-   * this scale and trivially mock-testable).
+   * `counts` for the inbox tabs.
+   *
+   * Session 144 (order-read audit): this used to be 14 statements/request —
+   * the ownership gate ran the full restaurant DETAIL read (6), the
+   * findAndCount count mirrored the eager items join (3 total for the page),
+   * and ONE `count({restaurantId, status})` per status ran SIX more
+   * eager-joined COUNT(DISTINCT) scans (EXPLAIN: 287 buffers + a seq scan of
+   * order_items EACH). Now: 1 projection gate + 2 page statements + ONE
+   * index-only `GROUP BY status` over (restaurantId, status) (EXPLAIN: 8
+   * buffers) whose per-status values serve BOTH `counts` and `total`
+   * (total = the filtered status's count, or the sum when unfiltered —
+   * exactly what the old separate count query computed). Response envelope
+   * is byte-identical: every status key stays present, zero-filled.
    */
   async findForRestaurant(
     restaurantId: string,
@@ -696,19 +756,33 @@ export class OrdersService {
     const where: FindOptionsWhere<Order> = { restaurantId };
     if (q.status) where.status = q.status;
 
-    const [items, total] = await this.orders.findAndCount({
+    const items = await this.orders.find({
       where,
-      relations: { items: true },
       order: { createdAt: 'DESC' },
       skip: (page - 1) * limit,
       take: limit,
     });
 
+    const rows = await this.orders
+      .createQueryBuilder('o')
+      .select('o.status', 'status')
+      .addSelect('COUNT(1)', 'count')
+      .where('o.restaurantId = :restaurantId', { restaurantId })
+      .groupBy('o.status')
+      .getRawMany<{ status: OrderStatus; count: string }>();
+
     const counts = {} as Record<OrderStatus, number>;
-    for (const status of Object.values(OrderStatus)) {
-      counts[status] = await this.orders.count({ where: { restaurantId, status } });
+    for (const status of Object.values(OrderStatus)) counts[status] = 0;
+    let allStatuses = 0;
+    for (const row of rows) {
+      const n = Number(row.count) || 0;
+      if (Object.prototype.hasOwnProperty.call(counts, row.status)) {
+        counts[row.status] = n;
+        allStatuses += n;
+      }
     }
 
+    const total = q.status ? counts[q.status] : allStatuses;
     return { items, total, page, limit, counts };
   }
 
@@ -784,7 +858,7 @@ export class OrdersService {
     restaurantId: string,
     actor: { sub: string; role: UserRole },
   ): Promise<{ id: string; ownerId: string | null }> {
-    const restaurant = await this.restaurants.findOne(restaurantId);
+    const restaurant = await this.restaurants.findOrderScope(restaurantId);
     if (!restaurant) throw new NotFoundException('Restaurant not found');
     if (actor.role !== UserRole.ADMIN && restaurant.ownerId !== actor.sub) {
       throw new ForbiddenException('You do not own this restaurant');

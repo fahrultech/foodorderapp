@@ -67,7 +67,31 @@ function build(orders: Order[] = [fakeOrder()]) {
   const findOne = jest.fn(async ({ where }: any) =>
     orders.find((o) => o.id === where.id) ?? null,
   );
-  const findAndCount = jest.fn(async ({ where, skip, take }: any) => {
+  // Session 144 (order-read audit): findMine/findForDriver page through
+  // `find` and take their total from a join-free QueryBuilder COUNT(1) —
+  // repo.findAndCount used to mirror the EAGER items relation into the
+  // count (LEFT JOIN order_items, live-proven at 15.6k join rows). The
+  // fake below keeps both halves honest: same filter/sort/slice semantics
+  // for the page, and the count recomputed from the where() params.
+  const countWhere = (p: any) =>
+    orders.filter(
+      (o) =>
+        (p.userId === undefined || o.userId === p.userId) &&
+        (p.driverId === undefined || o.driverId === p.driverId) &&
+        (p.status === undefined || o.status === p.status),
+    ).length;
+  const countQbs: any[] = [];
+  const createQueryBuilder = jest.fn(() => {
+    const params: Record<string, any> = {};
+    const qb: any = {
+      select: jest.fn(() => qb),
+      where: jest.fn((_sql: string, p: any) => (Object.assign(params, p), qb)),
+      getRawOne: jest.fn(async () => ({ cnt: String(countWhere(params)) })),
+    };
+    countQbs.push(qb);
+    return qb;
+  });
+  const find = jest.fn(async ({ where, skip, take }: any) => {
     const all = orders
       .filter(
         (o) =>
@@ -75,11 +99,15 @@ function build(orders: Order[] = [fakeOrder()]) {
           (!where.status || o.status === where.status),
       )
       .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
-    const page = all.slice(skip ?? 0, (skip ?? 0) + (take ?? all.length));
-    return [page, all.length];
+    return all.slice(skip ?? 0, (skip ?? 0) + (take ?? all.length));
   });
   const save = jest.fn(async (x: Order) => x);
-  const repo = { findOne, findAndCount, save } as unknown as jest.Mocked<
+  // Session 144 perf contract: resurrecting findAndCount here would put
+  // the eager items join back into the count — the fake LOUDLY rejects it.
+  const bannedFindAndCount = jest.fn(() => {
+    throw new Error('findAndCount is banned on the audited order reads (session 144): its count mirrors the EAGER items join');
+  });
+  const repo = { findOne, find, createQueryBuilder, save, findAndCount: bannedFindAndCount } as unknown as jest.Mocked<
     Partial<Repository<Order>>
   >;
   const restaurants = {} as RestaurantsService;
@@ -92,43 +120,47 @@ function build(orders: Order[] = [fakeOrder()]) {
     fakePromos(),
     fakeAddresses(),
   );
-  return { service, findOne, findAndCount, save, events };
+  return { service, findOne, find, createQueryBuilder, countQbs, save, events };
 }
 
 describe('OrdersService.findMine — pagination + status filter', () => {
   it('uses defaults page=1/limit=20 and scopes by userId', async () => {
-    const { service, findAndCount } = build();
+    const { service, find, countQbs } = build();
     const out: any = await service.findMine(OWNER_ID, {});
-    const args = (findAndCount as jest.Mock).mock.calls[0][0];
+    const args = (find as jest.Mock).mock.calls[0][0];
     expect(args.where).toEqual({ userId: OWNER_ID });
     expect(args.skip).toBe(0);
     expect(args.take).toBe(20);
     expect(args.order).toEqual({ createdAt: 'DESC' });
-    // history cards show a line summary + restaurant without extra calls
-    expect(args.relations).toEqual({ restaurant: true, items: true });
+    // restaurant joins explicitly; line items ride the eager relation
+    expect(args.relations).toEqual({ restaurant: true });
     expect(out).toMatchObject({ page: 1, limit: 20 });
     expect(Array.isArray(out.items)).toBe(true);
+    // session 144 perf contract: the total is ONE join-free QB COUNT(1),
+    // not findAndCount's eager-join count and not six per-status counts.
+    expect(countQbs.length).toBe(1);
+    expect(countQbs[0].getRawOne).toHaveBeenCalled();
   });
 
   it('passes an explicit status into the where clause', async () => {
-    const { service, findAndCount } = build();
+    const { service, find } = build();
     await service.findMine(OWNER_ID, { status: OrderStatus.DELIVERING });
-    const args = (findAndCount as jest.Mock).mock.calls[0][0];
+    const args = (find as jest.Mock).mock.calls[0][0];
     expect(args.where).toEqual({ userId: OWNER_ID, status: 'delivering' });
   });
 
   it('computes skip from page/limit', async () => {
-    const { service, findAndCount } = build();
+    const { service, find } = build();
     await service.findMine(OWNER_ID, { page: 3, limit: 10 });
-    const args = (findAndCount as jest.Mock).mock.calls[0][0];
+    const args = (find as jest.Mock).mock.calls[0][0];
     expect(args.skip).toBe(20);
     expect(args.take).toBe(10);
   });
 
   it('clamps junk defensively even if the DTO let it through', async () => {
-    const { service, findAndCount } = build();
+    const { service, find } = build();
     const out: any = await service.findMine(OWNER_ID, { page: 0 as any, limit: 999 as any });
-    const args = (findAndCount as jest.Mock).mock.calls[0][0];
+    const args = (find as jest.Mock).mock.calls[0][0];
     expect(args.skip).toBe(0);
     expect(args.take).toBe(50);
     expect(out.page).toBe(1);
@@ -140,9 +172,9 @@ describe('OrdersService.findMine — pagination + status filter', () => {
   // Postgres bigint overflow (22001/22P02) → HTTP 500. Closed range now,
   // live-proven against the real driver in the session-87 smoke.
   it('hostile page=1e30 / limit=500 lands on the closed range, never an overflowing OFFSET', async () => {
-    const { service, findAndCount } = build();
+    const { service, find } = build();
     const out: any = await service.findMine(OWNER_ID, { page: 1e30 as any, limit: 500 as any });
-    const args = (findAndCount as jest.Mock).mock.calls[0][0];
+    const args = (find as jest.Mock).mock.calls[0][0];
     expect(out.page).toBe(100_000); // MAX_PUBLIC_PAGE
     expect(out.limit).toBe(50); // MAX_PAGE_SIZE
     expect(args.skip).toBe((100_000 - 1) * 50);
@@ -151,9 +183,9 @@ describe('OrdersService.findMine — pagination + status filter', () => {
   });
 
   it('non-finite page/limit collapse to the defaults, not NaN in SQL', async () => {
-    const { service, findAndCount } = build();
+    const { service, find } = build();
     await service.findMine(OWNER_ID, { page: Number.POSITIVE_INFINITY, limit: NaN });
-    const args = (findAndCount as jest.Mock).mock.calls[0][0];
+    const args = (find as jest.Mock).mock.calls[0][0];
     expect(args.skip).toBe(0);
     expect(args.take).toBe(20);
   });
@@ -268,7 +300,7 @@ describe('OrdersService.findForRestaurant — owner orders inbox', () => {
     orders: Order[],
     opts: { ownerId?: string | null; restaurantExists?: boolean } = {},
   ) {
-    const findAndCount = jest.fn(async ({ where, skip, take }: any) => {
+    const find = jest.fn(async ({ where, skip, take }: any) => {
       const all = orders
         .filter(
           (o) =>
@@ -276,32 +308,52 @@ describe('OrdersService.findForRestaurant — owner orders inbox', () => {
             (!where.status || o.status === where.status),
         )
         .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
-      return [all.slice(skip ?? 0, (skip ?? 0) + (take ?? all.length)), all.length];
+      return all.slice(skip ?? 0, (skip ?? 0) + (take ?? all.length));
     });
-    const count = jest.fn(async ({ where }: any) =>
-      orders.filter((o) => o.restaurantId === where.restaurantId && o.status === where.status)
-        .length,
-    );
-    const repo = { findAndCount, count } as unknown as Repository<Order>;
+    // Session 144 perf contract: ONE grouped query replaces the six
+    // eager-joined per-status counts AND the page total.
+    const grouped: { where: string | null }[] = [];
+    const createQueryBuilder = jest.fn(() => {
+      const st = { where: null as string | null };
+      grouped.push(st);
+      const qb: any = {
+        select: jest.fn(() => qb),
+        addSelect: jest.fn(() => qb),
+        where: jest.fn((_sql: string, p: any) => ((st.where = p.restaurantId), qb)),
+        groupBy: jest.fn(() => qb),
+        getRawMany: jest.fn(async () => {
+          const by: Record<string, number> = {};
+          for (const o of orders)
+            if (o.restaurantId === st.where) by[o.status] = (by[o.status] ?? 0) + 1;
+          return Object.entries(by).map(([status, count]) => ({ status, count: String(count) }));
+        }),
+      };
+      return qb;
+    });
+    const banned = jest.fn(() => {
+    throw new Error('findAndCount is banned on the audited order reads (session 144)');
+  });
+  const repo = { find, createQueryBuilder, count: banned, findAndCount: banned } as unknown as Repository<Order>;
     const restaurants = {
-      findOne: jest.fn(async (id: string) =>
+      findOrderScope: jest.fn(async (id: string) =>
         !isUuid(id) || opts.restaurantExists === false
           ? null
           : ({ id, ownerId: opts.ownerId ?? OWNER_ID } as any),
       ),
     } as unknown as RestaurantsService;
     const service = new OrdersService(repo, {} as MenuService, restaurants, fakeEvents(), fakePromos(), fakeAddresses());
-    return { service, findAndCount, count, restaurants };
+    return { service, find, createQueryBuilder, restaurants };
   }
 
   const at = (n: number) => new Date(2026, 9, n);
 
   it('404s for an unknown or malformed restaurant id before listing anything', async () => {
-    const { service, findAndCount } = buildPortal([], { restaurantExists: false });
+    const { service, find, createQueryBuilder } = buildPortal([], { restaurantExists: false });
     await expect(service.findForRestaurant(REST_ID, ownerActor)).rejects.toBeInstanceOf(
       NotFoundException,
     );
-    expect(findAndCount).not.toHaveBeenCalled();
+    expect(find).not.toHaveBeenCalled();
+    expect(createQueryBuilder).not.toHaveBeenCalled();
 
     await expect(service.findForRestaurant('garbage', ownerActor)).rejects.toBeInstanceOf(
       NotFoundException,
@@ -342,13 +394,14 @@ describe('OrdersService.findForRestaurant — owner orders inbox', () => {
         createdAt: at(i + 1),
       }),
     );
-    const { service, findAndCount } = buildPortal(rows);
+    const { service, find } = buildPortal(rows);
     const out: any = await service.findForRestaurant(REST_ID, ownerActor, { page: 2, limit: 5 });
     expect(out).toMatchObject({ page: 2, limit: 5, total: 12 });
     expect(out.items.length).toBe(5);
     expect(out.items[0].createdAt).toEqual(at(7)); // 6th newest
-    const args = (findAndCount as jest.Mock).mock.calls[0][0];
-    expect(args.relations).toEqual({ items: true });
+    const args = (find as jest.Mock).mock.calls[0][0];
+    // items ride the EAGER relation now (session 144) — no relations opt
+    expect(args.relations).toBeUndefined();
     expect(args.order).toEqual({ createdAt: 'DESC' });
 
     const clamped: any = await service.findForRestaurant(REST_ID, ownerActor, {
@@ -381,7 +434,7 @@ describe('OrdersService.findForRestaurant — owner orders inbox', () => {
         createdAt: at(4),
       }),
     ];
-    const { service, count } = buildPortal(rows);
+    const { service, createQueryBuilder } = buildPortal(rows);
     const pending: any = await service.findForRestaurant(REST_ID, ownerActor, {
       status: OrderStatus.PENDING,
     });
@@ -396,7 +449,9 @@ describe('OrdersService.findForRestaurant — owner orders inbox', () => {
       completed: 1,
       cancelled: 0,
     });
-    expect((count as jest.Mock).mock.calls.length).toBe(6);
+    // session 144: the six eager-joined per-status counts collapsed into
+    // exactly ONE grouped query (and the page total rides its numbers).
+    expect((createQueryBuilder as jest.Mock).mock.calls.length).toBe(1);
   });
 });
 
@@ -427,7 +482,7 @@ describe('OrdersService.analyticsForRestaurant — completed-order SQL aggregate
       .mockReturnValueOnce(queryBuilders[0])
       .mockReturnValueOnce(queryBuilders[1]);
     const restaurants = {
-      findOne: jest.fn(async () => ({ id: REST_ID, ownerId })),
+      findOrderScope: jest.fn(async () => ({ id: REST_ID, ownerId })),
     } as unknown as RestaurantsService;
     const service = new OrdersService(
       { createQueryBuilder } as unknown as Repository<Order>,
@@ -465,7 +520,7 @@ describe('OrdersService.analyticsForRestaurant — completed-order SQL aggregate
       .mockReturnValueOnce(summaryQb)
       .mockReturnValueOnce(hourlyQb);
     const restaurants = {
-      findOne: jest.fn(async () => ({ id: REST_ID, ownerId: OWNER_ID })),
+      findOrderScope: jest.fn(async () => ({ id: REST_ID, ownerId: OWNER_ID })),
     } as unknown as RestaurantsService;
     const service = new OrdersService(
       { createQueryBuilder } as unknown as Repository<Order>,
@@ -554,7 +609,7 @@ describe('OrdersService.setStatusForRestaurant — owner status actions', () => 
     const repo = { findOne, save } as unknown as Repository<Order>;
     const events = fakeEvents();
     const restaurants = {
-      findOne: jest.fn(async (id: string) =>
+      findOrderScope: jest.fn(async (id: string) =>
         !isUuid(id) || opts.restaurantExists === false
           ? null
           : ({ id, ownerId: opts.ownerId ?? OWNER_ID } as any),
@@ -705,7 +760,7 @@ describe('OrdersService — live event emission (SSE bus)', () => {
     const repo = { findOne, save } as unknown as Repository<Order>;
     const events = fakeEvents();
     const restaurants = {
-      findOne: jest.fn(async (id: string) => ({ id, ownerId: OWNER_ID } as any)),
+      findOrderScope: jest.fn(async (id: string) => ({ id, ownerId: OWNER_ID } as any)),
     } as unknown as RestaurantsService;
     const service = new OrdersService(repo, {} as MenuService, restaurants, events, fakePromos(), fakeAddresses());
     return { service, events };
@@ -777,7 +832,7 @@ describe('OrdersService — live event emission (SSE bus)', () => {
       ]),
     } as unknown as MenuService;
     const restaurants = {
-      findOne: jest.fn(async () => ({
+      findOrderScope: jest.fn(async () => ({
         id: REST_ID,
         ownerId: OWNER_ID,
         minOrderCents: 1000,
@@ -805,7 +860,7 @@ describe('OrdersService.assertStreamAccess — SSE ownership gate', () => {
 
   function buildGate(opts: { ownerId?: string | null; restaurantExists?: boolean } = {}) {
     const restaurants = {
-      findOne: jest.fn(async (id: string) =>
+      findOrderScope: jest.fn(async (id: string) =>
         !isUuid(id) || opts.restaurantExists === false
           ? null
           : ({ id, ownerId: opts.ownerId ?? OWNER_ID } as any),
@@ -862,7 +917,7 @@ describe('OrdersService — status-step timestamps (tracking timeline)', () => {
     const save = jest.fn(async (x: Order) => x);
     const repo = { findOne, save } as unknown as Repository<Order>;
     const restaurants = {
-      findOne: jest.fn(async () => ({ id: REST_ID, ownerId: OWNER_ID } as any)),
+      findOrderScope: jest.fn(async () => ({ id: REST_ID, ownerId: OWNER_ID } as any)),
     } as unknown as RestaurantsService;
     return new OrdersService(repo, {} as MenuService, restaurants, fakeEvents(), fakePromos(), fakeAddresses());
   }

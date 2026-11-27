@@ -46,7 +46,7 @@ function build(current: Order) {
     save: jest.fn(async (value: Partial<OrderStatusAudit>) => value),
   } as unknown as Repository<OrderStatusAudit> & { create: jest.Mock; save: jest.Mock };
   const restaurants = {
-    findOne: jest.fn(async () => ({ id: RESTAURANT_ID, ownerId: OWNER_ID })),
+    findOrderScope: jest.fn(async () => ({ id: RESTAURANT_ID, ownerId: OWNER_ID })),
   } as unknown as RestaurantsService;
   const service = new OrdersService(
     orders,

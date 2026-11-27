@@ -50,7 +50,7 @@ function buildCreate(opts: {
     ]),
   } as unknown as MenuService;
   const restaurants = {
-    findOne: jest.fn(async () => ({
+    findOrderScope: jest.fn(async () => ({
       id: REST_ID,
       minOrderCents: opts.minOrderCents ?? 1000,
       deliveryFeeCents: 300,

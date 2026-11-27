@@ -61,7 +61,7 @@ function build(opts: {
   const ordersRepo = { findOne, save } as unknown as Repository<Order>;
 
   const restaurants = {
-    findOne: jest.fn(async (id: string) => ({ id, ownerId: OWNER_ID } as any)),
+    findOrderScope: jest.fn(async (id: string) => ({ id, ownerId: OWNER_ID } as any)),
   } as unknown as RestaurantsService;
 
   const exist = jest.fn(async () => opts.paid);
