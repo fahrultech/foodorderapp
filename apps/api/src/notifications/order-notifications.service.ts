@@ -108,26 +108,46 @@ export class OrderNotificationsService implements OnModuleInit {
   }
 
   /**
-   * Magic-link receipt URL (Phase 14 #5): the short-lived signed
-   * capability token (receipt-access.ts) riding the storefront's order
-   * page. FAIL-OPEN by design: no visible secret (bare unit harnesses) or
-   * a throwing mint collapses to null — the template then renders NO link
-   * line (legacy byte-identical copy) and a notification can never die on
-   * its own link builder.
+   * Magic-link capability token (Phase 14 #5; Phase 16 #4 rides it on
+   * PUSH too): the short-lived signed token (receipt-access.ts) that
+   * unlocks exactly this order on the storefront receipt read. FAIL-OPEN
+   * by design: no visible secret (bare unit harnesses) or a throwing mint
+   * collapses to null — the email template then renders NO link line
+   * (legacy byte-identical copy), the push keeps the bare relative url,
+   * and a notification can never die on its own link builder.
+   * MINTED ONCE PER EVENT so the email line and the push payload carry
+   * the SAME capability (one token per notification, both channels).
    */
-  private receiptUrl(order: Order): string | null {
+  private receiptTokenFor(order: Order): string | null {
     try {
       const secret = this.config?.get<string>('JWT_SECRET');
       if (!secret) return null;
-      const token = issueReceiptAccessToken(
+      return issueReceiptAccessToken(
         order.id,
         secret,
         receiptTokenTtlSec(this.config?.get<string>('RECEIPT_TOKEN_TTL_SEC')),
       );
-      return `${this.webBaseUrl()}/orders/${order.id}?rt=${token}`;
     } catch {
       return null;
     }
+  }
+
+  /** Full storefront URL carrying the pre-minted token; null when absent. */
+  private receiptUrl(order: Order, token: string | null): string | null {
+    return token ? `${this.webBaseUrl()}/orders/${order.id}?rt=${token}` : null;
+  }
+
+  /**
+   * Same-site push payload url (Phase 16 #4): bare `/orders/:id` plus the
+   * event's capability when one was minted. Recipients are bearer-only
+   * (subscriptions are JWT-scoped), but the app switch can drop the web
+   * session — the rt rung then restores the read with the SAME ladder the
+   * email link rides. The token is order-bound and time-bounded, so the
+   * payload stays privacy-minimal (session 136 money ladder unchanged:
+   * rt never pays an OWNED order — canonical 404).
+   */
+  private pushUrl(order: Order, token: string | null): string {
+    return token ? `/orders/${order.id}?rt=${token}` : `/orders/${order.id}`;
   }
 
   /** `WEB_PUBLIC_URL` env, trailing slashes trimmed; dev default :3000. */
@@ -144,9 +164,10 @@ export class OrderNotificationsService implements OnModuleInit {
     });
     if (!order) return;
     const { email: to, pushEnabled } = await this.resolveChannels(order);
+    const rt = this.receiptTokenFor(order);
 
     const { subject, text } = confirmationEmail(
-      { ...order, receiptUrl: this.receiptUrl(order) },
+      { ...order, receiptUrl: this.receiptUrl(order, rt) },
       this.localesFor(order),
     );
 
@@ -156,7 +177,7 @@ export class OrderNotificationsService implements OnModuleInit {
         ? this.push.sendToUser(order.userId, {
             title: `Order received — #${order.code}`,
             body: `${order.restaurant.name} received your order.`,
-            url: `/orders/${order.id}`,
+            url: this.pushUrl(order, rt),
             tag: `order-${order.id}`,
           })
         : Promise.resolve(),
@@ -173,9 +194,10 @@ export class OrderNotificationsService implements OnModuleInit {
     });
     if (!order) return;
     const { email: to, pushEnabled } = await this.resolveChannels(order);
+    const rt = this.receiptTokenFor(order);
 
     const message = statusUpdateEmail(
-      { ...order, receiptUrl: this.receiptUrl(order) },
+      { ...order, receiptUrl: this.receiptUrl(order, rt) },
       status,
       this.localesFor(order),
     );
@@ -193,7 +215,7 @@ export class OrderNotificationsService implements OnModuleInit {
         ? this.push.sendToUser(order.userId, {
             title: `${enLabel} — #${order.code}`,
             body: `${order.restaurant.name}: ${enLabel}.`,
-            url: `/orders/${order.id}`,
+            url: this.pushUrl(order, rt),
             tag: `order-${order.id}`,
           })
         : Promise.resolve(),

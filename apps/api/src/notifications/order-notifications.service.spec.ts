@@ -505,14 +505,128 @@ describe('magic-link receipt URL in order emails', () => {
     const text = (mailSend.mock.calls[0][0] as any).text as string;
     expect(text).not.toContain('View your order');
     expect(text).not.toContain('rt=');
+    // The push twin of the fail-open arm: no secret -> bare legacy url.
+    expect(pushSend).toHaveBeenCalledWith('user-1', expect.objectContaining({ url: '/orders/order-1' }));
   });
+});
 
-  it('push url stays the bare order path (bearer rung unlocks it — no capability leak)', async () => {
+// ── magic-link capability on the PUSH payload url (Phase 16 #4) ────────────
+// Session 133 deliberately left pushes on the bare url; session 142's
+// roadmap item reversed that: the app switch can drop the web session, so
+// the same minted token now rides the push too. Pins below: SAME mint per
+// event (one capability, both channels), verifiability + order binding,
+// TTL expiry denial, and the fail-open bare-url arm (no secret) — the
+// money-ladder tier (rt never pays an OWNED order) is session 136's
+// payment-rt-access.http.spec, exercised live with the captured token.
+describe('magic-link capability in the push payload (Phase 16 #4)', () => {
+  const SECRET = 'notif-push-token-unit-secret';
+  let svc: OrderNotificationsService;
+  let bus: Subject<OrderEvent>;
+  let mailSend: jest.Mock;
+  let pushSend: jest.Mock;
+  let ordersFindOne: jest.Mock;
+
+  function build(config: Record<string, string>) {
+    bus = new Subject<OrderEvent>();
+    mailSend = jest.fn().mockResolvedValue(undefined);
+    pushSend = jest.fn().mockResolvedValue(undefined);
+    ordersFindOne = jest.fn();
+    svc = new OrderNotificationsService(
+      { stream: () => bus.asObservable() } as any,
+      { send: mailSend, enabled: true } as any,
+      { sendToUser: pushSend } as any,
+      { findOne: ordersFindOne } as any,
+      { findOne: async () => makeUser() } as any,
+      ({ get: (k: string) => config[k] } as any),
+    );
+    svc.onModuleInit();
+  }
+
+  const rtOf = (text: string) => {
+    const m = text.match(/[?&]rt=([A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)/);
+    return m ? m[1] : null;
+  };
+
+  afterEach(() => jest.clearAllMocks());
+
+  it('confirmation push carries the SAME token the email link got (one mint per event)', async () => {
     build({ JWT_SECRET: SECRET, WEB_PUBLIC_URL: 'https://eat.test' });
     ordersFindOne.mockResolvedValue(makeOrder());
     bus.next({ type: 'order.created', restaurantId: 'resto-1', userId: 'user-1',
       payload: { orderId: 'order-1', code: 'FO-TEST', status: 'pending' } });
     await new Promise((r) => setTimeout(r, 10));
-    expect(pushSend).toHaveBeenCalledWith('user-1', expect.objectContaining({ url: '/orders/order-1' }));
+
+    const pushUrlArg = (pushSend.mock.calls[0][1] as any).url as string;
+    expect(pushUrlArg.startsWith('/orders/order-1?rt=')).toBe(true);
+    const pushTok = rtOf(pushUrlArg)!;
+    expect(pushTok).toBeTruthy();
+    const mailTok = rtOf((mailSend.mock.calls[0][0] as any).text)!;
+    expect(pushTok).toBe(mailTok); // byte-identical: NOT a second mint
+    expect(verifyReceiptAccessToken(pushTok, 'order-1', SECRET)).toBe(true);
+    // order-bound: the same token never opens a different order
+    expect(verifyReceiptAccessToken(pushTok, 'order-2', SECRET)).toBe(false);
+  });
+
+  it('status-update push carries a fresh verifiable token (time-bounded, not nonce-consumed)', async () => {
+    build({ JWT_SECRET: SECRET });
+    // creation event first: same-second mints are byte-identical BY
+    // CONSTRUCTION (same payload + same expSec), and both remain valid —
+    // the documented one-time semantics of receipt-access.ts.
+    ordersFindOne.mockResolvedValue(makeOrder());
+    bus.next({ type: 'order.created', restaurantId: 'resto-1', userId: 'user-1',
+      payload: { orderId: 'order-1', code: 'FO-TEST', status: 'pending' } });
+    await new Promise((r) => setTimeout(r, 10));
+    const createdTok = rtOf((pushSend.mock.calls[0][1] as any).url)!;
+
+    ordersFindOne.mockResolvedValue(makeOrder({ status: OrderStatus.CONFIRMED }));
+    bus.next({ type: 'order.updated', restaurantId: 'resto-1', userId: 'user-1',
+      payload: { orderId: 'order-1', code: 'FO-TEST', status: 'confirmed' } });
+    await new Promise((r) => setTimeout(r, 10));
+
+    const pushUrlArg = (pushSend.mock.calls[1][1] as any).url as string;
+    const statusTok = rtOf(pushUrlArg)!;
+    expect(statusTok).toBeTruthy();
+    expect(verifyReceiptAccessToken(statusTok, 'order-1', SECRET)).toBe(true);
+    expect(rtOf((mailSend.mock.calls[1][0] as any).text)).toBe(statusTok);
+    // every push so far carried its event's token and stays valid
+    expect(createdTok).toBeTruthy();
+    expect(verifyReceiptAccessToken(createdTok, 'order-1', SECRET)).toBe(true);
+  });
+
+  it('RECEIPT_TOKEN_TTL_SEC=1: the pushed token is alive now and dead past expiry', async () => {
+    build({ JWT_SECRET: SECRET, RECEIPT_TOKEN_TTL_SEC: '1' });
+    ordersFindOne.mockResolvedValue(makeOrder());
+    bus.next({ type: 'order.created', restaurantId: 'resto-1', userId: 'user-1',
+      payload: { orderId: 'order-1', code: 'FO-TEST', status: 'pending' } });
+    await new Promise((r) => setTimeout(r, 10));
+
+    const tok = rtOf((pushSend.mock.calls[0][1] as any).url)!;
+    expect(verifyReceiptAccessToken(tok, 'order-1', SECRET)).toBe(true);
+    expect(verifyReceiptAccessToken(tok, 'order-1', SECRET, Date.now() + 2500)).toBe(false);
+  });
+
+  it('orderPushEnabled=false suppresses the push entirely (token never escapes via a silent channel)', async () => {
+    ordersFindOne.mockResolvedValue(makeOrder());
+    // Fresh bus/mocks: build()'s earlier svc instances remain subscribed to
+    // their Subjects, and this test never calls build() — reusing `bus`
+    // would fire the TTL test's still-live svc with a push-ENABLED user.
+    const bus2 = new Subject<OrderEvent>();
+    const mailSend2 = jest.fn().mockResolvedValue(undefined);
+    const pushSend2 = jest.fn().mockResolvedValue(undefined);
+    const svc2 = new OrderNotificationsService(
+      { stream: () => bus2.asObservable() } as any,
+      { send: mailSend2, enabled: true } as any,
+      { sendToUser: pushSend2 } as any,
+      { findOne: ordersFindOne } as any,
+      { findOne: async () => makeUser({ orderPushEnabled: false }) } as any,
+      ({ get: (k: string) => (k === 'JWT_SECRET' ? SECRET : undefined) } as any),
+    );
+    svc2.onModuleInit();
+    bus2.next({ type: 'order.created', restaurantId: 'resto-1', userId: 'user-1',
+      payload: { orderId: 'order-1', code: 'FO-TEST', status: 'pending' } });
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(pushSend2).not.toHaveBeenCalled();
+    expect(mailSend2).toHaveBeenCalledTimes(1); // email keeps its own link
   });
 });
