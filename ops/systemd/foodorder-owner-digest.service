@@ -1,0 +1,30 @@
+# systemd unit EXAMPLES for the FoodOrder owner daily digest (not
+# installed — copy to /etc/systemd/system/ and adjust paths for your host).
+#
+#   sudo cp ops/systemd/foodorder-owner-digest.{service,timer} /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now foodorder-owner-digest.timer
+#   systemctl list-timers foodorder-owner-digest.timer   # next fire
+#
+# The service runs ops/owner-digest.sh, which emails each restaurant owner
+# YESTERDAY's order counts, completed revenue and top dishes per owned
+# restaurant. DATABASE_URL + SMTP_* are read by the api's dotenv loader from
+# the untracked apps/api/.env (EnvironmentFile below makes it explicit);
+# credentials are never stored in this unit. Exactly-once lives in the DB:
+# the owner_digest_logs UNIQUE (ownerId, digestDate) claim ledger makes a
+# re-fire on the same day a silent no-op, so Persistent=true catch-up after
+# downtime cannot double-mail anyone.
+
+[Unit]
+Description=FoodOrder owner daily digest email
+Wants=postgresql.service
+After=network-online.target postgresql.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/ubuntu/foodorderapp
+# DATABASE_URL (and optional SMTP_*/DIGEST_*) live in the api env file.
+EnvironmentFile=-/home/ubuntu/foodorderapp/apps/api/.env
+ExecStart=/home/ubuntu/foodorderapp/ops/owner-digest.sh
+NoNewPrivileges=true
+PrivateTmp=true

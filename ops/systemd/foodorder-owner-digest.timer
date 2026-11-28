@@ -1,0 +1,15 @@
+[Unit]
+Description=FoodOrder owner daily digest timer (every morning 08:05)
+
+[Timer]
+# One fire per day at 08:05 local: owners get YESTERDAY's full day (the
+# window is closed at midnight, so a morning run never races the clock).
+# RandomizedDelaySec keeps many hosts from aligning; Persistent=true catches
+# up a missed fire after downtime — the digest ledger (UNIQUE owner+date)
+# absorbs the re-fire as a no-op, so catch-up can never double-mail.
+OnCalendar=*-*-* 08:05:00
+RandomizedDelaySec=300
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -15,7 +15,8 @@
     "restock-repair": "ts-node -r tsconfig-paths/register src/scripts/restock-repair.ts",
     "alert-scan": "ts-node -r tsconfig-paths/register src/scripts/alert-scan.ts",
     "test": "jest",
-    "lint": "eslint src --ext .ts"
+    "lint": "eslint src --ext .ts",
+    "owner-digest": "ts-node -r tsconfig-paths/register src/scripts/owner-digest.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1161.0",

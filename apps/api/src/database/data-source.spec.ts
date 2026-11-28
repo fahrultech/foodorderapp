@@ -17,6 +17,7 @@ import { PromoUsage } from '../promos/promo-usage.entity';
 import { Payment } from '../payments/payment.entity';
 import { PaymentRefund } from '../payments/payment-refund.entity';
 import { PushSubscription } from '../notifications/push-subscription.entity';
+import { OwnerDigestLog } from '../notifications/owner-digest-log.entity';
 import { City } from '../cities/city.entity';
 import { FeatureFlag } from '../feature-flags/feature-flag.entity';
 import { OrderStatusAudit } from '../orders/order-status-audit.entity';
@@ -30,10 +31,10 @@ describe('database/data-source', () => {
     expect(dataSourceOptions.migrationsRun).toBe(true);
   });
 
-  it('registers exactly the twenty-two entities and a ts/js migration glob', () => {
-    expect(dataSourceOptions.entities).toHaveLength(22);
+  it('registers exactly the twenty-three entities and a ts/js migration glob', () => {
+    expect(dataSourceOptions.entities).toHaveLength(23);
     expect(dataSourceOptions.entities).toEqual(
-      expect.arrayContaining([User, Favorite, DeliveryAddress, RefreshToken, City, Restaurant, RestaurantHours, MenuItem, MenuOptionGroup, MenuOptionChoice, Order, OrderItem, OrderStatusAudit, Review, PromoCode, PromoUsage, Payment, PaymentRefund, PushSubscription, FeatureFlag, MetricsSnapshotRow, AlertVerdictRow]),
+      expect.arrayContaining([User, Favorite, DeliveryAddress, RefreshToken, City, Restaurant, RestaurantHours, MenuItem, MenuOptionGroup, MenuOptionChoice, Order, OrderItem, OrderStatusAudit, Review, PromoCode, PromoUsage, Payment, PaymentRefund, PushSubscription, OwnerDigestLog, FeatureFlag, MetricsSnapshotRow, AlertVerdictRow]),
     );
     expect(dataSourceOptions.migrations).toHaveLength(1);
     expect(dataSourceOptions.migrations[0]).toMatch(/migrations\/\*\.\{ts,js\}$/);

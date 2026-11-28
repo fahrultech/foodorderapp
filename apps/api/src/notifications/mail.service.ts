@@ -98,9 +98,14 @@ export class MailService {
     this.log.log(`Mail transport ready → ${host}:${port} (secure=${secure})`);
   }
 
-  /** Fire-and-forget. Errors are logged, never thrown to callers. */
-  async send(opts: Mail.Options, channel: MailChannel = 'general'): Promise<void> {
-    if (!this.transporter) return;
+  /**
+   * Fire-and-forget by convention. Errors are logged, never thrown to
+   * callers; the PROMISE RESOLVES with the outcome ('sent' | 'failed' |
+   * 'disabled') so standalone runners (owner-digest cron) can gate their
+   * ledger on it — in-app callers keep ignoring the value unchanged.
+   */
+  async send(opts: Mail.Options, channel: MailChannel = 'general'): Promise<'sent' | 'failed' | 'disabled'> {
+    if (!this.transporter) return 'disabled';
     // A transport exists, so this IS a real attempt (session 134): the
     // tally lands BEFORE the outcome branch so every code path — success,
     // rejection, even a logging slip — leaves the attempt counted exactly
@@ -119,6 +124,7 @@ export class MailService {
           })}`,
         );
       }
+      return 'sent';
     } catch (err: unknown) {
       this.metrics?.recordMail(channel, false);
       const message = err instanceof Error ? err.message : String(err);
@@ -133,6 +139,7 @@ export class MailService {
           error: message,
         })}`,
       );
+      return 'failed';
     }
   }
 

@@ -65,7 +65,8 @@ describe('MailService', () => {
 
     it('does NOT throw when sendMail rejects', async () => {
       mockSendMail.mockRejectedValueOnce(new Error('ECONNREFUSED'));
-      await expect(svc.send({ to: 'x@example.com', subject: 'hi', text: 'body' })).resolves.toBeUndefined();
+      // Session 147: the rejection RESOLVES with 'failed' (never throws).
+      await expect(svc.send({ to: 'x@example.com', subject: 'hi', text: 'body' })).resolves.toBe('failed');
     });
 
     it('uses SMTP_SECURE=true to set secure flag', async () => {
@@ -218,7 +219,7 @@ describe('MailService', () => {
       mockSendMail.mockRejectedValueOnce(new Error('relay down'));
       await expect(
         svc.send({ to: 'a@example.com', subject: 's', text: 't' }, 'status'),
-      ).resolves.toBeUndefined();
+      ).resolves.toBe('failed');
       expect(recordMail).toHaveBeenCalledTimes(1);
       expect(recordMail).toHaveBeenCalledWith('status', false);
     });
@@ -243,7 +244,7 @@ describe('MailService', () => {
       }).compile()).get(MailService);
       await expect(
         svc.send({ to: 'a@example.com', subject: 's', text: 't' }, 'status'),
-      ).resolves.toBeUndefined();
+      ).resolves.toBe('sent');
     });
   });
 
@@ -276,7 +277,7 @@ describe('MailService', () => {
       const errSpy = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
       await expect(
         svc.send({ to: 'guest@example.com', subject: 'Order confirmed — #FO-1', text: 'body' }, 'confirmation'),
-      ).resolves.toBeUndefined();
+      ).resolves.toBe('failed');
       expect(recordMail).toHaveBeenCalledTimes(1);
       expect(recordMail).toHaveBeenCalledWith('confirmation', false);
       const failed = errSpy.mock.calls.map((c) => String(c[0])).filter((m) => m.startsWith('MAIL_FAILED '));
@@ -307,5 +308,42 @@ describe('MailService', () => {
       await svc.send({ to: 'a@example.com', subject: 's', text: 't' }, 'status');
       expect(mockSendMail).not.toHaveBeenCalled();
     });
+  });
+});
+
+
+// Session 147: MailService.send RESOLVES with the outcome (digest cron gate).
+describe('MailService.send outcome (Phase 17)', () => {
+  afterEach(() => jest.clearAllMocks());
+
+  function cfg(overrides: Record<string, string | undefined> = {}) {
+    const base: Record<string, string | undefined> = {
+      SMTP_HOST: undefined,
+      SMTP_JSON_CAPTURE: undefined,
+      ...overrides,
+    };
+    return { get: (k: string) => base[k] } as unknown;
+  }
+
+  it('no transport at all -> "disabled" (nothing attempted)', async () => {
+    const mail = new MailService(cfg() as never);
+    await expect(mail.send({ to: 'x@y.z', subject: 's', text: 't' })).resolves.toBe('disabled');
+  });
+
+  it('capture rig success -> "sent"', async () => {
+    const mail = new MailService(cfg({ SMTP_JSON_CAPTURE: '1' }) as never);
+    await expect(mail.send({ to: 'x@y.z', subject: 's', text: 't' })).resolves.toBe('sent');
+  });
+
+  it('failing transport -> "failed" (rejection is swallowed, outcome reported)', async () => {
+    const mail = new MailService(cfg({ SMTP_JSON_CAPTURE: 'fail' }) as never);
+    await expect(mail.send({ to: 'x@y.z', subject: 's', text: 't' })).resolves.toBe('failed');
+  });
+
+  it('real-transport success path -> "sent"', async () => {
+    const mail = new MailService(cfg({ SMTP_HOST: 'smtp.test' }) as never);
+    mockSendMail.mockResolvedValueOnce({ messageId: 'm1' });
+    await expect(mail.send({ to: 'x@y.z', subject: 's', text: 't' })).resolves.toBe('sent');
+    expect(mockSendMail).toHaveBeenCalledTimes(1);
   });
 });

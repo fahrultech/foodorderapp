@@ -2,6 +2,7 @@ import { OrderStatus } from '../orders/order.entity';
 import {
   confirmationEmail,
   formatCents,
+  ownerDigestEmail,
   hasStatusNotice,
   statusUpdateEmail,
   STATUS_UPDATE_LABELS,
@@ -232,5 +233,73 @@ describe('email-copy: receiptUrl line (magic link)', () => {
     expect(cancelled.text).toContain(
       `Restaurant: Burger Palace\n\nView your order: ${URL}\n\nIf you did not request a cancellation`,
     );
+  });
+});
+
+
+describe('ownerDigestEmail (Phase 17 owner daily digest)', () => {
+  const SINGLE = {
+    ownerName: 'Budi',
+    date: '2026-11-27',
+    restaurants: [
+      {
+        name: 'Warung Nusantara',
+        orderCount: 5,
+        completedCount: 4,
+        cancelledCount: 1,
+        revenueCents: 125500,
+        topDishes: [
+          { name: 'Nasi Goreng', quantity: 8 },
+          { name: 'Es Teh', quantity: 5 },
+        ],
+      },
+    ],
+  };
+
+  it('renders the subject with the covered date', () => {
+    expect(ownerDigestEmail(SINGLE).subject).toBe('FoodOrder owner digest - 2026-11-27');
+  });
+
+  it('single-restaurant body is byte-pinned (incl. IDR id-ID grouping)', () => {
+    expect(ownerDigestEmail(SINGLE).text).toBe(
+      [
+        'Hi Budi,',
+        '',
+        'Here is how your restaurant did on 2026-11-27:',
+        '',
+        'Warung Nusantara',
+        '  Orders: 5 (4 completed, 1 cancelled)',
+        '  Completed revenue: IDR 125.500',
+        '  Top dishes:',
+        '    - Nasi Goreng x8',
+        '    - Es Teh x5',
+        '',
+        '- FoodOrder',
+      ].join('\n'),
+    );
+  });
+
+  it('multiple restaurants -> plural lead + blank-line separated sections', () => {
+    const view = {
+      ...SINGLE,
+      restaurants: [
+        ...SINGLE.restaurants,
+        {
+          name: 'Seoul Street',
+          orderCount: 2,
+          completedCount: 2,
+          cancelledCount: 0,
+          revenueCents: 30000,
+          topDishes: [],
+        },
+      ],
+    };
+    const text = ownerDigestEmail(view).text;
+    expect(text).toContain('Here is how your restaurants did on 2026-11-27:');
+    expect(text).toContain('Seoul Street\n  Orders: 2 (2 completed, 0 cancelled)');
+    expect(text).toContain('  Top dishes: none');
+    expect(text).toContain('  Completed revenue: IDR 30.000');
+    // sections are separated by a blank line (dish list ends right before it)
+    expect(text).toContain('x5\n\nSeoul Street');
   });
 });

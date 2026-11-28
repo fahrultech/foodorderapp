@@ -249,3 +249,58 @@ export function statusUpdateEmail(
     ` — #${order.code}`,
   );
 }
+
+/**
+ * Owner daily digest (docs/ROADMAP.md Phase 17, Product loop).
+ *
+ * Recipients are AUTHENTICATED owners, so the ENGLISH-only doctrine in this
+ * file's header applies verbatim: no bilingual block, no locale guessing.
+ * The runner composes one email per owner covering every owned restaurant;
+ * a restaurant with zero orders in the window still gets a (boring) section,
+ * but an owner with no orders ANYWHERE never receives this at all — the
+ * zero-mail rule lives in owner-digest.ts, not here.
+ */
+export interface DigestRestaurantView {
+  name: string;
+  orderCount: number;
+  completedCount: number;
+  cancelledCount: number;
+  revenueCents: number;
+  /** Pre-ranked, pre-sliced (qty DESC, name ASC); empty = nothing sold. */
+  topDishes: Array<{ name: string; quantity: number }>;
+}
+
+export interface DigestEmailView {
+  ownerName: string;
+  /** Covered calendar day, 'YYYY-MM-DD'. */
+  date: string;
+  restaurants: DigestRestaurantView[];
+}
+
+export function ownerDigestEmail(view: DigestEmailView): RenderedEmail {
+  const sections = view.restaurants.map((r) => {
+    const dishes =
+      r.topDishes.length === 0
+        ? '  Top dishes: none'
+        : ['  Top dishes:', ...r.topDishes.map((d) => `    - ${d.name} x${d.quantity}`)].join('\n');
+    return [
+      r.name,
+      `  Orders: ${r.orderCount} (${r.completedCount} completed, ${r.cancelledCount} cancelled)`,
+      `  Completed revenue: ${formatCents(r.revenueCents)}`,
+      dishes,
+    ].join('\n');
+  });
+  const plural = view.restaurants.length === 1 ? 'restaurant' : 'restaurants';
+  return {
+    subject: `FoodOrder owner digest - ${view.date}`,
+    text: [
+      `Hi ${view.ownerName},`,
+      ``,
+      `Here is how your ${plural} did on ${view.date}:`,
+      ``,
+      sections.join('\n\n'),
+      ``,
+      `- FoodOrder`,
+    ].join('\n'),
+  };
+}
