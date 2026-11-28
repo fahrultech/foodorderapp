@@ -623,6 +623,29 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   URL on click. Unsupported, server-disabled, and browser-blocked states never
   request permission and render a disabled control.
 
+- **Owner daily digest mail is CLAIM-LEDGER gated, not cron-idempotent** —
+  the `owner-digest` cron runner (session 147; `ops/owner-digest.sh` +
+  systemd timer, covered day `DIGEST_DATE` default = local yesterday) mails
+  each restaurant owner one report per day: order counts, COMPLETED-order
+  revenue (integer cents) and top dishes (qty DESC, name ASC, top 3) per
+  owned restaurant. Exactly-once lives in the DB, not the scheduler:
+  `owner_digest_logs` carries a UNIQUE (ownerId, digestDate) pair claimed
+  BEFORE the send, stamped `sentAt` after, and DELETED when the send fails
+  or the transport is disabled — so a re-fire, a `Persistent=true` catch-up
+  after downtime, or a crash mid-run (stale claim older than
+  `DIGEST_CLAIM_STALE_MINUTES`, default 30, is taken over) can never
+  double-mail an owner, while a dead relay costs the day nothing. Owners
+  with zero orders in the closed-open local window receive NO mail and write
+  NO row; a user who silenced `orderEmailEnabled` is skipped before any
+  ledger touch (opt-out outranks the already-sent gate). Unowned
+  restaurants (`ownerId IS NULL`) are excluded by the join, and cancelled
+  orders count in the ORDER total but never in revenue nor in the dish
+  ranking. All rules are one shared core (`notifications/owner-digest.ts`)
+  the unit specs pin against fake ports; the SQL adapters live only in the
+  runner and their truth is proven by the live smoke (`MailService.send`
+  now resolves `'sent' | 'failed' | 'disabled'` so the ledger can gate on
+  it; `DIGEST_DRY_RUN=1` reports without touching either).
+
 - **Keyboard focus contract** — ONE global CSS rule owns it:
   `:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px }`
   declared after `@tailwind utilities` in `app/globals.css` (ties-and-wins vs

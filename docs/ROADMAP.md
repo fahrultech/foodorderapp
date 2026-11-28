@@ -889,12 +889,20 @@
   NEW A/B on 3,010-order scratch DBs: zero order_items lines in every
   flipped window, 9/9 response bodies byte-identical; contracts pinned in
   6 specs; 111 suites/1642 tests.)
-- [ ] Product: owner daily digest email — yesterday's orders, revenue
+- [x] Product: owner daily digest email — yesterday's orders, revenue
   (cents), and top dishes per owned restaurant through the existing
   `MailService` + an `ops/` cron runner (stale-sweep pattern);
   `SMTP_JSON_CAPTURE=1` live smoke (sessions 122/134 rig) asserting
   EXACT one-mail-per-owner-per-day, zero-mail-for-no-orders, and the
-  fail-arm tally.
+  fail-arm tally. (2026-11-28, session 147; shared core
+  `notifications/owner-digest.ts` + standalone runner
+  `src/scripts/owner-digest.ts` + `ops/owner-digest.sh` + systemd timer;
+  exactly-once via `owner_digest_logs` UNIQUE (ownerId, digestDate)
+  claim ledger (sentAt stamp, fail-then-release retry, stale-claim
+  take-over); MailService.send now resolves 'sent'|'failed'|'disabled';
+  opt-out + zero-orders owners write NOTHING; live smoke 51/51 on a
+  scratch DB incl. psql-derived per-section revenue/dish cross-checks;
+  112 suites/1670 tests.)
 - [ ] UX: order-history date-range filter — `from`/`to` query params on
   `GET /orders/my` (query-surface-audit REGISTRY entry mandatory per the
   session-87 rule; closed-range validation, clamped bounds) + web

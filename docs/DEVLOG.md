@@ -3,6 +3,99 @@
 Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
+---
+## 2026-11-28 14:20 — Session 147 — owner daily digest cron: claim-ledger exactly-once email per owner per day (live smoke 51/51)
+
+**Built:**
+
+- New Phase 17 product increment: the OWNER DAILY DIGEST. Shared pure
+  core `src/notifications/owner-digest.ts` (stale-order-sweep doctrine:
+  narrow ports, rules in one place) + standalone runner
+  `src/scripts/owner-digest.ts` (`npm run owner-digest`) + wrapper
+  `ops/owner-digest.sh` + example systemd units
+  (`foodorder-owner-digest.{service,timer}`, daily 08:05 with
+  `Persistent=true`). No HTTP route on purpose — a push artifact, not a
+  pull dashboard.
+- Covered day: `DIGEST_DATE` (YYYY-MM-DD, default local YESTERDAY,
+  month-boundary safe; malformed or impossible days exit 1 with a named
+  reason). Window is the closed-open local day `[00:00, next 00:00)` over
+  `orders.createdAt`, scoped to restaurants with a non-NULL `ownerId`
+  (unowned platform-seeded restaurants can never appear). Per owner
+  (one mail across ALL owned restaurants): order count with
+  completed/cancelled split, COMPLETED-order revenue (sum of server-side
+  `totalCents` — integer cents end to end, rendered by the existing
+  `formatCents` IDR id-ID grouping), and top-3 dishes per restaurant by
+  quantity (qty DESC, name ASC deterministic tie; CANCELLED orders feed
+  neither revenue nor the dish ranking). New copy builder
+  `ownerDigestEmail` in email-copy.ts (EN-only per the authenticated-
+  recipient locale doctrine) — subject `FoodOrder owner digest - <date>`.
+- Exactly-once lives in the DB, not the scheduler: migration
+  `AddOwnerDigestLog1795161600000` creates `owner_digest_logs` with a
+  UNIQUE (ownerId, digestDate) pair + non-negative write CHECKs + FK to
+  users CASCADE. The runner claims the row BEFORE sending, stamps
+  `sentAt` on success, and DELETES the claim on a failed or
+  mail-disabled send, so a re-fire / catch-up / crash is silent while a
+  dead relay never costs the owner the day (stale un-sent claims older
+  than `DIGEST_CLAIM_STALE_MINUTES`, default 30, are taken over).
+  Zero-orders owners and `orderEmailEnabled=false` owners are skipped
+  BEFORE any ledger touch (opt-out outranks even the already-sent gate);
+  `DIGEST_DRY_RUN=1` reports intent and writes/sends nothing. Runner
+  exit code is 1 on ANY failed send (the cron alerting hook).
+- `MailService.send` now RESOLVES `'sent' | 'failed' | 'disabled'`
+  (was void) so standalone runners can gate ledgers on it — in-app
+  callers ignore the value; the four older `toBeUndefined` telemetry pins
+  in mail.service.spec were re-pinned to their true outcomes. The digest
+  sends on the defensive `general` channel (no new MAIL_CHANNELS member —
+  a future named `digest` channel is backlog-sized, not session-sized).
+- Entity registered in `data-source.ts` (entities count pin 22 -> 23 in
+  data-source.spec). No new @Query params, no new controllers — the
+  session-87 registry rule and the swagger op-count lists are untouched.
+
+**Verified (all gates, this session):**
+
+- `npm run build` green. Full jest: **112 suites / 1670 tests passed**
+  (vs session 146's 111/1642: +1 suite / +28 tests — new
+  owner-digest.spec.ts pins every ledger/mail branch: sent path,
+  same-day silence, zero-orders, opt-out-first, in-flight vs stale
+  claim, fail-then-release, disabled-release, UNIQUE-conflict skip,
+  dry-run touches nothing, two-owners one-mail-each, ranking tie,
+  config parsing). email-copy digest byte pins (single/multi section +
+  'none' list + IDR grouping) and the four MailService outcome pins.
+- LIVE scratch-DB smoke (full migration chain from empty, seed, real
+  runner invocations, `SMTP_JSON_CAPTURE` rig): **51 PASS / 0 FAIL**,
+  exit 0. Asserted EXACTLY: all six named constraints + negative-
+  revenue CHECK rejection + duplicate-pair UNIQUE rejection (probes
+  wrote zero rows); one MAIL_CAPTURED line to owner@foodorder.app with
+  subject byte-pin; per-section Orders/completed/cancelled numbers and
+  completed-revenue SUM cross-checked against independent psql
+  derivations (9 orders / 11250 cents across 2 restaurants); every
+  top-dish line verbatim (ranking reproduced from raw GROUP BY via
+  python); whole-line exclusion of all four UNOWNED restaurant names
+  (bare-substring matching false-positives on shared tokens like
+  'Goreng' - harness bug caught and fixed); ledger row stats +
+  sentAt stamp equal the derivations; same-day re-run = zero new
+  captures, claimedAt/sentAt byte-unchanged; opt-out run answers
+  skipped-opt-out even with the sent row present; fail arm = exit 1,
+  one MAIL_FAILED, claim DELETED (zero rows) so the final success arm
+  re-claims and delivers; dry-run sends/claims nothing; stale date
+  2020-01-05 answers skipped-no-orders; `DIGEST_DATE=2026-13-45` exits
+  1 naming 'calendar day'. Wire truth learned: TypeORM does NOT bind
+  `:name` tokens inside select()/addSelect() expressions (they reach
+  Postgres raw -> syntax error) — CASE arms carry OrderStatus literals
+  instead; unit mocks stayed green over BOTH SQL bugs, the live smoke
+  again caught what fakes cannot.
+- ConsoleLogger stream placement pinned for harnesses: `log` (incl.
+  MAIL_CAPTURED) goes to STDOUT, `error` (MAIL_FAILED) to STDERR.
+
+**Left for next:**
+
+- Phase 17 keeps three open items (order-history date-range filter UX,
+  "buy again", query-logger audit of the remaining list surfaces).
+- Optional follow-up for the digest: a named `digest` MAIL_CHANNELS
+  member (registry-tally split from `general`), and a retention knob for
+  `owner_digest_logs` (currently unbounded at ~1 row/owner/day).
+
+---
 ## 2026-11-28 10:30 — Session 146 — eager-relation inventory: every pointless Order.items ride flipped (join-free) with a live OLD/NEW A/B
 
 **Built:**
