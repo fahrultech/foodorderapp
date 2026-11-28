@@ -22,6 +22,23 @@ const POLL_MS = 30_000;
 
 type Filter = 'all' | OrderStatus;
 
+/** Phase 17 date-range quick picks (GET /orders/my `from` bound). `all`
+ *  sends no param at all — the wire stays byte-identical to pre-filter. */
+type RangeKey = 'all' | '7d' | '30d' | '90d';
+const RANGE_OPTIONS: { key: RangeKey; days?: number; labelKey: string }[] = [
+  { key: 'all', labelKey: 'histRangeAll' },
+  { key: '7d', days: 7, labelKey: 'histRange7d' },
+  { key: '30d', days: 30, labelKey: 'histRange30d' },
+  { key: '90d', days: 90, labelKey: 'histRange90d' },
+];
+/** Computed per REQUEST (not state) so a long-open tab never ages the
+ *  window: the server validates the closed range on its own clock. */
+function rangeFrom(key: RangeKey): string | undefined {
+  const opt = RANGE_OPTIONS.find((o) => o.key === key);
+  if (!opt || opt.days === undefined) return undefined;
+  return new Date(Date.now() - opt.days * 86_400_000).toISOString();
+}
+
 /** Tab order for the status filter (mirrors the dashboard's APG tab list). */
 const FILTER_TABS = ['all', ...ORDER_STATUSES] as Filter[];
 
@@ -35,11 +52,12 @@ const STATUS_CAP: Record<OrderStatus, string> = {
   cancelled: 'Cancelled',
 };
 
-function queryParams(filter: Filter, page: number) {
+function queryParams(filter: Filter, page: number, range: RangeKey) {
   return {
     status: filter === 'all' ? undefined : filter,
     page,
     limit: PAGE_SIZE,
+    from: rangeFrom(range),
   };
 }
 
@@ -74,6 +92,7 @@ export default function MyOrdersPage() {
   const t = useTranslations('Portal');
   const { status, user, getAccessToken, logout } = useAuth();
   const [filter, setFilter] = useState<Filter>('all');
+  const [range, setRange] = useState<RangeKey>('all');
   const [page, setPage] = useState(1);
   const [data, setData] = useState<MyOrdersData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -99,7 +118,7 @@ export default function MyOrdersPage() {
         }
         return;
       }
-      const call = () => api.listMyOrders(token!, queryParams(filter, page));
+      const call = () => api.listMyOrders(token!, queryParams(filter, page, range));
       try {
         const out = await call();
         setData(out);
@@ -111,7 +130,7 @@ export default function MyOrdersPage() {
           token = await getAccessToken();
           try {
             if (token) {
-              setData(await api.listMyOrders(token, queryParams(filter, page)));
+              setData(await api.listMyOrders(token, queryParams(filter, page, range)));
               if (!silent) setError(null);
               return;
             }
@@ -134,7 +153,7 @@ export default function MyOrdersPage() {
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [filter, page, getAccessToken, logout],
+    [filter, page, range, getAccessToken, logout],
   );
 
   function summaryText(order: Order): string {
@@ -145,12 +164,12 @@ export default function MyOrdersPage() {
       : parts.head;
   }
 
-  // Initial/manual load on auth, filter, page or refresh changes.
+  // Initial/manual load on auth, filter, range, page or refresh changes.
   useEffect(() => {
     if (status !== 'signedIn') return;
     void load(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status, filter, page, reloadKey]);
+  }, [status, filter, page, range, reloadKey]);
 
   // Light polling keeps badges live without a full skeleton flicker.
   useEffect(() => {
@@ -289,6 +308,37 @@ export default function MyOrdersPage() {
         ))}
       </div>
 
+      {/* Date-range quick picks (Phase 17): plain toggle buttons with
+          aria-pressed, deliberately NOT part of the tabs widget — the
+          range composes orthogonally with the status filter above. */}
+      <div
+        className="mt-3 flex flex-wrap items-center gap-2"
+        role="group"
+        aria-label={t('histRangeAria')}
+        data-testid="hist-range-group"
+      >
+        {RANGE_OPTIONS.map((o) => (
+          <button
+            key={o.key}
+            type="button"
+            data-testid={`hist-range-${o.key}`}
+            aria-pressed={range === o.key}
+            onClick={() => {
+              setRange(o.key);
+              setPage(1);
+              setNotice(null);
+            }}
+            className={`rounded-full px-3 py-1 text-xs font-semibold transition-colors ${
+              range === o.key
+                ? 'bg-brand-600 text-white'
+                : 'border border-stone-300 bg-white text-stone-500 hover:bg-stone-100'
+            }`}
+          >
+            {t(o.labelKey)}
+          </button>
+        ))}
+      </div>
+
       {notice && (
         <p role="status" className="mt-4 rounded-xl bg-emerald-50 px-4 py-2.5 text-sm font-semibold text-emerald-800">
           {notice}
@@ -325,13 +375,29 @@ export default function MyOrdersPage() {
         <div className="mt-6 rounded-2xl border border-dashed border-stone-300 bg-white p-10 text-center">
           <p className="text-2xl">🍽️</p>
           <h2 className="mt-2 text-lg font-bold">
-            {filter === 'all'
-              ? t('emptyAllTitle')
-              : t('emptyStatusTitle', { status: t(`word${STATUS_CAP[filter as OrderStatus]}`) })}
+            {filter !== 'all'
+              ? t('emptyStatusTitle', { status: t(`word${STATUS_CAP[filter as OrderStatus]}`) })
+              : range !== 'all'
+                ? t('histEmptyRangeTitle')
+                : t('emptyAllTitle')}
           </h2>
           <p className="mt-1 text-sm text-stone-500">
             {filter === 'all' ? t('histEmptyAllBody') : t('histEmptyStatusBody')}
           </p>
+          {/* The period is empty, the account may not be: give the way back
+              to the full history BEFORE the generic find-food CTA. */}
+          {filter === 'all' && range !== 'all' && (
+            <button
+              onClick={() => {
+                setRange('all');
+                setPage(1);
+              }}
+              data-testid="hist-range-clear"
+              className="mt-6 inline-block rounded-xl border border-stone-300 bg-white px-5 py-2.5 text-sm font-semibold text-stone-700 hover:bg-stone-100"
+            >
+              {t('histRangeClear')}
+            </button>
+          )}
           <Link
             href="/"
             className="mt-6 inline-block rounded-xl bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-700"

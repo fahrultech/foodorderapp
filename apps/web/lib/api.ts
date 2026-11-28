@@ -805,15 +805,26 @@ export const api = {
   /**
    * Paginated order history for the signed-in customer. Server caps limit at
    * 50 and returns newest-first; `status` must be one of ORDER_STATUSES.
+   * `from`/`to` (Phase 17) are ISO-8601 bounds on createdAt forming a CLOSED
+   * range the server validates (from <= to, else 400) — both optional,
+   * either side alone is legal.
    */
   listMyOrders: (
     accessToken: string,
-    params: { status?: OrderStatus; page?: number; limit?: number } = {},
+    params: {
+      status?: OrderStatus;
+      page?: number;
+      limit?: number;
+      from?: string;
+      to?: string;
+    } = {},
   ) => {
     const qs = new URLSearchParams();
     if (params.status) qs.set('status', params.status);
     if (params.page) qs.set('page', String(params.page));
     if (params.limit) qs.set('limit', String(params.limit));
+    if (params.from) qs.set('from', params.from);
+    if (params.to) qs.set('to', params.to);
     const suffix = qs.toString() ? `?${qs.toString()}` : '';
     return request<MyOrdersPage>(`/orders/my${suffix}`, { headers: bearer(accessToken) });
   },
