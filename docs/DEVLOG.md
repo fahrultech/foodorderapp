@@ -4,6 +4,92 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 ---
+## 2026-11-28 16:15 — Session 148 — order-history date-range filter: closed from/to on GET /orders/my + EN/ID quick picks (live smoke 25/25)
+
+**Built:**
+
+- Phase 17 UX increment. API: `ListMyOrdersRangeDto extends
+  ListMyOrdersDto` (orders/dto/list-my-orders.dto.ts) adds optional
+  `from`/`to` to GET /orders/my — @IsISO8601 at the pipe, @Transform
+  (class-transformer) so a BLANK wire means UNSET. Kept a SUBCLASS so the
+  owner + driver inboxes (which share the base DTO) cannot
+  accept-and-ignore the params — whitelist:true strips them there, proven
+  on the wire AND in the docs (smoke L14/L15b).
+- DI-free helper `orders/list-date-range.ts` (session 122/133 pattern):
+  `parseListDateRange` owns the CLOSED-range rule — an inverted range 400s
+  `from must not be after to` BEFORE any query, a malformed direct-call
+  bound 400s naming the field. `dateRangeOperator`/`dateRangeBounds`
+  define a CLOSED operator set (between / moreThanOrEqual /
+  lessThanOrEqual; wire truth: typeorm 0.3.31 exposes FindOperator.type as
+  a GETTER, not getType()) — ONE dialect consumed by BOTH the paged find
+  and the join-free COUNT QB (countOrders decomposes the operator and
+  rebinds :rangeFrom/:rangeTo), so `total` can never describe a wider
+  window than the rows shown; anything outside the set throws loudly
+  instead of silently widening.
+- Index honesty: `where.createdAt` rides the session-32
+  (userId, createdAt) index — the scratch-DB EXPLAIN shows the DEFAULT
+  plan choosing IDX_orders_userId_createdAt for the range query (no
+  enable_seqscan=off probe needed), and the path stays the constant
+  3 statements session 144 pinned.
+- query-surface-audit REGISTRY updated per the session-87 rule:
+  OrdersController.my now names the range DTO, adds a dto-validated
+  completeness check for the SUBCLASS and three executable must-evidence
+  regexes on the service (parse call + both COUNT-mirror clauses). No new
+  route/operation — swagger ops stay 78; the params appear via
+  @ApiPropertyOptional (docs-json live-probed).
+- Web: four quick-pick chips (All time / 7 / 30 / 90 days) on
+  /orders/my as a role=group of aria-pressed buttons — deliberately
+  OUTSIDE the status APG tablist; a click resets to page 1; `from` is
+  computed PER REQUEST so a long-open tab never ages the window. The
+  EMPTY state with a range active (no status) now names the period
+  honestly ("No orders in this period") and offers a "Show all time"
+  escape BEFORE the generic find-food CTA. 7 new Portal keys EN/ID (341
+  to 348) — surgical one-line insert (+7/-0 per file), duplicate-key veto
+  and EN/ID parity asserted before any TSX edit.
+- e2e: `tests/order-history-range.spec.ts` 4 tests — from values pinned
+  within a 60s window on the REAL wire (7d/30d), All time sends no param,
+  range COMPOSES with the Completed tab (status+from+page=1 in one
+  request), route-intercepted empty period renders the escape hatch and
+  the way back, ID chrome ("Filter tanggal pesanan" / "7 hari
+  terakhir"). Read-only + fresh-seed-safe.
+
+**Verified (all gates, this session):**
+
+- API: `npm run build` green; jest **113 suites / 1688 tests** (vs
+  session 147's 112/1670: +1 suite / +18 tests — list-date-range.spec.ts
+  12 + findMine range 6 incl. "rejected range queries NOTHING" call-count
+  pins and the single-sided dialect pin).
+- Live smoke **25/25** on a scratch DB, 31-migration chain from empty +
+  seed: baseline + 2 fresh demo orders with ONE backdated 45 days via
+  psql — exact arithmetic vs a psql derivation: from=7d excludes exactly
+  the old row (B0+1), to=30d answers EXACTLY the backdated id, dead
+  2020-window 0/0, future from 0/0, inverted 400 BAD_REQUEST with the
+  specific message, junk 400 ISO-8601, blank = unset (both params),
+  date-only and %2B-encoded offset forms accepted, owner inbox
+  from/to-stripped on wire AND doc, limit=1 keeps the filtered total,
+  anonymous+params 401, zero level-50 log lines.
+- Web: build green; bundle gate — IN-PATH stash/pop A/B measured a
+  UNIFORM +17 B on all seven routes (message-catalog class, pre-funded
+  whole per the session-132/138 rule) and +283 B page-local on
+  /orders/my; all seven rows pre-funded with the measured deltas and
+  documented in PERFORMANCE.md; node --test selftests 16/16; local gate
+  green (margins +49..52 = the known CI-side gap calibration).
+- e2e: full suite **144/144 green x2 consecutive** fresh-seed
+  (140 to 144), fixture-timing gate OK both runs (top work leg is the
+  pre-existing 2.9 s restart-api).
+
+**Left for next sessions:**
+
+- The `to` upper bound is fully supported server-side but has no UI
+  (quick picks are lower-bound-only) — a custom date-range form is the
+  natural next UX rung.
+- Same closed-range dialect could serve the ADMIN orders list (separate
+  DTO there) and the owner inbox (would need the GROUP BY status counts
+  to carry the range too) — backlog-sized, not session-sized.
+- CI bundle re-measure: if any row lands a few bytes over, re-adopt it
+  to the failing run's CI-measured number (one documented cycle).
+
+---
 ## 2026-11-28 14:20 — Session 147 — owner daily digest cron: claim-ledger exactly-once email per owner per day (live smoke 51/51)
 
 **Built:**

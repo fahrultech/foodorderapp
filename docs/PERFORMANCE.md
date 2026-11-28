@@ -698,13 +698,21 @@ their split decisions separately.
 <!-- BUNDLE-BASELINE-START -->
 | Route | Baseline First Load JS+CSS, full chain (B, CI-measured, node 22.23.5) |
 |---|---|
-| `/` | 135873 |
-| `/restaurants/[id]` | 138945 |
-| `/cart` | 139409 |
-| `/checkout` | 142436 |
-| `/map` | 137112 |
-| `/orders/[id]` | 163460 |
-| `/orders/my` | 144408 |
+| `/` | 135890 |
+| `/restaurants/[id]` | 138962 |
+| `/cart` | 139426 |
+| `/checkout` | 142453 |
+| `/map` | 137129 |
+| `/orders/[id]` | 163477 |
+| `/orders/my` | 144708 |
+
+Session-148 adoption (order-history date range): IN-PATH stash/pop A/B
+measured a UNIFORM +17 B on all seven routes (the 7-key Portal message
+catalog addition, session-132 class — pre-funded whole) and +283 B
+page-local on `/orders/my` (range-chip row + empty-period escape).
+Per the session-141 calibration the adopted numbers are local deltas on
+the CI-measured rows; a CI re-measure of a few bytes is one documented
+re-adopt cycle if it lands.
 <!-- BUNDLE-BASELINE-END -->
 
 Session-145 CI follow-up: the gate went red on session 144's HEAD (run

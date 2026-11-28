@@ -903,11 +903,25 @@
   opt-out + zero-orders owners write NOTHING; live smoke 51/51 on a
   scratch DB incl. psql-derived per-section revenue/dish cross-checks;
   112 suites/1670 tests.)
-- [ ] UX: order-history date-range filter — `from`/`to` query params on
+- [x] UX: order-history date-range filter — `from`/`to` query params on
   `GET /orders/my` (query-surface-audit REGISTRY entry mandatory per the
   session-87 rule; closed-range validation, clamped bounds) + web
   quick-pick chips EN/ID + e2e; history stays index-served (same
-  (userId, createdAt) scan the audit measured).
+  (userId, createdAt) scan the audit measured). (2026-11-28, session 148;
+  `ListMyOrdersRangeDto` SUBCLASS so the owner/driver inboxes strip the
+  params on the wire AND in the docs; DI-free `list-date-range.ts` owns
+  the closed rule (inverted 400 BEFORE any query, blank = unset) and ONE
+  closed-operator dialect (between/moreThanOrEqual/lessThanOrEqual)
+  consumed by BOTH the paged find and the join-free COUNT — total can
+  never out-describe the page; DEFAULT plan proven on
+  IDX_orders_userId_createdAt; registry + subclass DTO-completeness +
+  three must-evidence regexes; web: 4 aria-pressed quick-pick chips
+  outside the tabs widget, per-request `from`, honest
+  "No orders in this period" + show-all escape, 7 Portal keys EN/ID;
+  113 suites/1688 tests (+1/+18), live smoke 25/25 on a 31-migration
+  from-empty DB with psql-derived exact arithmetic, e2e 140→144 green x2
+  fresh-seed + timing gate OK; bundle: uniform +17 catalog class + 283
+  page-local, all seven rows pre-funded.)
 - [ ] Product: "buy again" — history + receipt action that revalidates the
   saved cart lines server-side against the CURRENT menu (gone dishes,
   price deltas, option choices still legal, stock) and folds into the
