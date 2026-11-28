@@ -873,13 +873,22 @@
   call-count evidence; audit-chain REPLAY end-invariant on a seeded 320-
   case sweep; sweep sensitivity proven by a reverted save-before-gate
   injection; 111 suites/1637 tests.)
-- [ ] Perf: eager-relation inventory — session 144 proved `Order.items`
+- [x] Perf: eager-relation inventory — session 144 proved `Order.items`
   `eager: true` rides a `LEFT JOIN order_items` into EVERY plain repo
   find/count (counts now route through QueryBuilders). Inventory the
   remaining sites (receipt `findOneForViewer`, admin lists, restock
   paths), decide per site: keep (response embeds items anyway) or flip to
   explicit relations, byte-pinned A/B for every swap; record the verdict
-  in docs/PERFORMANCE.md.
+  in docs/PERFORMANCE.md. (2026-11-28, session 146; probe-pinned the opt-
+  out shapes — count->COUNT(1), findOne 2->1 stmt, NESTED eager on review
+  relation reads, save() cascade-diff 8->5 stmts — then flipped admin
+  overview (7 eager counts -> ONE join-free GROUP BY QB), payments
+  intent+capture, all reviews reads, status-notice email read, stale
+  sweep (also kills per-save cascade diffs), GDPR guard counts; receipt/
+  history/inbox/mutation reads KEPT (responses embed items); LIVE OLD/
+  NEW A/B on 3,010-order scratch DBs: zero order_items lines in every
+  flipped window, 9/9 response bodies byte-identical; contracts pinned in
+  6 specs; 111 suites/1642 tests.)
 - [ ] Product: owner daily digest email — yesterday's orders, revenue
   (cents), and top dishes per owned restaurant through the existing
   `MailService` + an `ops/` cron runner (stale-sweep pattern);

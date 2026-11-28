@@ -3,6 +3,83 @@
 Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
+## 2026-11-28 10:30 — Session 146 — eager-relation inventory: every pointless Order.items ride flipped (join-free) with a live OLD/NEW A/B
+
+**Built:**
+
+- Full inventory of `Order.items` (`eager: true` — the app's ONLY eager
+  relation) ride sites, proven by a dist-level TypeORM probe (logger `all`)
+  on a scratch DB. Probe-pinned wire truths: plain `count()` emits
+  `COUNT(DISTINCT id) LEFT JOIN order_items` while
+  `count({ loadEagerRelations: false })` emits a plain `COUNT(1)`;
+  a bare `findOne({ where })` on orders costs TWO statements under the
+  eager ride and ONE with the opt-out; eager is NESTED — review reads with
+  `relations: { order: true }` joined order_items on BOTH fetch and
+  findAndCount-COUNT arms; and `orders.save()` pays TWO extra cascade-diff
+  SELECTs when the eager items are loaded (8 stmts vs 5 per save).
+- Flips (all response bodies proven byte-identical):
+  `AdminService.overview` — the seven eager `orders.count()`s collapsed
+  into ONE join-free `GROUP BY status` QueryBuilder (session-144 inbox
+  pattern; total = sum over the disjoint groups, absent statuses
+  zero-filled). `PaymentsService` — intent + capture order reads opt out
+  (ladder reads only status/totalCents/userId/restaurantId/code).
+  `ReviewsService` — create's order read + ALL FOUR relation reads
+  (withRelations, post-insert re-read, listMine, public-feed
+  findAndCount) opt out of the nested ride (`toReviewRow` needs
+  `order.code` only). `OrderNotificationsService.sendStatusUpdate` —
+  status notices render the LIGHT email view (no line items); explicit
+  `relations: { restaurant: true }` survives the opt-out.
+  `runStaleOrderSweep` — candidates find opts out: kills the join AND
+  the per-order cascade-diff SELECTs across the whole batch.
+  `AccountDataService` — all three erasure-guard counts opt out.
+- KEEP verdicts recorded: the receipt ladder (`findOneForViewer`),
+  history/driver/owner inbox lists, and the four status/cancel mutation
+  reads all embed `items` in the response (kitchen lanes and driver cards
+  RENDER `res.data.items`) — there the join IS the batch fetch (session
+  144). Restock repair + ETA paths speak raw SQL (never eager). No new
+  index (one seq scan replaced seven join-scans; a 6-value `(status)`
+  index would be planner-ignored — session-79 no-overfit rule).
+- Executable perf contracts (session-144 pattern): the admin spec fake
+  repo LOUDLY REJECTS `orders.count` and pins the exact QB chain +
+  zero-fill; +2 notification read-shape pins (confirmation arm KEEPS
+  items, status arm opts out); payments intent/capture, reviews (create,
+  mine, feed, write-path re-read), account-data driver guard, and the
+  stale-sweep candidates find all pin the opt-out option.
+
+**Verified:**
+
+- API `npm run build` green; full jest **111 suites / 1642 tests** (+5 vs
+  session 145's 1637, suite count unchanged).
+- LIVE A/B (session-79 rig, OLD dist snapshot vs NEW, FRESH identical
+  scratch DBs per arm: full 30-migration chain + seed + 3,000-order /
+  12,000-item deterministic inflation, `log_statement='all'` ALTER'd
+  BEFORE boot, run-unique marker windows): statements / order_items-
+  touching lines per bracketed route —
+  admin overview 19/7 -> 13/0 · payments intent 10/2 -> 9/0 · capture
+  7/2 -> 6/0 · status chain + async emails 59/26 -> 59/18 (mutation reads
+  KEPT; the -8 is the four flipped status-notice email reads) · reviews
+  trio 12/7 -> 11/0 · stale sweep (10 cancels) 122/42 -> 101/0 · GDPR
+  delete 9/1 -> 9/0. EVERY flipped window: ZERO order_items lines;
+  statement deltas match the probe-pinned shapes exactly.
+- Response byte-identity across arms after normalizing uuids/timestamps/
+  order-codes: **9/9 bodies identical** (overview, pay, capture, receipt,
+  review, mine, feed, sweep-report, delete). The three first-pass body
+  FAILs were one harness bug (the review comment fixture embedded the arm
+  name) — normalized and re-diffed clean; zero product diffs.
+- Admin status chain answered 200 x4 both arms with the payment gate
+  default-ON (paid + captured first), receipt via contactEmail proof
+  unchanged.
+
+**Left for next sessions:**
+
+- Phase 17 #2 done; next up: owner daily digest email (#3) or the
+  order-history date-range filter (#4).
+- The four mutation reads still ride eager + the `save()` cascade diff by
+  design; if a future session wants them join-free the price is a
+  RESPONSE-SHAPE change (items vanish from PATCH bodies — kitchen/driver
+  cards consume them) — needs a web-side rework, not just a flip.
+
+---
 ## 2026-11-27 20:20 — Session 145 (CI follow-up) — bundle gate re-adopt: five rows to the red runs' exact CI numbers
 
 **Built:** docs/PERFORMANCE.md budget table only — `/orders/[id]` to

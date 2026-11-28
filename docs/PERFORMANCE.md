@@ -1027,6 +1027,62 @@ right — at a realistic multi-user distribution the
 lists need the items in the response anyway, but any future count-only
 site must go through a QueryBuilder. Backlog item filed (Phase 17).
 
+## Eager-relation inventory & opt-out flips — November 28, 2026 (session 146)
+
+Phase 17 item: inventory EVERY remaining site where the single app-wide
+eager relation (`Order.items`, `@OneToMany({ eager: true })`) rides reads
+that never render line items. Method: a dist-level TypeORM probe (logger
+`all`) pinned the exact SQL shapes, then the session-79/144 rig re-ran a
+19-request flow against FRESH identical 3,010-order / 12,010-item scratch
+DBs, OLD dist vs NEW dist, every route bracketed by run-unique markers in
+`log_statement='all'`; response bodies were diffed byte-for-byte after
+normalizing uuids/timestamps/order-codes.
+
+Probe-pinned wire truths (typeorm 0.3.31):
+
+- `repo.count()` on orders emits `COUNT(DISTINCT(o.id)) ... LEFT JOIN
+  order_items`; `count({ loadEagerRelations: false })` emits a plain
+  `COUNT(1)` with no join.
+- `findOne({ where: { id } })` on orders costs TWO statements under the
+  eager ride (distinct-ids probe + batched fetch, both joining
+  order_items); the opt-out collapses it to ONE scalar SELECT.
+- Explicit `relations` SURVIVE the opt-out (restaurant still hydrates), and
+  eager is NESTED: `reviews.find({ relations: { order: true } })` also
+  joined order_items on BOTH the fetch and the findAndCount COUNT arm.
+- `orders.save()` on an entity whose eager `items` are loaded pays TWO
+  extra cascade-diff SELECTs per save (8 statements vs 5 for the same
+  status/note flip).
+
+Verdict table (statements / order_items-touching lines, live-measured):
+
+| Route (window) | old | new | decision |
+|---|---|---|---|
+| `GET /admin/overview` orders numbers | 19 stmts, 7 oi | 13 stmts, 0 oi | FLIP: seven eager `count()`s collapsed into ONE join-free `GROUP BY status` QB (session-144 inbox pattern); total = sum of the disjoint groups, absent statuses zero-filled — body byte-identical |
+| `POST /payments` (intent) | 10 stmts, 2 oi | 9 stmts, 0 oi | FLIP: `loadEagerRelations: false` — the ladder reads order SCALARS only (status, totalCents, userId, restaurantId, code) |
+| `POST /payments/:id/capture` | 7, 2 | 6, 0 | FLIP: same reason (cancelled-gate + attribution) |
+| Status PATCH chain + async e-mails | 59, 26 | 59, 18 | KEEP the mutation-route reads (`items` ride the response — kitchen lanes and driver cards RENDER `res.data.items`); FLIP the async status-notice order read (`StatusEmailView` renders no line items) — that is the −8 oi |
+| `POST /reviews` + `GET /reviews/my` + `GET /restaurants/:id/reviews` | 12, 7 | 11, 0 | FLIP: eligibility order read join-free; all review relation reads opt out of the NESTED eager ride (`toReviewRow` needs only `order.code`) |
+| `POST /orders/ops/cancel-stale` (10 cancels) | 122, 42 | 101, 0 | FLIP: candidates find opts out — kills the join AND the per-order cascade-diff SELECTs inside `save()` (−21 statements at batch-10, scales linearly) |
+| `DELETE /users/me` (GDPR guards) | 9, 1 | 9, 0 | FLIP: all three guard counts `loadEagerRelations: false` (same stmt count, join gone) |
+
+Kept eager BY DESIGN (response or template embeds items): `findOneForViewer`
+receipt ladder, `GET /orders/my` history, driver inbox, owner inbox, and
+the four status/cancel mutation reads — the LEFT JOIN IS the batch fetch
+for those payloads (session 144 proved constant-shape, index-served).
+Restock paths (session 71/73) speak RAW SQL and never ride eager at all.
+`restaurants.findOrderScope` is already a one-statement projection.
+
+No new index: the global GROUP BY scans all statuses — a single seq scan
+replaced seven join-scans (287+ buffers each per session 144's EXPLAIN),
+and a lone `(status)` index (6 distinct values, global coverage) would be
+planner-ignored at scale anyway; the admin overview is a rare dashboard,
+not a hot path (session-79 no-overfit rule).
+
+Perf contracts shipped executable (session-144 pattern): the admin spec
+fake repo LOUDLY REJECTS `orders.count` and pins the exact QB chain;
+payments/reviews/notifications/account-data/stale-sweep specs pin the
+opt-out option on every flipped call.
+
 ## Query-plan findings and tuning decisions (November 4 baseline, historical)
 
 `EXPLAIN (ANALYZE, BUFFERS)` on the same seed showed:
