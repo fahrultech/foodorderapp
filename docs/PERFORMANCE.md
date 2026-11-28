@@ -698,21 +698,22 @@ their split decisions separately.
 <!-- BUNDLE-BASELINE-START -->
 | Route | Baseline First Load JS+CSS, full chain (B, CI-measured, node 22.23.5) |
 |---|---|
-| `/` | 135890 |
-| `/restaurants/[id]` | 138962 |
-| `/cart` | 139426 |
-| `/checkout` | 142453 |
-| `/map` | 137129 |
-| `/orders/[id]` | 163477 |
-| `/orders/my` | 144708 |
+| `/` | 135937 |
+| `/restaurants/[id]` | 139009 |
+| `/cart` | 139473 |
+| `/checkout` | 142500 |
+| `/map` | 137176 |
+| `/orders/[id]` | 163854 |
+| `/orders/my` | 145085 |
 
-Session-148 adoption (order-history date range): IN-PATH stash/pop A/B
-measured a UNIFORM +17 B on all seven routes (the 7-key Portal message
-catalog addition, session-132 class — pre-funded whole) and +283 B
-page-local on `/orders/my` (range-chip row + empty-period escape).
-Per the session-141 calibration the adopted numbers are local deltas on
-the CI-measured rows; a CI re-measure of a few bytes is one documented
-re-adopt cycle if it lands.
+Session-149 adoption (server buy-again plan): IN-PATH stash/pop A/B measured
+a UNIFORM +47 B on all seven routes (the 3-key OrderAgain catalog addition
++ lib/api type/helper riding the shared chain chunk — session-132 class,
+pre-funded whole per session-138/140) and +377 B total on the two ORDER
+routes (server-first island + drift panel: +330 B page-local on top of the
+uniform class). Per the session-141 calibration the adopted numbers are
+local deltas on the CI-measured rows; a CI re-measure of a few bytes is one
+documented re-adopt cycle if it lands.
 <!-- BUNDLE-BASELINE-END -->
 
 Session-145 CI follow-up: the gate went red on session 144's HEAD (run

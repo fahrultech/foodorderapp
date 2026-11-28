@@ -922,10 +922,27 @@
   from-empty DB with psql-derived exact arithmetic, e2e 140→144 green x2
   fresh-seed + timing gate OK; bundle: uniform +17 catalog class + 283
   page-local, all seven rows pre-funded.)
-- [ ] Product: "buy again" — history + receipt action that revalidates the
+- [x] Product: "buy again" — history + receipt action that revalidates the
   saved cart lines server-side against the CURRENT menu (gone dishes,
   price deltas, option choices still legal, stock) and folds into the
-  web cart; API helper + toast copy EN/ID + e2e.
+  web cart; API helper + toast copy EN/ID + e2e. (2026-11-28, session 149;
+  `GET /orders/:id/buy-again-plan` — receipt ladder as the gate
+  (findOneForViewer FIRST: bearer/email-proof/rt; denied bodies live-proven
+  byte-identical with unknown-id 404s, zero menu reads before the gate);
+  DI-free core `orders/buy-again.ts` mirrors the session-107 client rungs
+  rung-for-rung (moved dish = gone, merge-by-lineKey, 50-cap clamp) PLUS
+  the drift rung: per-line snapshot-vs-current unit prices and plan-level
+  totals, integer cents; non-throwing `MenuService.findExistingByIds`;
+  contracts: +1 swagger op (SUCCESS pin 81), REGISTRY entry with ladder-
+  delegation must-evidence + inherited SQL forbids, uuid sweep; web
+  button SERVER-FIRST with the client ladder as fallback (never a dead
+  button; fallback honestly reports no drift), drift reports in a new
+  panel section and BLOCKS the auto-route while lines still ride at
+  today's prices, 3 OrderAgain keys EN/ID; 114 suites/1716 tests (+1/+28),
+  live smoke 45/45 on a 31-migration from-empty DB with psql-derived
+  exact arithmetic incl. zero-write deltas, e2e 144→148 green x2
+  fresh-seed + timing gate OK; bundle: uniform +47 catalog/chain class
+  + 330 page-local on the order routes, all seven rows pre-funded.)
 - [ ] Test: query-logger audit of the REMAINING list surfaces — admin
   orders list, favorites, reviews feed, owner menu list (session-79/144
   method: bracketed windows on an inflated scratch DB, constant-shape

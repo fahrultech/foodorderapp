@@ -4,6 +4,115 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 ---
+## 2026-11-28 17:55 — Session 149 — buy-again SERVER rung: receipt-gated plan with price-drift reporting (live smoke 45/45)
+
+**Built:**
+
+- Phase 17 "buy again" product increment, scoped to the API half the
+  roadmap text still owed: session 107 shipped the ladder CLIENT-side;
+  the server-side authority is new. `GET /orders/:id/buy-again-plan` —
+  access is EXACTLY the receipt ladder: `findOneForViewer` runs FIRST
+  (ADMIN/owner bearer, stored contact-email proof normalized, `rt`
+  magic-link rung), so every denial answers the canonical 404 BEFORE a
+  single menu row is read (no existence oracle; live-proven byte-
+  identical 404 bodies vs an unknown id).
+- DI-free pure core `orders/buy-again.ts` (list-date-range/stale-order-
+  sweep doctrine): rung-for-rung mirror of `lib/order-again.ts` — gone/
+  unavailable/sold-out/options-changed, dish-moved-to-another-restaurant
+  counts as gone, same 50-unit merge/clamp semantics — PLUS the new
+  price-drift rung the client never reported: every riding line carries
+  `snapshotUnitPriceCents` vs `currentUnitPriceCents` (integer cents;
+  current base + CURRENT choice deltas — the snapshot is the baseline,
+  never the price), plus per-plan `plannedSubtotalCents` /
+  `snapshotSubtotalCents` / `priceDriftCents`.
+- `MenuService.findExistingByIds` — the NON-THROWING twin of `findByIds`
+  (gone dishes must be SEEN, not 404 the plan; create-time pricing keeps
+  the throwing version). Option groups attach via the same two-query
+  public-menu shape, so the server compares against what the storefront
+  shows.
+- Contracts per the standing rules: swagger.spec expected/SUCCESS (81 pin)
+  /ERRORS all carry the op; 8 new response models defined leaf-first
+  (session-119 thunk-order rule); query-surface-audit REGISTRY gains
+  `OrdersController.buyAgain` with the two literal proofs, must-evidence
+  (ladder delegation FIRST, `computeBuyAgainPlan(rows, dishes,
+  order.restaurantId)` call shape, moved-dish + LINE_CAP pins in the
+  core) and the inherited no-SQL-predicate forbids; the uuid ParseUUIDPipe
+  sweep covers the new route (malformed id 400s before the service).
+- Web: `api.getBuyAgainPlan` (same three proof doors as getOrder);
+  `OrderAgainButton` is SERVER-FIRST with the session-107 client ladder
+  as the fallback (legacy null-contactEmail orders, API down — never a
+  dead button; the fallback leaves `drifted=[]` honestly). A price drift
+  is a REPORT: the plan still folds riding lines at today's prices, but
+  any drift blocks the auto-route (the result panel owns navigation) and
+  renders a per-line sky-toned section (new `data-testid="order-again-
+  price"`). `Held.restaurant` narrowed to the fields both sources
+  provide. 3 OrderAgain keys EN/ID (priceChangedHeading/priceUp/
+  priceDown) via the surgical anchor insert, duplicate-key veto + whole-
+  namespace EN/ID parity asserted programmatically. SCOPE NOTE: the
+  roadmap said "toast copy" — the app ships NO toast infrastructure and
+  a layout-level one would ride every bundle route (session-117
+  doctrine), so the fold feedback lives in the existing `role=status`
+  result panel (same never-silent-capture rule as session 107); the
+  3-key OrderAgain addition IS the copy rung.
+- e2e `tests/zz-buy-again-plan.spec.ts` 4 tests: LIVE drift (owner
+  raises a dish +150 AFTER the order freezes → the receipt island shows
+  "+$1.50 since you ordered", no auto-route, the cart still carries the
+  line at $19.50 — restore in finally, same contract as zz-order-again
+  test 3); fallback (plan route ABORTED → the client ladder rebuilds
+  FO-SEED8 and routes, proving the ladder survived the swap); wire
+  contract (owner 200 with CURRENT prices + min echo, unknown-id and
+  foreign-proof bodies `toEqual` the canonical 404, junk uuid 400, zero
+  writes — same-bearer `/orders/my` total unchanged); ID chrome via a
+  FULFILLED crafted plan ("Harga berubah sejak Anda memesan" + the
+  "naik" line, no route).
+
+**Verified (all gates, this session):**
+
+- API: `npm run build` green; jest **114 suites / 1716 tests** (vs
+  session 148's 113/1688: +1 suite / +28 — `buy-again.spec.ts` 26: 15
+  core ladder tests incl. merged-clamp arithmetic, moved-dish rung,
+  negative drift, junk-quantity collapse, first-appearance merge order,
+  + 7 service wiring pins incl. "denied access reads ZERO menu rows"
+  and entity-timestamp stripping from the dish projection; +2 from the
+  uuid sweep's per-route pairs). First full run had one FAIL: the
+  320-case status-write-sweep crossed its 5s test timeout under
+  maxWorkers=2 load — re-ran alone (35/35, 8.4s suite) and the clean
+  second full run passed all 114/1716: a timing flake on a spec this
+  change does not touch, not a regression.
+- Live smoke **45/45** on a scratch DB, 31-migration chain from empty +
+  seed: psql-derived exact arithmetic (egg-delta fold, +150 raise →
+  per-line 150 / total 450 drift with the FROZEN snapshot staying put),
+  canonical-404 indistinguishability (denied bodies `jq -Sc` equal),
+  padded/upper-case email proof unlocks, hidden → unavailable, stock 2
+  clamps 3 with `from/to`, stock 0 → sold-out, deleted option group →
+  options-changed, hard-deleted dish → gone, junk rt 404, junk uuid
+  400, live docs-json carries the op + both proof params + the model
+  ref, zero-write order/audit deltas across a 3-read burst, zero
+  level-50 log lines. Two first-run FAILs were harness bugs (a label
+  wired to the wrong jq probe; a zero-write baseline taken BEFORE the
+  fixture's own order — the session-101 rule) — fixed, re-ran clean.
+- Web: build green; bundle gate — IN-PATH stash/pop A/B measured a
+  UNIFORM +47 B on all seven routes (the shared message-catalog + lib
+  chain class, session-132 rule: pre-funded whole) and +330 B
+  page-local on the two ORDER routes; all seven rows adopted in
+  PERFORMANCE.md (margins +49..52 = the known CI-side gap calibration);
+  gate OK + 16/16 node --test selftests.
+- e2e: full suite **148/148 green x2 consecutive** fresh-seed (144 to
+  148), fixture-timing gate OK on the fresh JSON report.
+
+**Left for next sessions:**
+
+- The roadmap item's e2e/EN-ID halves shipped, but the plan endpoint is
+  still unused by any ADMIN tooling — an owner-side "what can this
+  customer still reorder" read is the natural product rung from here.
+- If CI's bundle re-measure lands a few bytes over any adopted row,
+  re-adopt to that run's CI number (one documented cycle).
+- The client-ladder fallback leaves `drifted=[]` by construction; if
+  drift fidelity in fallback mode ever matters, the fallback can fetch
+  the receipt's own `unitPriceCents` vs the menu read — deliberately
+  NOT done now (two pricing paths, one report source is the simpler
+  invariant).
+
 ## 2026-11-28 16:15 — Session 148 — order-history date-range filter: closed from/to on GET /orders/my + EN/ID quick picks (live smoke 25/25)
 
 **Built:**

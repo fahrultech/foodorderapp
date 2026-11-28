@@ -141,7 +141,17 @@ Browser ──▶ Next.js web (SSR for browse pages, client for cart/checkout)
   cart, 'replace' only after the inline foreign-cart confirmation. A fully
   clean plan routes to the restaurant; any skip/clamp/below-minimum keeps the
   shopper on the page with a result panel + explicit "Go to ..." CTA. Never a
-  silent swap.
+  silent swap. **SESSION-149 SERVER RUNG:** the button's PRIMARY source is
+  now `GET /orders/:id/buy-again-plan` — the identical ladder executed
+  server-side (`orders/buy-again.ts` pure core over the receipt-ladder-
+  gated order + `MenuService.findExistingByIds`), additionally REPORTING
+  per-line price drift (snapshot vs current unit prices, integer cents)
+  which the client ladder cannot see; a drifted plan is not clean, so the
+  shopper keeps the panel instead of auto-routing, but the line still RIDES
+  at today's price (drift reports, never blocks). The client ladder remains
+  the offline/legacy fallback — rung-for-rung identical on WHICH lines ride;
+  both shapes map onto the same panel. Any future rung change must be
+  applied to BOTH cores.
 - **In-page menu search is client-side** — the restaurant page already ships
   the full menu in `GET /restaurants/:id`; `MenuBrowser` filters it in memory
   (name/description/category, case-insensitive) instead of adding a per-keystroke
