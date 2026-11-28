@@ -704,7 +704,7 @@ their split decisions separately.
 | `/checkout` | 142500 |
 | `/map` | 137176 |
 | `/orders/[id]` | 163854 |
-| `/orders/my` | 145085 |
+| `/orders/my` | 145086 |
 
 Session-149 adoption (server buy-again plan): IN-PATH stash/pop A/B measured
 a UNIFORM +47 B on all seven routes (the 3-key OrderAgain catalog addition
@@ -713,7 +713,13 @@ pre-funded whole per session-138/140) and +377 B total on the two ORDER
 routes (server-first island + drift panel: +330 B page-local on top of the
 uniform class). Per the session-141 calibration the adopted numbers are
 local deltas on the CI-measured rows; a CI re-measure of a few bytes is one
-documented re-adopt cycle if it lands.
+documented re-adopt cycle if it lands. CI FOLLOW-UP (run 46133968793): six
+enumerated routes measured budget-1..budget-3 (local-to-CI shift +48..+50,
+session-141 band); `/orders/my` read 145086 — ONE byte over the adoption —
+re-adopted to the run's CI number per session-145 (only the genuinely-over
+row moves; untouched rows keep their headroom). `/orders/[id]` fell off the
+(truncated) annotation feed but provably fits the uniform shift: local
+163804 + 48..50 <= budget 163854.
 <!-- BUNDLE-BASELINE-END -->
 
 Session-145 CI follow-up: the gate went red on session 144's HEAD (run
