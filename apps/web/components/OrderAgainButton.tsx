@@ -5,17 +5,22 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { ApiError, api, formatPrice, isApiDown } from '@/lib/api';
-import type { Order, Restaurant } from '@/lib/api';
+import type { BuyAgainPlan, Order, Restaurant } from '@/lib/api';
+import { useAuth } from '@/lib/auth';
 import { useCart } from '@/lib/cart';
-import { planOrderAgain, type OrderAgainPlan, type OrderAgainSkipReason } from '@/lib/order-again';
+import {
+  planOrderAgain,
+  type OrderAgainPlan,
+  type OrderAgainSkipReason,
+} from '@/lib/order-again';
 import { fallbackMessage } from '@/lib/locale-strings';
 
 interface Props {
   /** A COMPLETED or CANCELLED order (session 127 widened the gate — the
-   *  ladder never reads money/status fields). Only `code`,
-   *  `restaurant.{id,name}` and the frozen `items` rows (menuItemId +
-   *  optionSelections) are read — safe to pass the plain JSON the pages
-   *  already hold (works from a server component). */
+   *  ladder never reads money/status fields). Only `id`, `code`,
+   *  `contactEmail`, `restaurant.{id,name}` and the frozen `items` rows
+   *  (menuItemId + optionSelections) are read — safe to pass the plain
+   *  JSON the pages already hold (works from a server component). */
   order: Order;
   /** History cards use the compact pill; the receipt gets the block button. */
   variant?: 'pill' | 'block';
@@ -23,11 +28,18 @@ interface Props {
 
 type Status = 'idle' | 'working' | 'replace' | 'result' | 'routed';
 
+/** The restaurant facts both plan sources provide (GET /restaurants/:id
+ *  structurally satisfies it; the server plan reports it inline). */
+type HeldRestaurant = Pick<Restaurant, 'id' | 'minOrderCents'> & { name: string | null };
+
 interface Held {
   plan: OrderAgainPlan;
-  restaurant: Restaurant;
+  restaurant: HeldRestaurant;
   /** Set once the cart was written; drives the below-minimum honesty line. */
   projectedSubtotalCents: number | null;
+  /** Riding lines whose CURRENT unit price differs from the snapshot.
+   *  Only the SERVER plan can report these; the client fallback leaves []. */
+  drifted: Array<{ name: string; deltaCents: number }>;
 }
 
 const SKIP_KEY: Record<OrderAgainSkipReason, string> = {
@@ -37,21 +49,45 @@ const SKIP_KEY: Record<OrderAgainSkipReason, string> = {
   'options-changed': 'skipOptionsChanged',
 };
 
+/** Map the wire plan onto the ladder shape the panels/cart already consume. */
+function fromServerPlan(p: BuyAgainPlan): OrderAgainPlan {
+  return {
+    lines: p.lines.map((l) => ({
+      item: l.dish,
+      options: l.options,
+      quantity: l.quantity,
+      requestedQuantity: l.requestedQuantity,
+    })),
+    skipped: p.skipped,
+    clamped: p.clamped,
+    addedUnits: p.addedUnits,
+    plannedSubtotalCents: p.plannedSubtotalCents,
+  };
+}
+
 /**
- * "Order again" (Phase 10, session 107): one click rebuilds the cart from a
- * completed order's FROZEN snapshot via the lib/order-again ladder. Deleted
- * or hidden dishes and drifted option selections are SKIPPED AND REPORTED,
- * never silently swapped. When the plan is fully honest-clean (no skips, no
- * stock clamp, no below-minimum) the shopper lands straight on the
- * restaurant page; anything worth telling keeps them here with a result
- * panel and an explicit "Go to ..." link. A cart holding another restaurant's
- * dishes always goes through the inline replace confirmation first — the
- * same never-silently-discard rule as the single-item CartSwitchDialog.
+ * "Order again" (Phase 10, session 107; server rung in Phase 17, session 149):
+ * one click rebuilds the cart from a completed order's FROZEN snapshot. The
+ * CURRENT authority is `GET /orders/:id/buy-again-plan` — the same receipt
+ * ladder revalidated SERVER-side against the live menu (gone dishes, price
+ * deltas, option legality, stock). When that read is unavailable (API down,
+ * a legacy order with no unlock proof for this door) the session-107 client
+ * ladder in `lib/order-again.ts` runs against the public menu read instead —
+ * rung-for-rung identical on WHICH lines ride, minus the drift report.
+ * Deleted or hidden dishes and drifted option selections are SKIPPED AND
+ * REPORTED, never silently swapped. A plan that is fully honest-clean (no
+ * skips, no stock clamp, no price drift, no below-minimum) routes straight
+ * to the restaurant page; anything worth telling keeps the shopper here with
+ * a result panel and an explicit "Go to ..." link. A cart holding another
+ * restaurant's dishes always goes through the inline replace confirmation
+ * first — the same never-silently-discard rule as the single-item
+ * CartSwitchDialog.
  */
 export default function OrderAgainButton({ order, variant = 'pill' }: Props) {
   const t = useTranslations('OrderAgain');
   const c = useTranslations('Common');
   const router = useRouter();
+  const { getAccessToken } = useAuth();
   const { lines, restaurantId: cartRestaurantId, restaurantName: cartRestaurantName, subtotalCents, applyOrderAgain } = useCart();
 
   const [status, setStatus] = useState<Status>('idle');
@@ -62,25 +98,27 @@ export default function OrderAgainButton({ order, variant = 'pill' }: Props) {
 
   function applyAndSettle(
     plan: OrderAgainPlan,
-    restaurant: Restaurant,
+    restaurant: HeldRestaurant,
     mode: 'merge' | 'replace',
     cartSubtotal: number,
+    drifted: Held['drifted'],
   ) {
     applyOrderAgain(
-      { id: restaurant.id, name: restaurant.name },
+      { id: restaurant.id, name: restaurant.name ?? '' },
       plan.lines.map(({ item, options, quantity }) => ({ item, options, quantity })),
       mode,
     );
     const projected =
       mode === 'merge' ? cartSubtotal + plan.plannedSubtotalCents : plan.plannedSubtotalCents;
     const belowMin = projected < restaurant.minOrderCents;
-    const clean = plan.skipped.length === 0 && plan.clamped.length === 0 && !belowMin;
+    const clean =
+      plan.skipped.length === 0 && plan.clamped.length === 0 && drifted.length === 0 && !belowMin;
     if (clean) {
       setStatus('routed');
       router.push(`/restaurants/${restaurant.id}`);
       return;
     }
-    setHeld({ plan, restaurant, projectedSubtotalCents: projected });
+    setHeld({ plan, restaurant, projectedSubtotalCents: projected, drifted });
     setStatus('result');
   }
 
@@ -90,20 +128,45 @@ export default function OrderAgainButton({ order, variant = 'pill' }: Props) {
     setError(null);
     const cartSnapshot = { subtotalCents, mode: (lines.length > 0 && cartRestaurantId !== restaurantInfo.id ? 'foreign' : 'same') as 'foreign' | 'same' };
     try {
-      const restaurant = await api.getRestaurant(restaurantInfo.id);
-      const plan = planOrderAgain(order, restaurant);
+      // Server rung FIRST (session 149): the receipt-ladder-authenticated
+      // plan with price drift. Any failure (404 without a proof this door
+      // can present, transport error, malformed shape) falls back to the
+      // session-107 client ladder — never a dead button.
+      let plan: OrderAgainPlan;
+      let restaurant: HeldRestaurant;
+      let drifted: Held['drifted'] = [];
+      try {
+        const token = await getAccessToken();
+        const serverPlan = await api.getBuyAgainPlan(order.id, {
+          accessToken: token ?? undefined,
+          contactEmail: order.contactEmail ?? undefined,
+        });
+        plan = fromServerPlan(serverPlan);
+        restaurant = {
+          id: serverPlan.restaurant.id ?? restaurantInfo.id,
+          name: serverPlan.restaurant.name ?? restaurantInfo.name ?? null,
+          minOrderCents: serverPlan.restaurant.minOrderCents,
+        };
+        drifted = serverPlan.lines
+          .filter((l) => l.priceDeltaCents !== 0)
+          .map((l) => ({ name: l.dish.name, deltaCents: l.priceDeltaCents }));
+      } catch {
+        const current = await api.getRestaurant(restaurantInfo.id);
+        restaurant = current;
+        plan = planOrderAgain(order, current);
+      }
       if (plan.lines.length === 0) {
         // Nothing rides — no cart write, no navigation, just the report.
-        setHeld({ plan, restaurant, projectedSubtotalCents: null });
+        setHeld({ plan, restaurant, projectedSubtotalCents: null, drifted });
         setStatus('result');
         return;
       }
       if (cartSnapshot.mode === 'foreign') {
-        setHeld({ plan, restaurant, projectedSubtotalCents: null });
+        setHeld({ plan, restaurant, projectedSubtotalCents: null, drifted });
         setStatus('replace');
         return;
       }
-      applyAndSettle(plan, restaurant, 'merge', cartSnapshot.subtotalCents);
+      applyAndSettle(plan, restaurant, 'merge', cartSnapshot.subtotalCents, drifted);
     } catch (err) {
       setError(isApiDown(err) ? fallbackMessage('apiDown') : err instanceof ApiError ? err.message : t('errLoad'));
       setStatus('idle');
@@ -112,7 +175,7 @@ export default function OrderAgainButton({ order, variant = 'pill' }: Props) {
 
   function confirmReplace() {
     if (!held) return;
-    applyAndSettle(held.plan, held.restaurant, 'replace', 0);
+    applyAndSettle(held.plan, held.restaurant, 'replace', 0, held.drifted);
   }
 
   const button = (
@@ -216,6 +279,22 @@ export default function OrderAgainButton({ order, variant = 'pill' }: Props) {
             ))}
           </ul>
         )}
+        {held.drifted.length > 0 && (
+          <>
+            <p className="mt-2 text-xs font-semibold uppercase tracking-wide text-stone-500">
+              {t('priceChangedHeading')}
+            </p>
+            <ul className="mt-1 space-y-0.5 text-xs text-sky-700">
+              {held.drifted.map((d, i) => (
+                <li key={`${d.name}-${i}`} data-testid="order-again-price">
+                  {d.deltaCents >= 0
+                    ? t('priceUp', { name: d.name, price: formatPrice(d.deltaCents) })
+                    : t('priceDown', { name: d.name, price: formatPrice(-d.deltaCents) })}
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
         {belowMin && (
           <p className="mt-2 text-xs text-amber-700" data-testid="order-again-below-min">
             {t('belowMin', {
@@ -229,7 +308,7 @@ export default function OrderAgainButton({ order, variant = 'pill' }: Props) {
           data-testid="order-again-continue"
           className="mt-3 inline-block rounded-lg bg-brand-600 px-4 py-2 text-xs font-bold text-white hover:bg-brand-700"
         >
-          {t('goToRestaurant', { name: held.restaurant.name })}
+          {t('goToRestaurant', { name: held.restaurant.name ?? restaurantInfo?.name ?? '' })}
         </Link>
       </div>
     );

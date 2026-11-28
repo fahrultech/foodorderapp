@@ -805,6 +805,9 @@
     "newCartLines": "Keranjang baru:",
     "replaceConfirm": "Ganti keranjang",
     "replaceCancel": "Pertahankan keranjang",
-    "errLoad": "Gagal memuat menu saat ini. Coba lagi."
+    "errLoad": "Gagal memuat menu saat ini. Coba lagi.",
+    "priceChangedHeading": "Harga berubah sejak Anda memesan",
+    "priceUp": "{name}: naik {price} sejak Anda memesan",
+    "priceDown": "{name}: turun {price} sejak Anda memesan"
   }
 }

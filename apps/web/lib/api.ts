@@ -160,6 +160,44 @@ export interface OrderOptionSelection {
   priceDeltaCents: number;
 }
 
+/**
+ * Server-side "buy again" revalidation (Phase 17, session 149). Mirrors
+ * `GET /orders/:id/buy-again-plan`. The ride/skip/clamp ladder is rung-for-
+ * rung `lib/order-again.ts` PLUS the price-drift report the client ladder
+ * never made: every riding line carries its frozen unit price next to the
+ * current one (integer cents). Access is the receipt ladder — the plan only
+ * reads for a caller who can already read the receipt.
+ */
+export type BuyAgainSkipReason = 'gone' | 'unavailable' | 'sold-out' | 'options-changed';
+
+export interface BuyAgainPlanLine {
+  /** CURRENT dish row (public projection) — the cart builds lines from this. */
+  dish: MenuItem;
+  /** Rebuilt from the frozen receipt at CURRENT deltas. [] = plain line. */
+  options: OrderOptionSelection[];
+  /** Merged + stock-clamped, capped at 50. */
+  quantity: number;
+  /** Frozen quantity before the clamp. */
+  requestedQuantity: number;
+  snapshotUnitPriceCents: number;
+  currentUnitPriceCents: number;
+  /** current - snapshot per unit; negative = cheaper now. */
+  priceDeltaCents: number;
+}
+
+export interface BuyAgainPlan {
+  orderId: string;
+  orderCode: string;
+  restaurant: { id: string; name: string | null; minOrderCents: number };
+  lines: BuyAgainPlanLine[];
+  skipped: Array<{ name: string; reason: BuyAgainSkipReason }>;
+  clamped: Array<{ name: string; from: number; to: number }>;
+  addedUnits: number;
+  plannedSubtotalCents: number;
+  snapshotSubtotalCents: number;
+  priceDriftCents: number;
+}
+
 export interface CreateOrderPayload {
   restaurantId: string;
   items: {
@@ -799,6 +837,24 @@ export const api = {
     if (opts.receiptToken) qs.set('rt', opts.receiptToken);
     const suffix = qs.toString() ? `?${qs.toString()}` : '';
     return request<Order>(`/orders/${id}${suffix}`, {
+      headers: opts.accessToken ? bearer(opts.accessToken) : undefined,
+    });
+  },
+  /**
+   * Server-side "buy again" revalidation (Phase 17, session 149). Same proof
+   * doors as getOrder above — owner/ADMIN bearer, the stored contact email,
+   * or the magic-link token; a caller who can read the receipt can plan the
+   * replay, anything else answers the canonical 404. Pure read.
+   */
+  getBuyAgainPlan: (
+    id: string,
+    opts: { contactEmail?: string; accessToken?: string; receiptToken?: string } = {},
+  ) => {
+    const qs = new URLSearchParams();
+    if (opts.contactEmail) qs.set('contactEmail', opts.contactEmail);
+    if (opts.receiptToken) qs.set('rt', opts.receiptToken);
+    const suffix = qs.toString() ? `?${qs.toString()}` : '';
+    return request<BuyAgainPlan>(`/orders/${id}/buy-again-plan${suffix}`, {
       headers: opts.accessToken ? bearer(opts.accessToken) : undefined,
     });
   },

@@ -805,6 +805,9 @@
     "newCartLines": "New cart:",
     "replaceConfirm": "Replace cart",
     "replaceCancel": "Keep current cart",
-    "errLoad": "Could not load the current menu. Try again."
+    "errLoad": "Could not load the current menu. Try again.",
+    "priceChangedHeading": "Prices changed since you ordered",
+    "priceUp": "{name}: +{price} since you ordered",
+    "priceDown": "{name}: {price} lower since you ordered"
   }
 }
