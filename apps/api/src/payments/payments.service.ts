@@ -238,7 +238,14 @@ export class PaymentsService {
       );
     }
 
-    const order = await this.orders.findOne({ where: { id: payment.orderId } });
+    const order = await this.orders.findOne({
+      where: { id: payment.orderId },
+      // Session 146 (Phase 17 eager audit): the capture ladder reads ONLY
+      // order scalars (status gate, restaurantId attribution); plain
+      // findOne rode the eager items join as TWO statements (distinct-ids
+      // + batch fetch, probe-pinned) — opt-out answers ONE scalar SELECT.
+      loadEagerRelations: false,
+    });
     // EXPLICIT order-centric attribution (session 125, Phase 8): the capture
     // route addresses the restaurant through the payment's ORDER — stamped on
     // the normal path where the order row is already loaded for the
@@ -475,7 +482,14 @@ export class PaymentsService {
     rt?: string,
   ): Promise<Order> {
     if (!isUuid(orderId)) throw new NotFoundException('Order not found');
-    const order = await this.orders.findOne({ where: { id: orderId } });
+    const order = await this.orders.findOne({
+      where: { id: orderId },
+      // Session 146 (Phase 17 eager audit): every rung below reads ORDER
+      // SCALARS only (userId gate, totalCents amount, code for the intent
+      // description); plain findOne rode the eager items join (2 stmts,
+      // probe-pinned) — opt-out answers ONE scalar SELECT, same response.
+      loadEagerRelations: false,
+    });
     if (!order) throw new NotFoundException('Order not found');
     if (actor) {
       // Bearer rung (unchanged): guest orders are payable by any

@@ -324,6 +324,48 @@ describe('OrderNotificationsService', () => {
     });
   });
 
+  describe('eager-relation read shape (session 146 perf contract)', () => {
+    it('confirmation arm keeps the items ride (email renders line items)', async () => {
+      ordersFindOne.mockResolvedValue(makeOrder());
+      usersFindOne.mockResolvedValue(makeUser());
+
+      bus.next({
+        type: 'order.created',
+        restaurantId: 'resto-1',
+        userId: 'user-1',
+        payload: { orderId: 'order-1', code: 'FO-TEST', status: 'pending' },
+      });
+
+      await new Promise((r) => setTimeout(r, 10));
+      expect(ordersFindOne).toHaveBeenCalledWith({
+        where: { id: 'order-1' },
+        relations: { restaurant: true, items: true },
+      });
+    });
+
+    it('status-update arm opts OUT of the eager items join (light view)', async () => {
+      ordersFindOne.mockResolvedValue(makeOrder({ status: OrderStatus.CONFIRMED }));
+      usersFindOne.mockResolvedValue(makeUser());
+
+      bus.next({
+        type: 'order.updated',
+        restaurantId: 'resto-1',
+        userId: 'user-1',
+        payload: { orderId: 'order-1', code: 'FO-TEST', status: 'confirmed' },
+      });
+
+      await new Promise((r) => setTimeout(r, 10));
+      expect(ordersFindOne).toHaveBeenCalledWith({
+        where: { id: 'order-1' },
+        relations: { restaurant: true },
+        loadEagerRelations: false,
+      });
+      // The light email still rendered (restaurant.name comes from the
+      // explicit relation, which survives the opt-out — probe P2b).
+      expect(mailSend).toHaveBeenCalledTimes(1);
+    });
+  });
+
   describe('per-user channel settings (Phase 14)', () => {
     // Same event driver as the created-path tests, extracted for the matrix.
     const emitCreated = async () => {

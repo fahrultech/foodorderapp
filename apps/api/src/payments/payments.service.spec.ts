@@ -151,7 +151,7 @@ async function expectAppError(promise: Promise<unknown>, status: number, code?: 
 
 describe('PaymentsService.pay', () => {
   it('happy path: amount snapshot from the ORDER total, intent attached, persisted-before-intent', async () => {
-    const { service, gateway, savedWrites } = build();
+    const { service, gateway, savedWrites, ordersRepo } = build();
     const res = await service.pay(ORDER_ID, owner);
     expect(res.clientSecret).toBe('mock_secret_new');
     expect(res.payment.providerRef).toBe('mock_pi_new');
@@ -171,6 +171,12 @@ describe('PaymentsService.pay', () => {
     expect(savedWrites).toHaveLength(2);
     expect(savedWrites[0].amountCents).toBe(4200);
     expect(savedWrites[1].providerRef).toBe('mock_pi_new');
+    // Session 146 perf contract: the money ladder reads ORDER SCALARS only,
+    // so the intent path must opt out of the eager items join.
+    expect(ordersRepo.findOne).toHaveBeenCalledWith({
+      where: { id: ORDER_ID },
+      loadEagerRelations: false,
+    });
   });
 
   it('unknown order → 404, gateway never called', async () => {
@@ -251,7 +257,7 @@ describe('PaymentsService.pay', () => {
 describe('PaymentsService.capture', () => {
   it('resolves a pending row to succeeded with a write-once timestamp', async () => {
     const row = payment();
-    const { service, gateway } = build({ payments: [row] });
+    const { service, gateway, ordersRepo } = build({ payments: [row] });
     const res = await service.capture(PAY_ID, owner);
     expect(res.status).toBe(PaymentStatus.SUCCEEDED);
     expect(res.succeededAt).toBeInstanceOf(Date);
@@ -259,6 +265,12 @@ describe('PaymentsService.capture', () => {
       paymentId: PAY_ID,
       providerRef: `mock_pi_${PAY_ID}`,
       amountCents: 4200,
+    });
+    // Session 146 perf contract: same opt-out on the capture-side order read
+    // (only the CANCELLED scalar gate + restaurantId attribution are used).
+    expect(ordersRepo.findOne).toHaveBeenCalledWith({
+      where: { id: ORDER_ID },
+      loadEagerRelations: false,
     });
   });
 

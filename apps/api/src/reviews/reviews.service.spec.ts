@@ -460,4 +460,48 @@ describe('ReviewsService', () => {
       await expect(h2.service.clearReply(owner, V)).rejects.toBeInstanceOf(ForbiddenException);
     });
   });
+
+  describe('eager-relation read shape (session 146 perf contract)', () => {
+    it('create reads the ORDER join-free and re-reads the row WITHOUT nested items', async () => {
+      const h = build(fakeOrder(), { review: null });
+      let calls = 0;
+      h.findOne.mockImplementation(async () => (++calls === 1 ? null : fakeReview()));
+      await h.service.create(U, { orderId: O, rating: 5 } as any);
+      expect(h.ordersRepo.findOne).toHaveBeenCalledWith({
+        where: { id: O },
+        loadEagerRelations: false,
+      });
+      // post-insert read-back keeps the explicit relations but drops the
+      // NESTED Order.items ride (toReviewRow only needs order.code).
+      expect(h.findOne).toHaveBeenLastCalledWith({
+        where: { orderId: O },
+        relations: { order: true, restaurant: true, user: true },
+        loadEagerRelations: false,
+      });
+    });
+
+    it('listMine and the public feed both opt out of the nested eager join', async () => {
+      const h = build(null, { rows: [fakeReview()], totalCount: 1 });
+      await h.service.listMine(U);
+      expect(h.reviewsRepo.find).toHaveBeenCalledWith(
+        expect.objectContaining({ loadEagerRelations: false }),
+      );
+      await h.service.listForRestaurant(R);
+      const args = (h.reviewsRepo.findAndCount as jest.Mock).mock.calls[0][0];
+      expect(args.loadEagerRelations).toBe(false);
+      expect(args.relations).toEqual({ order: true, user: true });
+    });
+
+    it('withRelations (write-path read-backs) opts out too', async () => {
+      const h = build(null, { review: fakeReview() });
+      const findOneOrFail = h.reviewsRepo.findOneOrFail as jest.Mock;
+      findOneOrFail.mockResolvedValue(fakeReview());
+      await h.service.update(U, V, { rating: 4 } as any);
+      expect(findOneOrFail).toHaveBeenCalledWith({
+        where: { id: V },
+        relations: { order: true, restaurant: true, user: true },
+        loadEagerRelations: false,
+      });
+    });
+  });
 });

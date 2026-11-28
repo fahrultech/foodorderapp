@@ -83,6 +83,10 @@ describe('runStaleOrderSweep — selection', () => {
     const report = await runStaleOrderSweep(repo as any, { staleMinutes: 45, now: NOW });
     expect(report.orders.map((o) => o.code)).toEqual(['OLD', 'NEWER']);
     expect(repo.find.mock.calls[0][0].order).toEqual({ createdAt: 'ASC' });
+    // Session 146 perf contract: the candidates read must OPT OUT of the
+    // eager Order.items ride (join + per-order cascade-diff SELECTs on save
+    // are pure waste for the sweep — probe: 8 stmts vs 5 per save).
+    expect(repo.find.mock.calls[0][0].loadEagerRelations).toBe(false);
   });
 
   it('boundary: an order created exactly at the cutoff is NOT stale (strict less-than)', async () => {

@@ -93,6 +93,13 @@ export async function runStaleOrderSweep(
     where: { status: OrderStatus.PENDING, createdAt: LessThan(cutoff) },
     order: { createdAt: 'ASC' },
     take: limit,
+    // Session 146 (Phase 17 eager audit): the sweep reads/writes order
+    // SCALARS only (status, cancelledAt, code for the report, and the
+    // stockDecrements jsonb COLUMN for restock). Dropping the eager items
+    // ride saves the join AND two per-order cascade-diff SELECTs inside
+    // save() (probe: 8 stmts per save with items loaded, 5 without) —
+    // multiplied by a full batch of candidates.
+    loadEagerRelations: false,
   });
 
   const cancelled: { id: string; code: string }[] = [];

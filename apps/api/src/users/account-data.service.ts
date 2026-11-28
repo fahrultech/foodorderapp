@@ -241,14 +241,23 @@ export class AccountDataService {
       }
 
       if (user.role === UserRole.DRIVER) {
-        const activeAssignments = await orders.count({ where: { driverId: userId, status: In(ACTIVE_ORDER_STATUSES) } });
+        // Session 146 (Phase 17 eager audit): join-free counts — plain repo
+        // count() rides the eager Order.items relation (LEFT JOIN order_items,
+        // proven live); loadEagerRelations:false answers COUNT(1) on orders.
+        const activeAssignments = await orders.count({
+          where: { driverId: userId, status: In(ACTIVE_ORDER_STATUSES) },
+          loadEagerRelations: false,
+        });
         if (activeAssignments > 0) throw new ConflictException('Complete or reassign active deliveries before deleting the account');
       }
 
       const owned = await restaurants.find({ where: { ownerId: userId }, select: { id: true } });
       const ownedIds = owned.map((restaurant) => restaurant.id);
       if (ownedIds.length > 0) {
-        const activeOwnedOrders = await orders.count({ where: { restaurantId: In(ownedIds), status: In(ACTIVE_ORDER_STATUSES) } });
+        const activeOwnedOrders = await orders.count({
+          where: { restaurantId: In(ownedIds), status: In(ACTIVE_ORDER_STATUSES) },
+          loadEagerRelations: false,
+        });
         if (activeOwnedOrders > 0) throw new ConflictException('Resolve active restaurant orders before deleting the account');
       }
 
@@ -259,7 +268,10 @@ export class AccountDataService {
         { customerName: 'Deleted user', contactPhone: '[deleted]', contactEmail: null, deliveryAddress: '[deleted]', note: null },
       );
       await refunds.update({ actingAdminId: userId }, { actingAdminEmail: null });
-      const unassignedOrders = await orders.count({ where: { driverId: userId } });
+      const unassignedOrders = await orders.count({
+        where: { driverId: userId },
+        loadEagerRelations: false,
+      });
       await users.delete(userId);
 
       for (const restaurantId of affectedRestaurantIds) {

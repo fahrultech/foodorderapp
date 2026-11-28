@@ -107,11 +107,21 @@ export class ReviewsService {
     return this.reviews.findOneOrFail({
       where: { id },
       relations: { order: true, restaurant: true, user: true },
+      // Session 146: NESTED eager — an explicit `order` load ALSO rode
+      // Order.items (order_items joins on the fetch and the COUNT arms of
+      // findAndCount, probe-pinned). toReviewRow needs order.code only;
+      // explicit relations still load with the opt-out.
+      loadEagerRelations: false,
     });
   }
 
   async create(userId: string, dto: CreateReviewDto): Promise<{ review: ReviewRow; restaurant: RestaurantRating }> {
-    const order = await this.orders.findOne({ where: { id: dto.orderId } });
+    const order = await this.orders.findOne({
+      where: { id: dto.orderId },
+      // Session 146 (Phase 17 eager audit): eligibility reads scalars only
+      // (userId, status, restaurantId); the eager items join is waste.
+      loadEagerRelations: false,
+    });
     if (!order || order.userId !== userId) {
       throw new NotFoundException('Order not found');
     }
@@ -142,6 +152,8 @@ export class ReviewsService {
     const row = await this.reviews.findOne({
       where: { orderId: order.id },
       relations: { order: true, restaurant: true, user: true },
+      // Session 146: no nested Order.items ride (see withRelations).
+      loadEagerRelations: false,
     });
     if (!row) throw new NotFoundException('Review not found after insert');
     const restaurant = await this.recomputeRating(order.restaurantId);
@@ -154,6 +166,8 @@ export class ReviewsService {
       where: { userId },
       order: { createdAt: 'DESC' },
       relations: { order: true, restaurant: true, user: true },
+      // Session 146: no nested Order.items ride (see withRelations).
+      loadEagerRelations: false,
     });
     const items = rows.map(toReviewRow);
     return { items, total: items.length };
@@ -198,6 +212,8 @@ export class ReviewsService {
       where: { restaurantId },
       order: { createdAt: 'DESC' },
       relations: { order: true, user: true },
+      // Session 146: no nested Order.items ride (see withRelations).
+      loadEagerRelations: false,
       skip: (pageN - 1) * limitN,
       take: limitN,
     });

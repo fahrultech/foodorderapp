@@ -27,13 +27,7 @@ export class AdminService {
       drivers,
       restaurantTotal,
       openRestaurants,
-      orderTotal,
-      pending,
-      confirmed,
-      preparing,
-      delivering,
-      completed,
-      cancelled,
+      orderStats,
       recentUsers,
       recentRestaurants,
       recentOrders,
@@ -45,13 +39,12 @@ export class AdminService {
       this.users.count({ where: { role: UserRole.DRIVER } }),
       this.restaurants.count(),
       this.restaurants.count({ where: { isOpen: true } }),
-      this.orders.count(),
-      this.orders.count({ where: { status: OrderStatus.PENDING } }),
-      this.orders.count({ where: { status: OrderStatus.CONFIRMED } }),
-      this.orders.count({ where: { status: OrderStatus.PREPARING } }),
-      this.orders.count({ where: { status: OrderStatus.DELIVERING } }),
-      this.orders.count({ where: { status: OrderStatus.COMPLETED } }),
-      this.orders.count({ where: { status: OrderStatus.CANCELLED } }),
+      // Session 146 (Phase 17 eager audit): the seven plain repo counts each
+      // rode the EAGER `items` relation (COUNT(DISTINCT id) LEFT JOIN
+      // order_items — live-proven, the session-144 finding generalized to
+      // this route). ONE join-free GROUP BY status QueryBuilder serves total
+      // AND every per-status number; the response is byte-identical.
+      this.orderStats(),
       this.users.find({
         select: {
           id: true,
@@ -78,6 +71,7 @@ export class AdminService {
         take: ADMIN_RECENT_ORDERS_LIMIT,
       }),
     ]);
+    const { total: orderTotal, byStatus } = orderStats;
 
     return {
       counts: {
@@ -91,12 +85,12 @@ export class AdminService {
         restaurants: { total: restaurantTotal, open: openRestaurants },
         orders: {
           total: orderTotal,
-          pending,
-          confirmed,
-          preparing,
-          delivering,
-          completed,
-          cancelled,
+          pending: byStatus[OrderStatus.PENDING],
+          confirmed: byStatus[OrderStatus.CONFIRMED],
+          preparing: byStatus[OrderStatus.PREPARING],
+          delivering: byStatus[OrderStatus.DELIVERING],
+          completed: byStatus[OrderStatus.COMPLETED],
+          cancelled: byStatus[OrderStatus.CANCELLED],
         },
       },
       recentUsers: recentUsers.map(toSafeUser),
@@ -123,5 +117,32 @@ export class AdminService {
         createdAt: order.createdAt,
       })),
     };
+  }
+
+  /**
+   * ONE join-free statement behind all seven overview numbers (session 146):
+   * a QueryBuilder never rides the eager `items` relation, and summing the
+   * GROUP BY rows reproduces the old separate COUNT(DISTINCT id) totals
+   * exactly (each status group is disjoint; `total` == COUNT over all rows).
+   */
+  private async orderStats(): Promise<{
+    total: number;
+    byStatus: Record<OrderStatus, number>;
+  }> {
+    const byStatus = {} as Record<OrderStatus, number>;
+    for (const status of Object.values(OrderStatus)) byStatus[status] = 0;
+    const rows = await this.orders
+      .createQueryBuilder('o')
+      .select('o.status', 'status')
+      .addSelect('COUNT(1)', 'cnt')
+      .groupBy('o.status')
+      .getRawMany<{ status: OrderStatus; cnt: string }>();
+    let total = 0;
+    for (const row of rows) {
+      const n = Number(row.cnt);
+      byStatus[row.status] = n;
+      total += n;
+    }
+    return { total, byStatus };
   }
 }

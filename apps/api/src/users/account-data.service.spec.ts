@@ -137,6 +137,9 @@ describe('AccountDataService', () => {
     driver.repositories.get(User).findOne.mockResolvedValue(user({ role: UserRole.DRIVER, passwordHash: await bcrypt.hash(credential, 4) }));
     driver.repositories.get(Order).count.mockResolvedValueOnce(1);
     await expect(driver.service.deleteForUser('user-1', credential)).rejects.toBeInstanceOf(ConflictException);
+    // Session 146 perf contract: every guard count opts out of the eager
+    // Order.items LEFT JOIN (plain count rides it — probe-pinned).
+    expect(driver.repositories.get(Order).count.mock.calls[0][0].loadEagerRelations).toBe(false);
   });
 
   it('anonymizes retained history, clears refund email snapshots, deletes the user and repairs ratings atomically', async () => {

@@ -191,6 +191,11 @@ export class OrderNotificationsService implements OnModuleInit {
     const order = await this.orders.findOne({
       where: { id: orderId },
       relations: { restaurant: true },
+      // Session 146 (Phase 17 eager audit): status notices render the
+      // LIGHT view (code/customerName/restaurant.name — StatusEmailView has
+      // no items field), so the eager items join is pure waste here. The
+      // explicit restaurant relation still loads with the opt-out.
+      loadEagerRelations: false,
     });
     if (!order) return;
     const { email: to, pushEnabled } = await this.resolveChannels(order);

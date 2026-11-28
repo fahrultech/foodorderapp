@@ -12,14 +12,49 @@ describe('AdminService', () => {
     find: jest.fn(),
   };
   const orders = {
-    count: jest.fn(),
+    // Session 146 perf contract (mirrors session 144's inbox pins): plain
+    // repo count rides the eager Order.items LEFT JOIN, so the overview must
+    // NOT use it — the numbers come from ONE join-free GROUP BY QB instead.
+    count: jest.fn(() => {
+      throw new Error(
+        'AdminService.overview must not call orders.count(): eager Order.items ' +
+          'rides a LEFT JOIN order_items into every plain count (session 146). ' +
+          'Use the GROUP BY status QueryBuilder.',
+      );
+    }),
     find: jest.fn(),
+    createQueryBuilder: jest.fn(() => qb),
+  };
+  const qbCalls: string[] = [];
+  const qb: any = {
+    select: jest.fn((...a: unknown[]) => {
+      qbCalls.push(`select(${JSON.stringify(a)})`);
+      return qb;
+    }),
+    addSelect: jest.fn((...a: unknown[]) => {
+      qbCalls.push(`addSelect(${JSON.stringify(a)})`);
+      return qb;
+    }),
+    groupBy: jest.fn((...a: unknown[]) => {
+      qbCalls.push(`groupBy(${JSON.stringify(a)})`);
+      return qb;
+    }),
+    // Raw rows deliberately SKIP 'delivering' — the zero-fill is part of the
+    // contract (the old per-status count returned 0 for absent statuses).
+    getRawMany: jest.fn(async () => [
+      { status: 'pending', cnt: '2' },
+      { status: 'confirmed', cnt: '1' },
+      { status: 'preparing', cnt: '1' },
+      { status: 'completed', cnt: '3' },
+      { status: 'cancelled', cnt: '2' },
+    ]),
   };
 
   let service: AdminService;
 
   beforeEach(() => {
     jest.clearAllMocks();
+    qbCalls.length = 0;
     service = new AdminService(users as any, restaurants as any, orders as any);
   });
 
@@ -31,14 +66,6 @@ describe('AdminService', () => {
       .mockResolvedValueOnce(1)
       .mockResolvedValueOnce(1);
     restaurants.count.mockResolvedValueOnce(6).mockResolvedValueOnce(5);
-    orders.count
-      .mockResolvedValueOnce(10)
-      .mockResolvedValueOnce(2)
-      .mockResolvedValueOnce(1)
-      .mockResolvedValueOnce(1)
-      .mockResolvedValueOnce(1)
-      .mockResolvedValueOnce(3)
-      .mockResolvedValueOnce(2);
 
     users.find.mockResolvedValue([
       {
@@ -85,12 +112,14 @@ describe('AdminService', () => {
     expect(result.counts).toEqual({
       users: { total: 4, customer: 1, owner: 1, admin: 1, driver: 1 },
       restaurants: { total: 6, open: 5 },
+      // SUM of the group rows (delivering absent -> zero-filled, exactly what
+      // the seven old per-status counts computed with extra round-trips).
       orders: {
-        total: 10,
+        total: 9,
         pending: 2,
         confirmed: 1,
         preparing: 1,
-        delivering: 1,
+        delivering: 0,
         completed: 3,
         cancelled: 2,
       },
@@ -128,5 +157,14 @@ describe('AdminService', () => {
       order: { createdAt: 'DESC' },
       take: 20,
     });
+    // The single orders statement is the join-free GROUP BY (no WHERE —
+    // total == sum over the disjoint status groups, same as the old bare
+    // COUNT(DISTINCT id) arm). And no plain count is ever attempted.
+    expect(orders.count).not.toHaveBeenCalled();
+    expect(qbCalls).toEqual([
+      'select(["o.status","status"])',
+      'addSelect(["COUNT(1)","cnt"])',
+      'groupBy(["o.status"])',
+    ]);
   });
 });
