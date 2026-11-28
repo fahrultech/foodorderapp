@@ -4,6 +4,45 @@ Newest entries on top. Format: `YYYY-MM-DD HH:MM — slot — summary`.
 
 ---
 ---
+## 2026-11-28 18:10 — Session 149 follow-up — CI schema-drift repair: digest ledger constraint to entity-unique index
+
+**Built:**
+
+- Post-push CI check found runs #200 (session 148's HEAD) and #201 (this
+  session) BOTH red on the two "Fresh Postgres migrate, seed, drift check"
+  jobs (API/Web/E2E all green). Root cause pre-dates both runs: session
+  147 created `owner_digest_logs`' (ownerId, digestDate) exactly-once
+  guard as a UNIQUE TABLE CONSTRAINT while the entity declares it as a
+  same-named unique @Index — Postgres introspection distinguishes the two
+  backing objects, and that pair survives the gate's four known-noise
+  filter classes, so the gate correctly refused. The local smoke passes
+  because uniqueness semantics are identical either shape; only the
+  entity-vs-chain diff sees the difference.
+- `FixOwnerDigestUniqueIndex1795251600000`: DROP CONSTRAINT then
+  CREATE UNIQUE INDEX, same name, same columns, one transaction; down
+  restores the constraint. Migrations are immutable once applied anywhere
+  (dev DB carried the constraint), so the 147 file is NOT edited — the
+  ledger converts. Verified no named-arbiter SQL exists (no ON CONFLICT
+  referencing the constraint name anywhere in src) — the runner's 23505
+  handling is column-list based and unchanged.
+
+**Verified:**
+
+- nest build green; on a FRESH scratch DB the full 32-migration chain now
+  regenerates DriftCheck with REAL_DRIFT_LINES=0 under CI's exact four-
+  filter pipeline (the remaining statements are only the CHK/DROP-INDEX/
+  FK-hash noise classes the gate whitelists).
+- Dev DB migrated; final shape probed via pg_constraint (constraint gone)
+  + pg_indexes (unique index on the two columns); duplicate (ownerId,
+  digestDate) insert inside a rolled-back transaction still fails with
+  23505 on the same name — exactly-once rides the index.
+- Landmine hygiene: both generated DriftCheck/DriftCheck2 files deleted
+  from src; dist/database/migrations carries ZERO drift files (checked).
+
+**Left:** nothing — CI re-run on this push is the proof; if any other
+pre-existing failure surfaces on the drift jobs, it is separate.
+
+---
 ## 2026-11-28 17:55 — Session 149 — buy-again SERVER rung: receipt-gated plan with price-drift reporting (live smoke 45/45)
 
 **Built:**
