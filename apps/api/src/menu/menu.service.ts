@@ -95,6 +95,20 @@ export class MenuService {
   }
 
   /**
+   * The NON-THROWING twin of `findByIds` (buy-again plan, session 149):
+   * the ladder must SEE which rows are gone instead of the whole read 404ing
+   * — create-time pricing keeps using the throwing version, where a stale
+   * cart genuinely IS an error. Option groups are attached with the same
+   * two-query shape as every public menu read, so the plan compares the
+   * customer's frozen receipt against exactly what the storefront shows.
+   */
+  async findExistingByIds(ids: string[]): Promise<MenuItem[]> {
+    if (!ids.length) return [];
+    const items = await this.repo.find({ where: { id: In([...new Set(ids)]) } });
+    return this.attachOptionGroups(items);
+  }
+
+  /**
    * Owner-or-admin check against the restaurant that owns the dish.
    * Platform-seeded restaurants (ownerId null) are admin-only.
    */

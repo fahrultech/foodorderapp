@@ -275,6 +275,37 @@ const REGISTRY: Record<string, RegistryEntry> = {
     ],
   },
 
+  // Buy-again revalidation (Phase 17, session 149): the SAME two proof
+  // params on a NEW handler — the route delegates to findOneForViewer as
+  // its FIRST statement, so the in-memory compare and the HMAC rung are
+  // inherited verbatim (and the forbid set above covers it too); the added
+  // evidence pins that delegation happens BEFORE any menu read.
+  'OrdersController.buyAgain': {
+    params: [{ literal: 'contactEmail', dto: null }, { literal: 'rt', dto: null }],
+    disposition: 'receipt ladder reuse — findOneForViewer gates before any menu read; proofs never reach SQL',
+    checks: [
+      {
+        kind: 'must',
+        file: ORDERS_SVC,
+        regexes: [
+          [
+            'const order = await this\\.findOneForViewer\\(id, viewer, contactEmail, receiptToken\\)',
+            'access ladder runs FIRST — a denied caller never reads a menu row',
+          ],
+          ['computeBuyAgainPlan\\(rows, dishes, order\\.restaurantId\\)', 'ladder math lives in the DI-free core'],
+        ],
+      },
+      {
+        kind: 'must',
+        file: 'orders/buy-again.ts',
+        regexes: [
+          ["dish\\.restaurantId !== restaurantId", 'a dish moved to another restaurant counts as gone'],
+          ['LINE_CAP', 'the 50-unit line ceiling is applied server-side too'],
+        ],
+      },
+    ],
+  },
+
   // Money rungs on the magic-link capability (Phase 15 #3): the same
   // order-bound HMAC token, now admitted by PaymentAccessGuard on
   // POST /payments, POST /payments/:id/capture and the order payments

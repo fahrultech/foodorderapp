@@ -28,6 +28,11 @@ import {
   MAX_PAGE_SIZE,
 } from './dto/list-my-orders.dto';
 import { dateRangeBounds, dateRangeOperator, parseListDateRange } from './list-date-range';
+import {
+  BuyAgainDish,
+  BuyAgainOrderedRow,
+  computeBuyAgainPlan,
+} from './buy-again';
 import { MenuService } from '../menu/menu.service';
 import { MenuOptionService } from '../menu/menu-option.service';
 import { RestaurantsService } from '../restaurants/restaurants.service';
@@ -587,6 +592,114 @@ export class OrdersService {
     // owner's traffic view).
     attributeRequestRestaurant(order.restaurantId);
     return this.attachDeliveryView(order);
+  }
+
+  /**
+   * "Buy again" revalidation (Phase 17, session 149). Access is EXACTLY the
+   * receipt ladder — `findOneForViewer` runs first, so unknown ids, failed
+   * proofs and foreign callers all answer the same canonical 404 before a
+   * single menu row is read (no existence oracle, same doctrine as the
+   * receipt read itself). The ladder logic lives in the DI-free
+   * `orders/buy-again.ts` core; this method only narrows the reads:
+   *  - one IN-query over the frozen `menuItemId`s via the NON-THROWING
+   *    `findExistingByIds` (gone dishes must be SEEN, not 404 the read);
+   *  - option groups attach with the same two-query shape the public menu
+   *    uses, so the server compares the receipt against what the storefront
+   *    would show, not a different hydration.
+   *
+   * The response carries the CURRENT dish rows (public projection, no
+   * timestamps) plus per-line price drift — integer cents throughout. This
+   * read mutates nothing: no cart writes, no stock touch, no audit rows.
+   */
+  async buyAgainPlan(
+    id: string,
+    viewer?: { sub: string; role?: UserRole },
+    contactEmail?: string,
+    receiptToken?: string,
+  ) {
+    const order = await this.findOneForViewer(id, viewer, contactEmail, receiptToken);
+    const rows: BuyAgainOrderedRow[] = (order.items ?? []).map((it) => ({
+      name: it.name,
+      quantity: it.quantity,
+      unitPriceCents: it.unitPriceCents,
+      menuItemId: it.menuItemId ?? null,
+      optionSelections: it.optionSelections ?? null,
+    }));
+    const orderedIds = [
+      ...new Set(
+        rows
+          .map((r) => r.menuItemId)
+          .filter((x): x is string => typeof x === 'string' && x !== ''),
+      ),
+    ];
+    const found = await this.menu.findExistingByIds(orderedIds);
+    const dishes: BuyAgainDish[] = found.map((m) => ({
+      id: m.id,
+      name: m.name,
+      priceCents: m.priceCents,
+      isAvailable: m.isAvailable,
+      stock: m.stock ?? null,
+      restaurantId: m.restaurantId,
+      optionGroups: (m.optionGroups ?? []).map((g) => ({
+        id: g.id,
+        name: g.name,
+        minChoices: g.minChoices,
+        maxChoices: g.maxChoices,
+        choices: (g.choices ?? []).map((c) => ({
+          id: c.id,
+          name: c.name,
+          priceDeltaCents: c.priceDeltaCents,
+        })),
+      })),
+    }));
+    const core = computeBuyAgainPlan(rows, dishes, order.restaurantId);
+    const byId = new Map(found.map((m) => [m.id, m]));
+    return {
+      orderId: order.id,
+      orderCode: order.code,
+      restaurant: {
+        id: order.restaurantId,
+        name: order.restaurant?.name ?? null,
+        minOrderCents: order.restaurant?.minOrderCents ?? 0,
+      },
+      lines: core.lines.map((l) => {
+        const m = byId.get(l.dish.id)!;
+        return {
+          ...l,
+          dish: {
+            id: m.id,
+            name: m.name,
+            description: m.description ?? null,
+            priceCents: m.priceCents,
+            category: m.category ?? null,
+            imageUrl: m.imageUrl ?? null,
+            isAvailable: m.isAvailable,
+            prepMinutes: m.prepMinutes,
+            restaurantId: m.restaurantId,
+            stock: m.stock ?? null,
+            optionGroups: (m.optionGroups ?? []).map((g) => ({
+              id: g.id,
+              name: g.name,
+              minChoices: g.minChoices,
+              maxChoices: g.maxChoices,
+              position: g.position,
+              choices: (g.choices ?? []).map((c) => ({
+                id: c.id,
+                name: c.name,
+                priceDeltaCents: c.priceDeltaCents,
+                position: c.position,
+              })),
+            })),
+          },
+        };
+      }),
+      skipped: core.skipped,
+      clamped: core.clamped,
+      addedUnits: core.addedUnits,
+      plannedSubtotalCents: core.plannedSubtotalCents,
+      snapshotSubtotalCents: core.snapshotSubtotalCents,
+      priceDriftCents: core.priceDriftCents,
+    };
   }
 
   /**

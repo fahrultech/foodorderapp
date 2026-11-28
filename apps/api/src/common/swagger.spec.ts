@@ -209,6 +209,7 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['/orders/ops/cancel-stale', 'post'],
       ['/orders/ops/restock-repair', 'post'],
       ['/orders/{id}', 'get'],
+      ['/orders/{id}/buy-again-plan', 'get'],
       ['/orders/{id}/cancel', 'post'],
       ['/orders/{id}/next-statuses', 'get'],
       ['/orders/{id}/status', 'patch'],
@@ -436,6 +437,7 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['/orders/ops/cancel-stale', 'post', 200, 'ref:CancelStaleResponse'],
       ['/orders/ops/restock-repair', 'post', 200, 'ref:RestockRepairResponse'],
       ['/orders/{id}', 'get', 200, 'ref:OrderResponse'],
+      ['/orders/{id}/buy-again-plan', 'get', 200, 'ref:BuyAgainPlanResponse'],
       ['/orders/{id}/cancel', 'post', 201, 'ref:OrderResponse'],
       ['/orders/{id}/next-statuses', 'get', 200, 'ref:NextStatusesResponse'],
       ['/orders/{id}/status', 'patch', 200, 'ref:OrderResponse'],
@@ -472,7 +474,7 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['/admin/promos/{id}/usages', 'get', 200, 'ref:PromoUsageListResponse'],
       ['/search', 'get', 200, 'ref:SearchResultsResponse'],
     ];
-    expect(SUCCESS.length).toBe(80);
+    expect(SUCCESS.length).toBe(81);
     for (const [path, method, code, kind] of SUCCESS) {
       const res = doc.paths[P(path)]?.[method]?.responses?.[String(code)];
       if (!res) throw new Error(`${method} ${path}: no ${code} response documented`);
@@ -538,6 +540,7 @@ describe('OpenAPI document (generated from the real controllers)', () => {
       ['/orders/ops/cancel-stale', 'post', [400, 401, 403]],
       ['/orders/ops/restock-repair', 'post', [400, 401, 403]],
       ['/orders/{id}', 'get', [400, 404]],
+      ['/orders/{id}/buy-again-plan', 'get', [400, 404]],
       ['/orders/{id}/cancel', 'post', [400, 401, 404, 429]],
       ['/orders/{id}/next-statuses', 'get', [400, 404]],
       ['/orders/{id}/status', 'patch', [400, 401, 403, 404]],

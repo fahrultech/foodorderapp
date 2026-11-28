@@ -20,6 +20,7 @@ import {
 } from '@nestjs/swagger';
 import {
   ApiError,
+  BuyAgainPlanResponse,
   CancelStaleResponse,
   NextStatusesResponse,
   OrderResponse,
@@ -120,6 +121,38 @@ export class OrdersController {
     @Query('rt') rt?: string,
   ) {
     return this.service.findOneForViewer(
+      id,
+      user ? { sub: user.sub, role: user.role } : undefined,
+      contactEmail,
+      rt,
+    );
+  }
+
+  /**
+   * "Buy again" revalidation (Phase 17, session 149): the SAME access ladder
+   * as the receipt read above (owner/ADMIN bearer, stored contact-email
+   * proof, or magic-link `rt`) — failed proofs answer the receipt's canonical
+   * 404 BEFORE any menu read. The server walks the order's frozen rows
+   * against the CURRENT menu (gone dishes, hidden dishes, sold-out stock,
+   * drifted option selections) and reports per-line price deltas; the web
+   * folds the riding lines into the cart. Pure read — writes nothing.
+   */
+  @Get(':id/buy-again-plan')
+  @UseGuards(OptionalJwtAuthGuard)
+  @ApiParam({ name: 'id', schema: { type: 'string', format: 'uuid' } })
+  @ApiQuery({ name: 'contactEmail', required: false, description: 'Guest proof: the email given at checkout, compared case-insensitively. Unnecessary when a bearer token already identifies the owner (or an ADMIN).' })
+  @ApiQuery({ name: 'rt', required: false, description: 'Magic-link capability (Phase 14): the short-lived signed token embedded in the order emails\' receipt link. Unlocks exactly the order it was minted for.' })
+  @ApiOperation({ summary: 'Revalidate an order for "buy again" against the CURRENT menu', description: 'Server-side availability ladder over the frozen snapshot: per ordered row reports whether it rides (at TODAY\'s prices, stock-clamped) or is skipped-and-named (gone / unavailable / sold-out / options-changed), plus the price drift per riding line. Access is exactly the receipt ladder: owner/ADMIN bearer, stored contact-email proof, or a valid magic-link token; anything else answers the same 404 as an unknown id. Reads only — no cart state, no stock movement.' })
+  @ApiOkResponse({ type: BuyAgainPlanResponse, description: 'The fold plan: riding lines with current dish rows, skip/clamp reports and integer-cent totals.' })
+  @ApiError(400, 'Malformed (non-UUID) order id.')
+  @ApiError(404, 'Unknown order id, or the caller presented neither a valid receipt proof nor an unlocking bearer — indistinguishable by design.')
+  buyAgain(
+    @UuidParam('id') id: string,
+    @CurrentUser() user?: any,
+    @Query('contactEmail') contactEmail?: string,
+    @Query('rt') rt?: string,
+  ) {
+    return this.service.buyAgainPlan(
       id,
       user ? { sub: user.sub, role: user.role } : undefined,
       contactEmail,

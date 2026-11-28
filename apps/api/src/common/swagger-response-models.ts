@@ -1713,3 +1713,187 @@ export class AccountDataExportResponse {
   @ApiProperty({ type: () => [AccountPushSubscriptionExportResponse] })
   pushSubscriptions: AccountPushSubscriptionExportResponse[];
 }
+
+/**
+ * "Buy again" revalidation surface (Phase 17, session 149) —
+ * GET /orders/:id/buy-again-plan. Mirrors the shape `orders/buy-again.ts`
+ * returns: riding lines carry the CURRENT public dish row plus frozen-vs-
+ * current unit prices (integer cents), skipped/clamped rows name themselves
+ * with the rung that rejected them. Models are defined leaf-first because
+ * @nestjs/swagger resolves `type: () => X` thunks at decoration time
+ * (session-119 ordering rule).
+ */
+export class BuyAgainOptionChoiceResponse {
+  @ApiProperty({ type: 'string', format: 'uuid' })
+  id: string;
+
+  @ApiProperty({ example: 'Large' })
+  name: string;
+
+  @ApiProperty({ type: 'integer', minimum: 0, description: 'Extra cents on top of the dish base — CURRENT value, integer cents.' })
+  priceDeltaCents: number;
+
+  @ApiProperty({ type: 'integer', description: 'Display order inside the group.' })
+  position: number;
+}
+
+export class BuyAgainOptionGroupResponse {
+  @ApiProperty({ type: 'string', format: 'uuid' })
+  id: string;
+
+  @ApiProperty({ example: 'Size' })
+  name: string;
+
+  @ApiProperty({ type: 'integer', minimum: 0, description: 'Selections an order line MUST include for this group (current rule).' })
+  minChoices: number;
+
+  @ApiProperty({ type: 'integer', minimum: 1, description: 'Selections an order line MAY include (current rule).' })
+  maxChoices: number;
+
+  @ApiProperty({ type: 'integer' })
+  position: number;
+
+  @ApiProperty({ type: () => [BuyAgainOptionChoiceResponse] })
+  choices: BuyAgainOptionChoiceResponse[];
+}
+
+export class BuyAgainDishResponse {
+  @ApiProperty({ type: 'string', format: 'uuid' })
+  id: string;
+
+  @ApiProperty()
+  name: string;
+
+  @ApiProperty({ type: 'string', nullable: true })
+  description: string | null;
+
+  @ApiProperty({ type: 'integer', description: 'CURRENT base price, integer cents — never the snapshot.' })
+  priceCents: number;
+
+  @ApiProperty({ type: 'string', nullable: true })
+  category: string | null;
+
+  @ApiProperty({ type: 'string', nullable: true })
+  imageUrl: string | null;
+
+  @ApiProperty()
+  isAvailable: boolean;
+
+  @ApiProperty({ type: 'integer' })
+  prepMinutes: number;
+
+  @ApiProperty({ type: 'string', format: 'uuid' })
+  restaurantId: string;
+
+  @ApiProperty({ type: 'integer', nullable: true, description: 'Tracked stock; null = unlimited.' })
+  stock: number | null;
+
+  @ApiProperty({ type: () => [BuyAgainOptionGroupResponse] })
+  optionGroups: BuyAgainOptionGroupResponse[];
+}
+
+export class BuyAgainSelectionResponse {
+  @ApiProperty({ type: 'string', format: 'uuid' })
+  groupId: string;
+
+  @ApiProperty({ description: 'Group label from the CURRENT row (renamed groups show today\'s label).' })
+  groupName: string;
+
+  @ApiProperty({ type: 'string', format: 'uuid' })
+  choiceId: string;
+
+  @ApiProperty()
+  choiceName: string;
+
+  @ApiProperty({ type: 'integer', minimum: 0, description: 'CURRENT delta folded into currentUnitPriceCents.' })
+  priceDeltaCents: number;
+}
+
+export class BuyAgainLineResponse {
+  @ApiProperty({ type: () => BuyAgainDishResponse, description: 'Current dish row — what the cart line is built from.' })
+  dish: BuyAgainDishResponse;
+
+  @ApiProperty({ type: () => [BuyAgainSelectionResponse], description: 'Rebuilt from the frozen receipt at CURRENT prices. [] = option-less line.' })
+  options: BuyAgainSelectionResponse[];
+
+  @ApiProperty({ type: 'integer', minimum: 1, description: 'Units to fold (merged duplicates, stock-clamped, capped at 50).' })
+  quantity: number;
+
+  @ApiProperty({ type: 'integer', minimum: 1, description: 'Frozen quantity before the clamp — lets the UI say "only N left" honestly.' })
+  requestedQuantity: number;
+
+  @ApiProperty({ type: 'integer', description: 'Unit price paid at order time (incl. then-current deltas), integer cents.' })
+  snapshotUnitPriceCents: number;
+
+  @ApiProperty({ type: 'integer', description: 'Unit price NOW (base + current deltas), integer cents.' })
+  currentUnitPriceCents: number;
+
+  @ApiProperty({ type: 'integer', description: 'current - snapshot per unit. Negative = a price drop. Never blocks the fold — it is reported.' })
+  priceDeltaCents: number;
+}
+
+export class BuyAgainSkipResponse {
+  @ApiProperty({ description: 'Snapshot name of the rejected row (history never rewrites).' })
+  name: string;
+
+  @ApiProperty({
+    enum: ['gone', 'unavailable', 'sold-out', 'options-changed'],
+    description:
+      'First failing rung: gone = dish deleted/moved; unavailable = owner hid it; sold-out = tracked stock at zero; options-changed = a frozen choice vanished or today\'s min/max no longer fits.',
+  })
+  reason: string;
+}
+
+export class BuyAgainClampResponse {
+  @ApiProperty()
+  name: string;
+
+  @ApiProperty({ type: 'integer', description: 'Frozen quantity merged for this line.' })
+  from: number;
+
+  @ApiProperty({ type: 'integer', description: 'What rides instead (tracked stock ceiling).' })
+  to: number;
+}
+
+export class BuyAgainPlanRestaurantResponse {
+  @ApiProperty({ type: 'string', format: 'uuid' })
+  id: string;
+
+  @ApiProperty({ type: 'string', nullable: true })
+  name: string | null;
+
+  @ApiProperty({ type: 'integer', description: 'Min-order in cents — the web checks the PROJECTED cart subtotal against it.' })
+  minOrderCents: number;
+}
+
+export class BuyAgainPlanResponse {
+  @ApiProperty({ type: 'string', format: 'uuid' })
+  orderId: string;
+
+  @ApiProperty({ example: 'FO-8F3K' })
+  orderCode: string;
+
+  @ApiProperty({ type: () => BuyAgainPlanRestaurantResponse })
+  restaurant: BuyAgainPlanRestaurantResponse;
+
+  @ApiProperty({ type: () => [BuyAgainLineResponse] })
+  lines: BuyAgainLineResponse[];
+
+  @ApiProperty({ type: () => [BuyAgainSkipResponse] })
+  skipped: BuyAgainSkipResponse[];
+
+  @ApiProperty({ type: () => [BuyAgainClampResponse] })
+  clamped: BuyAgainClampResponse[];
+
+  @ApiProperty({ type: 'integer', description: 'Units the plan adds to the cart.' })
+  addedUnits: number;
+
+  @ApiProperty({ type: 'integer', description: 'Riding lines at CURRENT prices, integer cents.' })
+  plannedSubtotalCents: number;
+
+  @ApiProperty({ type: 'integer', description: 'The same riding lines at the FROZEN snapshot prices, integer cents.' })
+  snapshotSubtotalCents: number;
+
+  @ApiProperty({ type: 'integer', description: 'planned - snapshot. Non-zero means prices moved since the order — reported, never silently folded.' })
+  priceDriftCents: number;
+}
