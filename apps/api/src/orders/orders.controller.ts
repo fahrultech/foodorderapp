@@ -30,7 +30,7 @@ import { OrdersService } from './orders.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { CancelStaleDto } from './dto/cancel-stale.dto';
 import { RestockRepairDto } from './dto/restock-repair.dto';
-import { ListMyOrdersDto } from './dto/list-my-orders.dto';
+import { ListMyOrdersRangeDto } from './dto/list-my-orders.dto';
 import { OrderStatus } from './order.entity';
 import { JwtAuthGuard } from '../common/jwt-auth.guard';
 import { OptionalJwtAuthGuard } from '../common/optional-jwt-auth.guard';
@@ -68,11 +68,16 @@ export class OrdersController {
   @Get('my')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'My order history (paginated, newest first)' })
+  @ApiOperation({
+    summary: 'My order history (paginated, newest first, optional date range)',
+    description:
+      'Closed `from`/`to` ISO-8601 bounds filter on createdAt (blank = unset, inverted range = 400). Same (userId, createdAt) index serves the filtered page.',
+  })
   @ApiOkResponse({ type: PaginatedOrdersResponse })
+  @ApiError(400, 'Malformed from/to (not ISO-8601) or from after to.')
   @ApiError(401, 'Missing/invalid/expired access token.')
 
-  my(@CurrentUser() user: any, @Query() query: ListMyOrdersDto) {
+  my(@CurrentUser() user: any, @Query() query: ListMyOrdersRangeDto) {
     return this.service.findMine(user.sub, query);
   }
 

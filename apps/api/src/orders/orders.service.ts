@@ -10,7 +10,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { FindOptionsWhere, Repository } from 'typeorm';
+import { FindOperator, FindOptionsWhere, Repository } from 'typeorm';
 import { Order, OrderStatus } from './order.entity';
 import { OrderStatusAudit, OrderStatusAuditSource } from './order-status-audit.entity';
 import { Payment, PaymentStatus } from '../payments/payment.entity';
@@ -24,8 +24,10 @@ import { CreateOrderDto } from './dto/create-order.dto';
 import {
   DEFAULT_PAGE_SIZE,
   ListMyOrdersDto,
+  ListMyOrdersRangeDto,
   MAX_PAGE_SIZE,
 } from './dto/list-my-orders.dto';
+import { dateRangeBounds, dateRangeOperator, parseListDateRange } from './list-date-range';
 import { MenuService } from '../menu/menu.service';
 import { MenuOptionService } from '../menu/menu-option.service';
 import { RestaurantsService } from '../restaurants/restaurants.service';
@@ -641,8 +643,14 @@ export class OrdersService {
    * findAndCount's count mirrored the eager `LEFT JOIN order_items`, turning
    * an indexed count into a 15k-row join scan. Same statement count, the
    * count is now orders-only.
+   *
+   * Phase 17 date range: `from`/`to` (ISO-8601, closed) ride the SAME
+   * (userId, createdAt) index — the bound lands on `createdAt` inside the
+   * leading-column equality, so the backward index scan simply starts at
+   * the upper bound. Both halves (page + total) consume ONE where object,
+   * so the envelope cannot drift between them.
    */
-  async findMine(userId: string, q: ListMyOrdersDto = {}) {
+  async findMine(userId: string, q: ListMyOrdersRangeDto = {}) {
     // Session 87 sweep: bounded clamping, NOT Number() math — a huge page
     // that passes IsInt used to bind an OFFSET past bigint (driver 500).
     const page = clampToIntRange(q.page, 1, MAX_PUBLIC_PAGE, 1);
@@ -650,6 +658,8 @@ export class OrdersService {
 
     const where: FindOptionsWhere<Order> = { userId };
     if (q.status) where.status = q.status;
+    const created = dateRangeOperator(parseListDateRange(q));
+    if (created) where.createdAt = created;
 
     // The per-order line items the history page renders ride on the EAGER
     // `items` relation — loaded in the SAME IN-batch statement, not one per card.
@@ -694,8 +704,8 @@ export class OrdersService {
   private async countOrders(where: FindOptionsWhere<Order>): Promise<number> {
     const conds: string[] = [];
     const params: Record<string, unknown> = {};
-    // FindOptionsWhere here is always { owner-col?, status? } from the list
-    // methods above — flat column predicates, no relation conditions.
+    // FindOptionsWhere here is always { owner-col?, status?, createdAt? }
+    // from the list methods above — flat column predicates, no relations.
     if (where.userId !== undefined) {
       conds.push('o.userId = :userId');
       params.userId = where.userId;
@@ -711,6 +721,21 @@ export class OrdersService {
     if (where.status !== undefined) {
       conds.push('o.status = :status');
       params.status = where.status;
+    }
+    // Phase 17: the COUNT mirrors the page's date bounds by DECOMPOSING
+    // the same FindOperator dateRangeOperator minted for find, so `total`
+    // can never describe a wider window than the rows being paged. A
+    // closed-set violation throws loudly (helper) rather than widening.
+    if (where.createdAt instanceof FindOperator) {
+      const bounds = dateRangeBounds(where.createdAt);
+      if (bounds.from !== undefined) {
+        conds.push('o.createdAt >= :rangeFrom');
+        params.rangeFrom = bounds.from;
+      }
+      if (bounds.to !== undefined) {
+        conds.push('o.createdAt <= :rangeTo');
+        params.rangeTo = bounds.to;
+      }
     }
     if (conds.length === 0) return 0;
     const raw = await this.orders

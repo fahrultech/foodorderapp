@@ -3,8 +3,9 @@ import {
   ForbiddenException,
   NotFoundException,
 } from '@nestjs/common';
-import { Repository } from 'typeorm';
+import { FindOperator, Repository } from 'typeorm';
 import { OrdersService } from './orders.service';
+import { dateRangeBounds } from './list-date-range';
 import { Order, OrderStatus } from './order.entity';
 import { OrderEventsService } from './order-events.service';
 import { MenuService } from '../menu/menu.service';
@@ -78,7 +79,9 @@ function build(orders: Order[] = [fakeOrder()]) {
       (o) =>
         (p.userId === undefined || o.userId === p.userId) &&
         (p.driverId === undefined || o.driverId === p.driverId) &&
-        (p.status === undefined || o.status === p.status),
+        (p.status === undefined || o.status === p.status) &&
+        (p.rangeFrom === undefined || o.createdAt >= p.rangeFrom) &&
+        (p.rangeTo === undefined || o.createdAt <= p.rangeTo),
     ).length;
   const countQbs: any[] = [];
   const createQueryBuilder = jest.fn(() => {
@@ -92,11 +95,20 @@ function build(orders: Order[] = [fakeOrder()]) {
     return qb;
   });
   const find = jest.fn(async ({ where, skip, take }: any) => {
+    let lo: Date | undefined;
+    let hi: Date | undefined;
+    if (where.createdAt instanceof FindOperator) {
+      const bounds = dateRangeBounds(where.createdAt);
+      lo = bounds.from;
+      hi = bounds.to;
+    }
     const all = orders
       .filter(
         (o) =>
           o.userId === where.userId &&
-          (!where.status || o.status === where.status),
+          (!where.status || o.status === where.status) &&
+          (!lo || o.createdAt >= lo) &&
+          (!hi || o.createdAt <= hi),
       )
       .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
     return all.slice(skip ?? 0, (skip ?? 0) + (take ?? all.length));
@@ -214,6 +226,100 @@ describe('OrdersService.findMine — pagination + status filter', () => {
     const out: any = await service.findMine(OWNER_ID, {});
     expect(out.total).toBe(1);
     expect(out.items.map((o: Order) => o.userId)).toEqual([OWNER_ID]);
+  });
+});
+
+// Phase 17 (order-history date range): the closed from/to filter must land
+// on BOTH halves of the envelope — the paged find and the join-free COUNT
+// QB — or `total` would describe a wider window than the rows shown.
+describe('OrdersService.findMine — date range filter', () => {
+  const datedRows = () =>
+    Array.from({ length: 6 }, (_, i) =>
+      fakeOrder({
+        id: `55555555-5555-4555-8555-55555555555${i}`,
+        createdAt: new Date(Date.UTC(2026, 10, 1 + i * 10)), // Nov 1/11/21 + Dec 1/11/21 (day overflow)
+      }),
+    );
+
+  it('attaches from/to as Date bounds to the page where AND the count QB params', async () => {
+    const { service, find, countQbs } = build(datedRows());
+    const out: any = await service.findMine(OWNER_ID, {
+      from: '2026-11-10T00:00:00.000Z',
+      to: '2026-11-25T00:00:00.000Z',
+    });
+    const args = (find as jest.Mock).mock.calls[0][0];
+    expect(args.where.createdAt).toBeInstanceOf(FindOperator);
+    expect(dateRangeBounds(args.where.createdAt)).toEqual({
+      type: 'between',
+      from: new Date(Date.UTC(2026, 10, 10)),
+      to: new Date(Date.UTC(2026, 10, 25)),
+    });
+    const countParams = countQbs[0].where.mock.calls[0][1];
+    expect(countParams.rangeFrom).toEqual(new Date(Date.UTC(2026, 10, 10)));
+    expect(countParams.rangeTo).toEqual(new Date(Date.UTC(2026, 10, 25)));
+    // Nov 11 + Nov 21 of the fixture rows fall inside the window — total
+    // and items must AGREE (the fake enforces the same predicate both ways).
+    expect(out.total).toBe(2);
+    expect(out.items.map((o: Order) => o.createdAt.toISOString())).toEqual([
+      '2026-11-21T00:00:00.000Z',
+      '2026-11-11T00:00:00.000Z',
+    ]);
+  });
+
+  it('single-sided from leaves the where dialect $gte-only (never a phantom $lte)', async () => {
+    const { service, find } = build(datedRows());
+    const out: any = await service.findMine(OWNER_ID, { from: '2026-11-20T00:00:00.000Z' });
+    const args = (find as jest.Mock).mock.calls[0][0];
+    expect(dateRangeBounds(args.where.createdAt)).toEqual({
+      type: 'moreThanOrEqual',
+      from: new Date(Date.UTC(2026, 10, 20)),
+      to: undefined,
+    });
+    expect(out.total).toBe(4); // Nov 21 + Dec 1/11/21 (upper side stays open)
+  });
+
+  it('an empty bound means UNSET at the service too (no epoch-wide predicate)', async () => {
+    const { service, find } = build(datedRows());
+    await service.findMine(OWNER_ID, { from: '', to: undefined });
+    const args = (find as jest.Mock).mock.calls[0][0];
+    expect('createdAt' in args.where).toBe(false);
+  });
+
+  it('an inverted range 400s before any query runs', async () => {
+    const { service, find, createQueryBuilder } = build(datedRows());
+    await expect(
+      service.findMine(OWNER_ID, { from: '2026-11-25', to: '2026-11-01' }),
+    ).rejects.toThrow(BadRequestException);
+    expect(find).not.toHaveBeenCalled();
+    expect(createQueryBuilder).not.toHaveBeenCalled();
+  });
+
+  it('a malformed direct-call bound 400s instead of binding an Invalid Date', async () => {
+    const { service, find } = build();
+    await expect(service.findMine(OWNER_ID, { from: '31/11/2026' })).rejects.toThrow(
+      BadRequestException,
+    );
+    expect(find).not.toHaveBeenCalled();
+  });
+
+  it('range composes with the status filter on both halves', async () => {
+    const rows = datedRows().map((o, i) =>
+      fakeOrder({ ...o, status: i % 2 === 0 ? OrderStatus.COMPLETED : o.status }),
+    );
+    const { service, find } = build(rows);
+    const out: any = await service.findMine(OWNER_ID, {
+      status: OrderStatus.COMPLETED,
+      from: '2026-11-05T00:00:00.000Z',
+    });
+    const args = (find as jest.Mock).mock.calls[0][0];
+    expect(args.where.status).toBe('completed');
+    expect(dateRangeBounds(args.where.createdAt)).toEqual({
+      type: 'moreThanOrEqual',
+      from: new Date(Date.UTC(2026, 10, 5)),
+      to: undefined,
+    });
+    expect(out.total).toBe(2); // idx2 (Nov 21) + idx4 (Dec 11) are completed AND >= Nov 5
+    expect(out.items.length).toBe(2);
   });
 });
 

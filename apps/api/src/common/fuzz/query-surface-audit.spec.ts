@@ -194,11 +194,25 @@ const REGISTRY: Record<string, RegistryEntry> = {
 
   // Order lists — DTO-validated shape, closed-range clamp survives DIRECT
   // service calls (the session 84 precedent for routes with a pipe in front).
+  // Phase 17: /orders/my fronts the RANGE subclass — from/to are
+  // @IsISO8601 at the pipe, blank-transformed to unset, and the closed
+  // from<=to rule + Date parse live in the DI-free list-date-range helper
+  // the service calls before ANY query is built.
   'OrdersController.my': {
-    params: [{ literal: null, dto: 'ListMyOrdersDto' }],
-    disposition: 'ListMyOrdersDto completeness + service-level closed-range clamp',
+    params: [{ literal: null, dto: 'ListMyOrdersRangeDto' }],
+    disposition: 'ListMyOrdersRangeDto completeness + service-level closed-range clamp + parseListDateRange bounds',
     checks: [
       { kind: 'dto-validated', file: 'orders/dto/list-my-orders.dto.ts', className: 'ListMyOrdersDto' },
+      { kind: 'dto-validated', file: 'orders/dto/list-my-orders.dto.ts', className: 'ListMyOrdersRangeDto' },
+      {
+        kind: 'must',
+        file: ORDERS_SVC,
+        regexes: [
+          ['parseListDateRange\\(q\\)', 'from/to land on closed Date bounds before any query'],
+          ['o\\.createdAt >= :rangeFrom', 'the COUNT mirrors the page-side $gte bound'],
+          ['o\\.createdAt <= :rangeTo', 'the COUNT mirrors the page-side $lte bound'],
+        ],
+      },
       {
         kind: 'count',
         file: ORDERS_SVC,
